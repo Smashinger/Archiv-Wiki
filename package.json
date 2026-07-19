@@ -1,7 +1,7 @@
 {
   "name": "archiv-wiki",
   "productName": "Archiv-Wiki",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "Persönliches Markdown-Wiki für den Desktop – Notizen, Setups und Checklisten, 100% lokal.",
   "main": "main.js",
   "author": {
@@ -20,8 +20,8 @@
     "build:vendor": "node build/build.mjs",
     "dist": "electron-builder",
     "dist:rpm": "electron-builder --linux rpm",
-    "postinstall": "electron-builder install-app-deps",
-    "release": "electron-builder --publish always"
+    "release": "electron-builder --publish always",
+    "postinstall": "electron-builder install-app-deps"
   },
   "devDependencies": {
     "electron": "^28.2.0",
@@ -59,6 +59,12 @@
       "output": "dist",
       "buildResources": "src/resources"
     },
+    "publish": {
+      "provider": "github",
+      "owner": "Smashinger",
+      "repo": "archiv-wiki",
+      "releaseType": "draft"
+    },
     "linux": {
       "target": [
         "AppImage"
@@ -68,12 +74,6 @@
       "icon": "assets/icons",
       "synopsis": "Persönliches Markdown-Wiki für den Desktop",
       "description": "Ein lokales, Electron-basiertes Wiki für Notizen, Setups und Checklisten. Keine Cloud-Pflicht, keine Telemetrie."
-    },
-    "publish": {
-      "provider": "github",
-      "owner": "Smashinger",
-      "repo": "archiv-wiki",
-      "releaseType": "draft"
     }
   }
 }

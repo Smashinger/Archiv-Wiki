@@ -170,11 +170,65 @@ els.btnEditMode.addEventListener('click', () => {
 // Topbar: Papierkorb + Info direkt als Icon-Buttons (kein Dropdown mehr)
 // ---------------------------------------------------------------------------
 els.btnTrash.addEventListener('click', () => { location.hash = '#trash'; });
-els.btnBugReport.addEventListener('click', () => {
-  // window.open() wird vom bestehenden setWindowOpenHandler in main.js
-  // abgefangen und im System-Browser geöffnet (kein neuer IPC-Kanal nötig).
-  window.open('https://github.com/smashii/archiv-wiki/issues/new', '_blank');
+els.btnBugReport.addEventListener('click', async () => {
+  await showBugReportModal();
 });
+
+// Diagnose-Infos (Version/Plattform/Electron) waren schon länger über
+// window.archivAPI verfügbar, wurden bisher aber nirgends genutzt — genau
+// das Richtige für einen hilfreichen, vorausgefüllten Bug-Report.
+async function showBugReportModal() {
+  document.querySelectorAll('.prompt-overlay').forEach(el => el.remove());
+  const [version, platformInfo] = await Promise.all([
+    window.archivAPI.getVersion(),
+    window.archivAPI.getPlatformInfo()
+  ]);
+  const platformLabel = { linux: 'Linux', win32: 'Windows', darwin: 'macOS' }[platformInfo.platform] || platformInfo.platform;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'prompt-overlay';
+  overlay.innerHTML = `
+    <div class="prompt-modal">
+      <div class="prompt-title">🐛 Fehler melden<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
+      <div class="bugreport-info">
+        <div><span class="bugreport-label">App-Version</span> ${escapeHtml(version)}</div>
+        <div><span class="bugreport-label">Plattform</span> ${escapeHtml(platformLabel)} (${escapeHtml(platformInfo.arch)})</div>
+        <div><span class="bugreport-label">Electron</span> ${escapeHtml(platformInfo.electron)}</div>
+      </div>
+      <p class="sync-modal-note">Diese Angaben werden automatisch in den Bug-Report übernommen — hilft beim Nachvollziehen, du musst sie nicht selbst eintippen. Der Bug-Text selbst wird auf GitHub verfasst.</p>
+      <div class="prompt-actions">
+        <button type="button" class="btn" data-action="cancel">Abbrechen</button>
+        <button type="button" class="btn primary" data-action="open-github">Zu GitHub Issues →</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  function close() { overlay.remove(); }
+  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-action="close-x"]').addEventListener('click', close);
+  overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
+  overlay.querySelector('[data-action="open-github"]').addEventListener('click', () => {
+    const body = [
+      `**App-Version:** ${version}`,
+      `**Plattform:** ${platformLabel} (${platformInfo.arch})`,
+      `**Electron:** ${platformInfo.electron}`,
+      '',
+      '**Was ist passiert?**',
+      '',
+      '**Was hast du erwartet?**',
+      '',
+      '**Schritte zum Nachstellen:**',
+      '1. '
+    ].join('\n');
+    const url = 'https://github.com/Smashinger/archiv-wiki/issues/new'
+      + '?title=' + encodeURIComponent('')
+      + '&body=' + encodeURIComponent(body);
+    // window.open() wird vom bestehenden setWindowOpenHandler in main.js
+    // abgefangen und im System-Browser geöffnet (kein neuer IPC-Kanal nötig).
+    window.open(url, '_blank');
+    close();
+  });
+}
 els.btnAbout.addEventListener('click', async () => {
   const version = await window.archivAPI.getVersion();
   alert(`Archiv Wiki v${version}\nAutor: smashii\nLizenz: MIT`);
