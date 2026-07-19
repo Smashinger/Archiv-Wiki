@@ -1,0 +1,474 @@
+/* renderer/css/components.css — Schritt 5 */
+
+/* --- Sidebar-Kopf: jetzt ohne Terminal-Prompt-Deko, mehr Luft oben --- */
+
+/* --- Suchfeld: einziges Element, volle Breite, trägt seine Box-Optik selbst
+   (kein umschließender Container mehr nötig, seit die Stats-Chips weg sind). --- */
+.search-wrap{ position:relative; width:100%; margin: 2px 0 14px; }
+.search-wrap input{
+  box-sizing:border-box; height:40px; width:100%;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--border-soft); color: var(--text-main);
+  font-family: var(--mono); font-size: 12.5px; padding: 0 60px 0 34px; border-radius: var(--radius-sm);
+}
+.search-wrap input:focus{ outline:none; border-color: var(--accent-dim); }
+.search-wrap input::placeholder{ color: var(--text-faint); }
+.search-wrap svg{ position:absolute; left:12px; top:50%; transform:translateY(-50%); width:14px; height:14px; stroke: var(--text-faint); pointer-events:none; }
+.search-wrap kbd{ position:absolute; right:10px; top:50%; transform:translateY(-50%); font-family: var(--mono); font-size:9px; color: var(--text-faint); border:1px solid var(--border-soft); border-radius: var(--radius-sm); padding:2px 5px; }
+.search-clear{
+  display:none; position:absolute; right:9px; top:50%; transform:translateY(-50%);
+  width:20px; height:20px; align-items:center; justify-content:center;
+  background:transparent; border:none; border-radius:50%; color: var(--text-faint); font-size:11px; cursor:pointer;
+}
+.search-clear:hover{ color: var(--text-main); background: rgba(255,255,255,0.06); }
+/* Bei Text: X-Button zeigen, Ctrl-K-Hinweis ausblenden (sonst zu eng bei 40px) */
+.search-wrap.has-value .search-clear{ display:flex; }
+.search-wrap.has-value kbd{ display:none; }
+
+/* --- Action-Row: drei gleich große Buttons nebeneinander. "+ Notiz" bleibt
+   akzentfarben (Haupt-Aktion), "+ Haupt"/"+ Unter" gleichen sich dezent an
+   den Sidebar-Hintergrund an statt zwei weitere auffällige Buttons zu sein. */
+.action-row{ display:flex; gap:6px; margin: 0 0 14px; }
+.action-btn{
+  flex:1; box-sizing:border-box; height: 40px; min-width:0;
+  display:flex; align-items:center; justify-content:center;
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text-muted); font-family: var(--mono); font-size:11.5px; font-weight:600;
+  cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 6px;
+  transition: background .15s ease, color .15s ease;
+}
+.action-btn:hover{ color: var(--text-main); border-color: var(--accent-dim); }
+.action-btn.active{ color: var(--accent-color); }
+.action-btn-primary{
+  background: var(--accent-color); border-color: var(--accent-color); color:#ffffff; font-weight:700;
+  box-shadow: 0 0 0 1px rgba(91,127,166,.35), 0 4px 14px rgba(91,127,166,.22);
+}
+.action-btn-primary:hover{ filter:brightness(1.06); border-color: var(--accent-color); color:#ffffff; }
+
+
+/* --- Nav-Baum --- */
+.nav-top{ list-style:none; margin:0 0 4px; padding:0; }
+a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: var(--sans); font-size: 13px; color: var(--text-muted); padding: 6px 9px; border-radius: var(--radius-sm); border-left: 2px solid transparent; cursor:pointer; }
+.nav-link:hover{ color: var(--text-main); background: var(--bg-elev-2); }
+.nav-link.active{ color: var(--accent-color); background: var(--accent-soft); border-left-color: var(--accent-color); font-weight:600; }
+.nav-link .nl-icon{ flex-shrink:0; }
+.nav-link .nl-title{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+.nav-group{ margin-bottom: 2px; border-radius: var(--radius-sm); }
+.nav-group.dragging{
+  opacity:.55; transform: scale(1.02); box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  cursor: grabbing; position: relative; z-index: 5;
+}
+.group-header-row{ display:flex; align-items:center; gap:2px; }
+.group-header{ flex:1; min-width:0; display:flex; align-items:center; gap:8px; background:transparent; border:none; cursor:pointer; text-align:left; padding: 7px 9px 6px; border-radius: var(--radius-sm); margin-bottom:0; font-family: var(--mono); font-size: 12px; letter-spacing:.05em; text-transform:uppercase; color: var(--text-muted); }
+.group-header:hover{ background: var(--bg-elev-2); color: var(--text-main); }
+.group-header .g-label{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; background:none; border:none; color:inherit; font:inherit; text-transform:inherit; letter-spacing:inherit; cursor:pointer; padding:0; }
+.group-header .g-count{ font-family: var(--mono); font-size:10px; color: var(--text-faint); background: var(--bg-elev-2); border:1px solid var(--border); padding: 1px 7px; border-radius: var(--radius-sm); flex-shrink:0; }
+.group-header .g-chevron{ width:11px; height:11px; stroke: var(--text-faint); transition: transform .18s ease; flex-shrink:0; }
+
+/* Hauptkategorie (Ebene 1): deutlich größer + Akzentfarbe, damit sie klar
+   von Notizen UND Unterkategorien zu unterscheiden ist (Nutzerfeedback). */
+.nav-group.level-1 > .group-header-row .group-header{
+  font-size: 14px; font-weight:700; color: var(--accent-color); text-transform:none; letter-spacing:0; padding: 8px 9px;
+}
+.nav-group.level-1 > .group-header-row .group-header:hover{ background: var(--accent-soft); }
+.nav-group.level-1 > .group-header-row .g-chevron{ width:13px; height:13px; stroke: var(--accent-color); }
+.nav-group.level-1 > .group-header-row .g-count{ color: var(--accent-color); border-color: var(--accent-dim); }
+
+/* Unterkategorie (Ebene 2): weiterhin kompakt/uppercase, aber etwas
+   lesbarer als zuvor (12px statt 11px) und klar sekundär zur Hauptkategorie. */
+.nav-group.level-2 > .group-header-row .group-header{ font-size: 12px; }
+
+.nav-group.collapsed .g-chevron{ transform: rotate(-90deg); }
+.nav-group.collapsed .group-list{ max-height:0; opacity:0; margin:0; border-color:transparent; }
+.group-header-row:hover .nav-icon-btn{ opacity:1; }
+
+/* Einrückungslinie: jede Verschachtelungsebene (Unterkategorien, Notizen)
+   bekommt eine eigene vertikale Linie + Einzug, siehe hierarchie.png. */
+.group-list{
+  list-style:none; margin: 4px 0 6px 10px; padding: 0 0 0 11px;
+  border-left: 1.5px solid var(--border-soft);
+  max-height: 900px; opacity:1; overflow:hidden;
+  transition: max-height .25s ease, opacity .2s ease, border-color .2s ease;
+}
+.group-list > li{ margin-bottom: 1px; }
+.nav-hidden{ display:none !important; }
+
+.nav-item-row{ display:flex; align-items:center; gap:2px; }
+.nav-item-row > .nav-link{ flex:1; min-width:0; }
+.nav-item-row.dragging{
+  opacity:.55; transform: scale(1.02); box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  cursor: grabbing; position: relative; z-index: 5;
+}
+.nav-item-row.drag-over{ box-shadow: inset 0 0 0 2px var(--accent-color); background: var(--accent-soft); border-radius: var(--radius-sm); }
+.nav-item-row.drag-over.invalid{ box-shadow: inset 0 0 0 2px var(--red); background: rgba(226,88,90,.08); }
+
+@keyframes drop-success-pulse{
+  0%{ background: var(--accent-soft); }
+  100%{ background: transparent; }
+}
+.drop-success > .nav-link, .drop-success > .group-header-row .group-header{
+  animation: drop-success-pulse .5s ease-out;
+}
+.nav-icon-btn{ border:none; background:transparent; color: var(--text-faint); cursor:pointer; font-size:13px; line-height:1; padding:5px 6px; border-radius: var(--radius-sm); flex-shrink:0; opacity:0; }
+.nav-item-row:hover .nav-icon-btn{ opacity:1; }
+.nav-icon-btn:hover{ color: var(--red); background: rgba(226,88,90,.1); }
+
+/* --- Ziehen-Griff: jetzt immer sichtbar, kein "Bearbeiten-Modus" mehr nötig --- */
+.row-handle{
+  display:none; align-items:center; justify-content:center; flex-shrink:0; cursor:grab; color: var(--text-faint); font-size:13px;
+  padding: 4px 3px; line-height:1; border-radius: var(--radius-sm);
+}
+.sidebar.edit-mode .row-handle{ display:flex; }
+.edit-mode-btn{
+  display:flex; align-items:center; justify-content:center;
+  width:34px; height:34px; flex-shrink:0;
+  background: transparent; border: none; color: var(--text-faint);
+  font-size:17px; border-radius: var(--radius-sm); cursor:pointer;
+  transition: background .15s ease, color .15s ease, transform .1s ease;
+}
+.edit-mode-btn:hover{ background: var(--bg-elev-2); color: var(--text-main); transform: scale(1.05); }
+.edit-mode-btn:active{ transform: scale(0.96); }
+.edit-mode-btn.active{ background: var(--accent-soft); color: var(--accent-color); }
+.edit-mode-btn.active:hover{ background: var(--accent-soft); color: var(--accent-color); transform: scale(1.05); }
+.row-handle:active{ cursor:grabbing; }
+.group-header-row.drag-over{ box-shadow: inset 0 0 0 2px var(--accent-color); border-radius: var(--radius-sm); background: var(--accent-soft); }
+.group-header-row.drag-over.invalid{ box-shadow: inset 0 0 0 2px var(--red); background: rgba(226,88,90,.08); }
+.group-header-row.drag-over-top{ box-shadow: inset 0 2px 0 var(--accent-color); }
+.group-header-row.drag-over-bottom{ box-shadow: inset 0 -2px 0 var(--accent-color); }
+.nav-item-row.drag-over-top{ box-shadow: inset 0 2px 0 var(--accent-color); border-radius: var(--radius-sm); }
+.nav-item-row.drag-over-bottom{ box-shadow: inset 0 -2px 0 var(--accent-color); border-radius: var(--radius-sm); }
+
+.sidebar-foot-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:10px; padding-top:10px; border-top:1px solid var(--border-soft); }
+.sidebar-path{
+  font-family: var(--mono); font-size:11px; color: var(--text-faint);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1;
+}
+
+/* --- Home: zweigeteiltes Dashboard (Zuletzt bearbeitet + Alle Notizen) --- */
+.home-heading{ font-family: var(--mono); font-size: 22px; color: var(--text-main); margin: 0 0 6px; }
+.home-sub{ color: var(--text-muted); font-size: 14px; margin: 0 0 20px; }
+
+.dashboard-sections{ display:flex; flex-direction:column; gap:16px; height: calc(100vh - 230px); min-height: 400px; }
+.dashboard-section{ display:flex; flex-direction:column; border-radius: var(--radius-md); border:1px solid var(--border); overflow:hidden; min-height:0; }
+.dashboard-section.recent{ flex: 0 0 35%; background: var(--bg-elev-2); }
+.dashboard-section.all{ flex: 1 1 65%; background: var(--bg-elev); }
+.dashboard-section-header{
+  font-family: var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.07em;
+  color: var(--text-faint); padding:10px 16px; border-bottom:1px solid var(--border-soft); flex-shrink:0;
+}
+.dashboard-list{ flex:1; overflow-y:auto; min-height:0; }
+
+.dashboard-row{
+  display:grid; grid-template-columns: 26px minmax(100px,1fr) minmax(0,2fr) 90px 92px;
+  align-items:center; gap:12px; padding:9px 16px; border-bottom:1px solid var(--border-soft); cursor:pointer;
+}
+.dashboard-row:last-child{ border-bottom:none; }
+.dashboard-row:hover{ background: rgba(255,255,255,.03); }
+.dashboard-row .dr-icon{ font-size:14px; text-align:center; }
+.dashboard-row .dr-title{
+  font-family: var(--mono); font-size:13px; color: var(--text-main);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.dashboard-row.recent-row .dr-title{ font-weight:700; color: var(--accent-color); }
+.dashboard-row .dr-excerpt{ font-size:12px; color: var(--text-faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dashboard-row .dr-tag{
+  font-family: var(--mono); font-size:9px; text-transform:uppercase; letter-spacing:.05em; text-align:center;
+  color: var(--text-faint); background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-sm); padding:3px 6px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.dashboard-row .dr-date{ font-size:11px; color: var(--text-faint); text-align:right; white-space:nowrap; }
+
+@media (max-width:900px){
+  .dashboard-row{ grid-template-columns: 22px minmax(80px,1fr) 70px 70px; }
+  .dashboard-row .dr-excerpt{ display:none; }
+}
+@media (max-width:560px){ .note-grid{ grid-template-columns: 1fr; } }
+
+/* --- Notiz-Ansicht: Titel + Kategorie + Tags in EINER Zeile (Zeitstempel sitzt jetzt in der Topbar) --- */
+.note-header{ display:flex; align-items:center; gap:10px; margin-bottom: 18px; flex-wrap: nowrap; }
+.note-title-input{
+  font-family: var(--mono); font-size: 26px; font-weight:700; color: var(--text-main);
+  background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm);
+  padding: 2px 6px; flex: 1; min-width: 100px;
+}
+.note-title-input:hover{ border-color: var(--border); }
+.note-title-input:focus{ border-color: var(--accent-dim); background: var(--bg-elev); }
+.category-badge{
+  font-family: var(--mono); font-size:11px; color: var(--text-muted); background: var(--bg-elev-2);
+  border:1px solid var(--border); padding: 4px 8px; border-radius: var(--radius-sm); cursor:pointer; flex-shrink:0;
+  width: 60px; overflow:hidden; text-overflow: ellipsis; white-space: nowrap; text-align:center;
+}
+.category-badge:hover{ color: var(--accent-color); border-color: var(--accent-dim); background: var(--accent-soft); }
+.tags-input{
+  background: var(--bg-elev-2); border:1px solid var(--border); color: var(--text-muted);
+  font-family: var(--mono); font-size:12px; padding: 6px 10px; border-radius: var(--radius-sm);
+  flex: 1; min-width: 150px;
+}
+.tags-input:focus{ border-color: var(--accent-dim); }
+
+/* --- Zeitstempel in der Topbar (weit rechts, vor Papierkorb/Info) --- */
+.topbar-dates{ font-family: var(--mono); font-size: 11px; color: var(--text-faint); white-space: nowrap; margin-right: 4px; }
+
+/* --- Notiz-Werkzeugleiste --- */
+/* --- Backlink-Note: optionale Notiz-zu-Notiz-Verknüpfung, unabhängig vom
+   Ordnersystem ("gehört zu → X") --- */
+.backlink-row{ display:flex; align-items:center; gap:6px; margin: -8px 0 16px; min-height: 22px; }
+.backlink-icon{ font-size:12px; line-height:1; }
+.backlink-label{ font-family: var(--mono); font-size:11.5px; color: var(--text-faint); }
+.backlink-target{ font-family: var(--mono); font-size:11.5px; color: var(--cyan); text-decoration:underline; text-underline-offset:2px; }
+.backlink-target:hover{ color: var(--accent-color); }
+.backlink-missing{ color: var(--text-faint); font-style:italic; }
+.backlink-remove{ background:transparent; border:none; color: var(--text-faint); font-size:10px; cursor:pointer; padding:2px 4px; border-radius: var(--radius-sm); line-height:1; }
+.backlink-remove:hover{ color: var(--red); background: rgba(226,88,90,.1); }
+.backlink-add{
+  background:transparent; border:1px dashed var(--border-soft); color: var(--text-faint);
+  font-family: var(--mono); font-size:11px; padding:3px 9px; border-radius: var(--radius-sm); cursor:pointer;
+}
+.backlink-add:hover{ color: var(--accent-color); border-color: var(--accent-dim); }
+
+.note-toolbar{ display:flex; align-items:center; gap:10px; margin-bottom: 14px; }
+.note-toolbar .spacer{ flex:1; }
+.view-toggle{ display:flex; background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-sm); padding:2px; }
+.view-toggle button{ background:transparent; border:none; color: var(--text-faint); font-family: var(--mono); font-size:11.5px; padding: 5px 11px; border-radius: var(--radius-sm); cursor:pointer; }
+.view-toggle button.active{ background: var(--bg-elev); color: var(--accent-color); }
+.dirty-label{ font-family: var(--mono); font-size:11.5px; color: var(--text-faint); }
+.dirty-label.is-dirty{ color: var(--accent-color); }
+.btn{ font-family: var(--mono); font-size:12px; font-weight:600; border-radius: var(--radius-sm); padding:8px 14px; cursor:pointer; border:1px solid var(--border); background: var(--bg-elev-2); color: var(--text-muted); }
+.btn:hover{ color: var(--text-main); border-color: var(--accent-dim); }
+.btn.primary{ background: var(--accent-color); color:#ffffff; border-color: var(--accent-color); }
+.btn.primary:hover{ filter:brightness(1.08); color:#ffffff; }
+.btn.danger:hover{ color: var(--red); border-color: rgba(226,88,90,.4); }
+.btn.small{ padding:8px 10px; font-size:14px; line-height:1; }
+.btn-mt{ margin-top: 16px; }
+.icon-btn.danger:hover{ color: var(--red); border-color: rgba(226,88,90,.4); }
+
+/* --- Split-View --- */
+.note-split{ display:flex; gap:0; height: calc(100vh - 280px); min-height: 320px; }
+.note-split.mode-editor .preview-pane{ display:none; }
+.note-split.mode-editor .editor-pane{ flex:1; }
+.note-split.mode-preview .editor-pane{ display:none; }
+.note-split.mode-preview .preview-pane{ flex:1; }
+.split-resizer{ display:none; flex-shrink:0; width:14px; cursor:col-resize; position:relative; }
+.split-resizer::after{
+  content:''; position:absolute; left:50%; top:0; bottom:0; width:1px;
+  background: var(--border); transform: translateX(-50%); transition: background .12s ease;
+}
+.split-resizer:hover::after, .split-resizer.dragging::after{ background: var(--accent-color); width:2px; }
+.note-split.mode-split .split-resizer{ display:block; }
+.note-split.mode-split .editor-pane, .note-split.mode-split .preview-pane{ flex: 1 1 0; min-width: 120px; }
+
+/* --- Wiki-Links [[Notizname]] in der Vorschau --- */
+.wiki-link{
+  color: var(--cyan); text-decoration: underline; text-decoration-style: solid;
+  text-underline-offset: 2px; cursor: pointer;
+}
+.wiki-link:hover{ color: var(--accent-color); }
+.wiki-link-missing{
+  color: var(--text-faint); text-decoration-style: dashed; text-decoration-color: var(--text-faint);
+}
+.wiki-link-missing:hover{ color: var(--red); text-decoration-color: var(--red); }
+
+/* --- Bottombar --- */
+.note-bottombar{
+  display:flex; align-items:center; gap:16px; margin-top:10px; padding-top:10px;
+  border-top:1px solid var(--border-soft); font-family: var(--mono); font-size:11px; color: var(--text-faint);
+}
+.note-bottombar .spacer{ flex:1; }
+
+/* --- Leerzustände / Hinweise --- */
+.empty-state{ color: var(--text-faint); font-size:14px; padding: 60px 20px; text-align:center; }
+.empty-state .btn{ margin-top:14px; }
+
+/* --- Papierkorb-Kopf: Titel links, Leeren-Icon-Button rechts --- */
+.trash-header{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+
+/* --- Kontextmenü (Umbenennen) / Kategorie-Verschieben-Menü --- */
+.context-menu{
+  position: fixed; z-index: 60; background: var(--bg-elev-2); border:1px solid var(--border);
+  border-radius: var(--radius-md); padding:6px; min-width:170px; max-width:240px; box-shadow: 0 12px 32px rgba(0,0,0,.45);
+  display:flex; flex-direction:column; gap:2px;
+}
+.context-menu-label{ font-family: var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color: var(--text-faint); padding:6px 10px 2px; }
+.context-menu button{ text-align:left; background:transparent; border:none; color: var(--text-muted); font-family: var(--mono); font-size:12.5px; padding:8px 10px; border-radius: var(--radius-sm); cursor:pointer; }
+.context-menu button:hover{ background: var(--bg-elev); color: var(--text-main); }
+.context-menu button.danger{ color: var(--red); }
+.context-menu button.danger:hover{ color: var(--red); background: rgba(226,88,90,.12); }
+
+/* --- Rechtsklick-Menü (Editor + Vorschau), mit Untermenüs --- */
+.ectx-menu{
+  position: fixed; z-index: 70; background: var(--bg-elev-2); border:1px solid var(--border);
+  border-radius: var(--radius-md); padding:6px; min-width:200px; box-shadow: 0 12px 32px rgba(0,0,0,.5);
+  font-family: var(--mono); font-size:12.5px;
+}
+.ectx-item{
+  position:relative; display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:7px 10px; border-radius: var(--radius-sm); color: var(--text-muted); cursor:pointer;
+}
+.ectx-item:hover{ background: var(--bg-elev); color: var(--text-main); }
+.ectx-item.disabled{ color: var(--text-faint); cursor:default; opacity:.5; }
+.ectx-item.disabled:hover{ background:transparent; color: var(--text-faint); }
+.ectx-arrow{ font-size:10px; color: var(--text-faint); flex-shrink:0; }
+.ectx-sep{ height:1px; background: var(--border-soft); margin:5px 2px; }
+.ectx-submenu{
+  display:none; position:absolute; left:100%; top:-6px; z-index:71;
+  background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-md);
+  padding:6px; min-width:200px; box-shadow: 0 12px 32px rgba(0,0,0,.5);
+}
+/* Ein-/Ausblenden und Positionierung der Untermenüs übernimmt jetzt JS
+   (mouseenter/mouseleave in app.js) statt reinem CSS-:hover — nötig, um die
+   tatsächliche Höhe/Breite messen und bei Bedarf nach oben/links aufklappen
+   zu können (ein display:none-Element hat immer ein Null-Rechteck). */
+.context-menu hr{ border:none; border-top:1px solid var(--border-soft); margin:4px 0; }
+
+/* --- Icon-/Emoji-Picker (Editor-Toolbar) --- */
+.emoji-picker{
+  position: fixed; z-index: 65; background: var(--bg-elev-2); border:1px solid var(--border);
+  border-radius: var(--radius-md); padding:10px; width: 320px; max-height: 420px; overflow-y:auto;
+  box-shadow: 0 12px 32px rgba(0,0,0,.45);
+}
+.emoji-search{
+  width:100%; box-sizing:border-box; background: var(--bg-elev); border:1px solid var(--border);
+  color: var(--text-main); font-family: var(--mono); font-size:12px; padding:7px 9px;
+  border-radius: var(--radius-sm); margin-bottom:8px; position:sticky; top:0;
+}
+.emoji-search::placeholder{ color: var(--text-faint); }
+.emoji-empty{ font-size:12px; color: var(--text-faint); text-align:center; padding:16px 0; }
+.emoji-group-label{ font-family: var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color: var(--text-faint); margin: 8px 2px 4px; }
+.emoji-group-label:first-child{ margin-top:2px; }
+.emoji-grid{ display:grid; grid-template-columns: repeat(8, 1fr); gap:2px; }
+.emoji-btn{ background:transparent; border:none; border-radius: var(--radius-sm); font-size:17px; padding:5px 0; cursor:pointer; line-height:1; }
+.emoji-btn:hover{ background: var(--bg-elev); }
+
+/* --- Formatierungs-Toolbar (Fett/Kursiv/Durchgestrichen/Link/Code/Listen/Callout) --- */
+.format-toolbar{ display:flex; gap:2px; align-items:center; padding-left:4px; border-left:1px solid var(--border-soft); margin-left:2px; }
+.format-toolbar button{
+  width:28px; height:28px; display:flex; align-items:center; justify-content:center;
+  background:transparent; border:1px solid transparent; border-radius: var(--radius-sm);
+  color: var(--text-muted); font-size:13px; cursor:pointer;
+}
+.format-toolbar button:hover{ background: var(--bg-elev-2); color: var(--text-main); }
+
+.callout-picker-list{ display:flex; flex-direction:column; gap:2px; }
+.callout-picker-btn{
+  display:flex; align-items:center; gap:8px; width:100%; text-align:left;
+  background:transparent; border:none; border-radius: var(--radius-sm);
+  color: var(--text-muted); font-family: var(--mono); font-size:12.5px; padding:7px 8px; cursor:pointer;
+}
+.callout-picker-btn:hover{ background: var(--bg-elev); color: var(--text-main); }
+
+.table-picker-list{ display:flex; flex-direction:column; gap:2px; }
+.table-picker-btn{
+  display:block; width:100%; text-align:left;
+  background:transparent; border:none; border-radius: var(--radius-sm);
+  color: var(--text-muted); font-family: var(--mono); font-size:12.5px; padding:7px 8px; cursor:pointer;
+}
+.table-picker-btn:hover{ background: var(--bg-elev); color: var(--text-main); }
+
+/* --- Eingabe-Modal (Ersatz für window.prompt(), das Electron nicht unterstützt) --- */
+.prompt-overlay{
+  position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center;
+}
+.prompt-modal{
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 20px; width: 340px; max-width: calc(100vw - 40px);
+  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+}
+.prompt-title{ position:relative; font-family: var(--mono); font-size: 13px; color: var(--text-muted); margin-bottom: 12px; padding-right: 28px; }
+.modal-close-x{
+  position:absolute; top:-4px; right:-4px; width:24px; height:24px;
+  display:flex; align-items:center; justify-content:center;
+  background:transparent; border:none; border-radius: var(--radius-sm);
+  color: var(--text-faint); font-size:13px; cursor:pointer;
+}
+.modal-close-x:hover{ color: var(--red); background: rgba(226,88,90,.1); }
+.prompt-input{
+  width: 100%; background: var(--bg-elev-2); border: 1px solid var(--border); color: var(--text-main);
+  font-family: var(--mono); font-size: 13px; padding: 9px 11px; border-radius: var(--radius-sm); margin-bottom: 16px;
+}
+.prompt-input:focus{ border-color: var(--accent-dim); }
+.prompt-actions{ display: flex; justify-content: flex-end; gap: 8px; }
+
+/* --- Sync-Einstellungen-Modal (Schritt 6, Stufe 1) --- */
+.sync-modal{ width: 380px; }
+.sync-modal-note{ font-size:11.5px; color: var(--text-faint); margin: -4px 0 14px; line-height:1.5; }
+.sync-field-label{ display:block; font-family: var(--mono); font-size:10.5px; color: var(--text-muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:4px; }
+.sync-modal-status{ font-size:12px; min-height: 16px; margin-bottom: 10px; white-space: pre-line; max-height: 160px; overflow-y: auto; }
+.sync-status-pending{ color: var(--text-faint); }
+.sync-status-ok{ color: var(--green); }
+.sync-status-error{ color: var(--red); }
+.sync-modal-actions{ justify-content: stretch; gap: 12px; }
+.sync-action-btn{
+  flex: 1; height: 50px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap: 2px; padding: 0 4px; white-space: nowrap;
+}
+.sync-action-btn .sab-icon{ font-size: 17px; line-height:1; }
+.sync-action-btn .sab-label{ font-size: 10px; font-weight:700; letter-spacing:.04em; line-height:1; }
+
+.sync-remember-label{ display:flex; align-items:center; gap:7px; font-size:11.5px; color: var(--text-muted); margin: -6px 0 12px; cursor:pointer; }
+.sync-remember-label input[type="checkbox"]{ accent-color: var(--accent-color); }
+.sync-remember-disabled{ opacity:.5; cursor:not-allowed; }
+
+.sync-retry-row{ margin: -4px 0 10px; }
+.sync-retry-row:empty{ display:none; }
+.sync-retry-row #syncRetryBtn{ font-size:12px; padding:6px 12px; }
+
+.sync-conflict-list{ display:flex; flex-direction:column; gap:8px; max-height:220px; overflow-y:auto; margin: 0 0 12px; }
+.sync-conflict-row{ background: rgba(226,88,90,.06); border:1px solid rgba(226,88,90,.25); border-radius: var(--radius-md); padding:8px 10px; }
+.sync-conflict-row.sync-conflict-resolved{ background: rgba(110,201,123,.06); border-color: rgba(110,201,123,.25); }
+.sync-conflict-path{ font-family: var(--mono); font-size:11.5px; color: var(--text-main); word-break:break-all; }
+.sync-conflict-reason{ font-size:11px; color: var(--text-faint); margin: 2px 0 7px; }
+.sync-conflict-actions{ display:flex; gap:6px; flex-wrap:wrap; }
+.sync-conflict-actions button{
+  background: var(--bg-elev-2); border:1px solid var(--border-soft); color: var(--text-muted);
+  font-family: var(--mono); font-size:10.5px; padding:4px 9px; border-radius: var(--radius-sm); cursor:pointer;
+}
+.sync-conflict-actions button:hover:not(:disabled){ color: var(--accent-color); border-color: var(--accent-dim); }
+.sync-conflict-actions button:disabled{ opacity:.4; cursor:default; }
+
+/* --- Sync-Status-Icon am ☁-Button (Stufe 6) ---
+   Farbsprache (vorher: Konflikte zeigten denselben Blauton wie der normale
+   Akzent — wirkte wie "keine besondere Bedeutung", war aber ein echter
+   Hinweis auf ungelöste Konflikte. Jetzt eindeutig): 
+   Gelb = läuft gerade · Rot = Fehler · Amber = Konflikt(e) ungelöst ·
+   Grün = zuletzt erfolgreich, alles aktuell. */
+#btnSync{ position:relative; }
+#btnSync.sync-status-syncing{ animation: sync-pulse 1.1s ease-in-out infinite; }
+@keyframes sync-pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+#btnSync.sync-status-syncing::after, #btnSync.sync-status-error::after,
+#btnSync.sync-status-conflicts::after, #btnSync.sync-status-ok::after{
+  content:''; position:absolute; top:3px; right:3px; width:7px; height:7px; border-radius:50%;
+  border: 1.5px solid var(--bg-elev);
+}
+#btnSync.sync-status-syncing::after{ background: var(--yellow); }
+#btnSync.sync-status-error::after{ background: var(--red); }
+#btnSync.sync-status-conflicts::after{ background: var(--amber); }
+#btnSync.sync-status-ok::after{ background: var(--green); }
+
+#syncModalInterval{
+  background: var(--bg-elev-2); border:1px solid var(--border-soft); color: var(--text-main);
+  font-family: var(--mono); font-size:11px; border-radius: var(--radius-sm); padding:1px 4px; margin-left:4px;
+}
+
+/* ---------------------------------------------------------------------
+   Druck/PDF-Export (Schritt 6): nur die gerenderte Vorschau der Notiz wird
+   gedruckt — Sidebar, Topbar, Toolbar, Editor-Quelltext und Backlink-Zeile
+   werden ausgeblendet. Helles Papier-Layout statt Dark-Theme.
+--------------------------------------------------------------------- */
+@media print {
+  .sidebar, .topbar, .note-toolbar, .note-bottombar, .backlink-row,
+  .editor-pane, .category-badge, .tags-input { display: none !important; }
+  html, body, .main-area, .content-scroll { background: #ffffff !important; color: #111111 !important; }
+  .content-scroll { margin: 0 !important; padding: 0 !important; max-width: none !important; }
+  .note-header { margin-bottom: 12px !important; }
+  .note-title-input { color: #111111 !important; background: transparent !important; border: none !important; font-size: 22px !important; }
+  .note-split { display: block !important; height: auto !important; }
+  .preview-pane {
+    display: block !important; width: 100% !important; height: auto !important;
+    overflow: visible !important; background: #ffffff !important; color: #111111 !important;
+    padding: 0 !important; font-size: 13px !important;
+  }
+  .preview-pane a { color: #1a56db !important; }
+  .preview-pane pre, .preview-pane code { background: #f2f2f2 !important; color: #111111 !important; }
+  .preview-pane .wiki-link, .preview-pane .wiki-link-missing { color: #1a56db !important; text-decoration: underline !important; }
+}

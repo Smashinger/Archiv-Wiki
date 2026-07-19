@@ -1,0 +1,89 @@
+/* renderer/css/layout.css — Schritt 5
+   Grundgerüst der echten Oberfläche: feste Sidebar links, Topbar oben im
+   Hauptbereich (Breadcrumb + Menü), scrollbarer Inhaltsbereich darunter.
+   Auf schmalen Fenstern klappt die Sidebar per Burger-Button ein.
+*/
+
+.shell{ display: flex; min-height: 100vh; }
+
+.sidebar{
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  background: var(--bg-elev);
+  border-right: 1px solid var(--border);
+  padding: 20px 16px 12px;
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  overflow-y: auto;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  transition: transform .22s ease;
+}
+.sidebar::-webkit-scrollbar{ width: 8px; }
+.sidebar::-webkit-scrollbar-thumb{ background: var(--border); border-radius: var(--radius-sm); }
+
+.sidebar-scroll{ flex: 1; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+
+.main-area{
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.topbar{
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--topbar-h);
+  padding: 0 22px;
+  background: rgba(10,13,18,.88);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar .burger{
+  display: none;
+  width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--bg-elev-2); color: var(--text-main); align-items: center; justify-content: center;
+  cursor: pointer; flex-shrink: 0;
+}
+.breadcrumb{
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text-faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.breadcrumb .crumb-current{ color: var(--text-muted); }
+.breadcrumb .crumb-sep{ margin: 0 6px; color: var(--border); }
+.topbar .spacer{ flex: 1; }
+.icon-btn{
+  width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--bg-elev-2); color: var(--text-muted); display: flex; align-items: center;
+  justify-content: center; cursor: pointer; font-size: 15px; flex-shrink: 0;
+}
+.icon-btn:hover{ color: var(--accent-color); border-color: var(--accent-dim); }
+
+.content-scroll{
+  flex: 1;
+  padding: 32px 40px 80px;
+  width: 100%;
+}
+
+.overlay{ display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 35; }
+.overlay.show{ display: block; }
+
+@media (max-width: 900px){
+  .sidebar{ transform: translateX(-100%); box-shadow: 0 0 40px rgba(0,0,0,.5); }
+  .sidebar.open{ transform: translateX(0); }
+  .main-area{ margin-left: 0; }
+  .topbar .burger{ display: flex; }
+  .content-scroll{ padding: 24px 18px 70px; }
+}

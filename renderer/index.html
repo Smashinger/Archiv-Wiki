@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self';">
+<!--
+  Hinweis style-src 'unsafe-inline': CodeMirror injiziert sein Theming zur
+  Laufzeit über dynamisch erzeugte <style>-Elemente (style-mod) — fester
+  Bestandteil der Bibliothek. script-src (sicherheitskritisch, verhindert
+  Code-Ausführung) bleibt strikt auf 'self'.
+-->
+<title>Archiv Wiki</title>
+<link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/vendor/katex/katex.min.css">
+</head>
+<body>
+  <div class="overlay" id="overlay"></div>
+
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="navSearch" placeholder="Durchsuchen…" autocomplete="off">
+        <button type="button" class="search-clear" id="searchClear" title="Suche leeren" aria-label="Suche leeren">✕</button>
+        <kbd>Ctrl K</kbd>
+      </div>
+
+      <div class="action-row">
+        <button type="button" class="action-btn" id="segAddMain" data-segment="main">+ Haupt</button>
+        <button type="button" class="action-btn" id="segAddSub" data-segment="sub">+ Unter</button>
+        <button type="button" class="action-btn action-btn-primary" id="btnAddNote">+ Notiz</button>
+      </div>
+
+      <div class="sidebar-scroll">
+        <ul class="nav-top">
+          <li><a class="nav-link" id="homeLink" data-route="home"><span class="nl-icon">🏠</span><span class="nl-title">Start</span></a></li>
+        </ul>
+        <nav id="navTree"><!-- von app.js gerendert --></nav>
+      </div>
+
+      <div class="sidebar-foot-row">
+        <span class="sidebar-path" id="projectTagline" title="">/archiv</span>
+        <button type="button" class="edit-mode-btn" id="btnEditMode" title="Bearbeiten-Modus (Verschieben)" aria-label="Bearbeiten-Modus (Verschieben)">⋮</button>
+      </div>
+    </aside>
+
+    <div class="main-area">
+      <header class="topbar">
+        <button class="burger" id="burgerBtn" type="button" aria-label="Menü">☰</button>
+        <div class="breadcrumb" id="breadcrumb">Start</div>
+        <span class="spacer"></span>
+        <span class="topbar-dates" id="topbarNoteDates"></span>
+        <button class="icon-btn" id="btnSync" type="button" title="Cloud-Sync-Einstellungen" aria-label="Cloud-Sync-Einstellungen">☁</button>
+        <button class="icon-btn" id="btnTrash" type="button" title="Papierkorb" aria-label="Papierkorb">🗑</button>
+        <button class="icon-btn" id="btnBugReport" type="button" title="Fehler melden" aria-label="Fehler melden">🐛</button>
+        <button class="icon-btn" id="btnAbout" type="button" title="Über Archiv Wiki" aria-label="Über Archiv Wiki">ℹ</button>
+      </header>
+
+      <main class="content-scroll" id="contentScroll">
+        <!-- Home-Grid oder Notiz-Ansicht, gerendert von app.js -->
+      </main>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,163 @@
+/* renderer/css/wizard.css — Schritt 2: Setup-Wizard
+   Baut auf den Variablen aus styles.css auf (gleiches Dark-Theme).
+*/
+
+.wizard-shell{
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: 32px 36px 28px;
+}
+
+.wizard-brand{
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--accent-color);
+  margin: 0 0 4px;
+}
+.wizard-sub{
+  font-size: 12.5px;
+  color: var(--text-faint);
+  margin: 0 0 22px;
+}
+
+/* --- Fortschritt --- */
+.wizard-progress{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 26px;
+}
+.wizard-progress .dot{
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--border);
+  transition: background .15s ease;
+}
+.wizard-progress .dot.active{ background: var(--accent-color); }
+.wizard-progress .dot.done{ background: var(--green); }
+.wizard-progress .line{ flex: 1; height: 1px; background: var(--border-soft); }
+.wizard-progress .label{
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+/* --- Schritt-Karte --- */
+.wizard-step{ flex: 1; display: none; flex-direction: column; }
+.wizard-step.active{ display: flex; }
+
+.wizard-step h2{
+  font-family: var(--mono);
+  font-size: 19px;
+  color: var(--text-main);
+  margin: 0 0 8px;
+}
+.wizard-step .step-desc{
+  font-size: 13.5px;
+  color: var(--text-muted);
+  margin: 0 0 22px;
+  max-width: 56ch;
+}
+
+/* --- Ordner-Auswahl (Schritt 1) --- */
+.folder-picker{
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.folder-picker .folder-path{
+  flex: 1; min-width: 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.folder-picker .folder-path.empty{ color: var(--text-faint); font-style: italic; }
+
+.banner{
+  font-size: 12.5px;
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border: 1px solid transparent;
+}
+.banner.info{ color: var(--blue); background: rgba(91,157,217,.08); border-color: rgba(91,157,217,.25); }
+.banner.error{ color: var(--red); background: rgba(226,88,90,.08); border-color: rgba(226,88,90,.25); }
+.banner.success{ color: var(--green); background: rgba(110,201,123,.08); border-color: rgba(110,201,123,.25); }
+.banner{ display: none; }
+.banner.show{ display: block; }
+
+/* --- Formular (Schritt 2) --- */
+.form-grid{ display: flex; flex-direction: column; gap: 4px; overflow-y: auto; padding-right: 4px; }
+.form-row{
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 11px 2px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.form-row label{ font-size: 13px; color: var(--text-muted); }
+.form-row .hint{ display:block; font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+.form-row select, .form-row input[type="text"]{
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  min-width: 180px;
+}
+.form-row select:focus, .form-row input:focus{ border-color: var(--accent-dim); }
+.form-row.backup-row{ align-items: flex-start; }
+.form-row .backup-value{ display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.form-row .backup-value .folder-path{ max-width: 260px; }
+
+/* --- Cloud-Sync (Schritt 3) --- */
+.sync-fields{ display: flex; flex-direction: column; gap: 10px; max-width: 420px; margin-bottom: 8px; }
+.sync-fields input{
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+}
+.sync-note{ font-size: 11.5px; color: var(--text-faint); margin-bottom: 20px; }
+.sync-test-status{ display:block; font-size:12px; margin-top:8px; }
+
+/* Aus components.css übernommen (wizard.html lädt diese Datei nicht) —
+   bewusst dupliziert für visuelle Konsistenz mit dem späteren In-App-Sync-Fenster. */
+.sync-remember-label{ display:flex; align-items:center; gap:7px; font-size:11.5px; color: var(--text-muted); margin: -2px 0; cursor:pointer; }
+.sync-remember-label input[type="checkbox"]{ accent-color: var(--accent-color); }
+.sync-remember-disabled{ opacity:.5; cursor:not-allowed; }
+.sync-status-pending{ color: var(--text-faint); }
+.sync-status-ok{ color: var(--green); }
+.sync-status-error{ color: var(--red); }
+
+/* --- Buttons --- */
+.wizard-actions{
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border-soft);
+}
+.wizard-actions .spacer{ flex: 1; }
+button.btn{
+  font-family: var(--mono); font-size: 12.5px; font-weight: 600;
+  border-radius: var(--radius-sm); padding: 10px 18px; cursor: pointer; border: 1px solid var(--border);
+  background: var(--bg-elev-2); color: var(--text-muted);
+}
+button.btn:hover{ color: var(--text-main); border-color: var(--accent-dim); }
+button.btn:disabled{ opacity: .4; cursor: not-allowed; }
+button.btn:disabled:hover{ border-color: var(--border); color: var(--text-muted); }
+button.btn.primary{ background: var(--accent-color); color: #ffffff; border-color: var(--accent-color); }
+button.btn.primary:hover{ color: #ffffff; border-color: var(--accent-color); filter: brightness(1.08); }
+button.btn.ghost{ background: transparent; border-color: transparent; }
+.btn-gap-left{ margin-left: 8px; }
+.optional-tag{ color: var(--text-faint); font-weight: 400; }
+/* Anfangszustand von #btnFinish (display:none) wird von wizard.js beim
+   Laden per renderStep() gesetzt — kein Inline-Style nötig (CSP-konform). */

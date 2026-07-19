@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self';">
+<title>Archiv Wiki — Einrichtung</title>
+<link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="css/wizard.css">
+</head>
+<body>
+  <div class="wizard-shell">
+    <p class="wizard-brand">Archiv Wiki</p>
+    <p class="wizard-sub">Einrichtung deines neuen Wikis</p>
+
+    <div class="wizard-progress">
+      <span class="dot" data-dot="1"></span>
+      <span class="line"></span>
+      <span class="dot" data-dot="2"></span>
+      <span class="line"></span>
+      <span class="dot" data-dot="3"></span>
+      <span class="label" id="progressLabel">Schritt 1 von 3</span>
+    </div>
+
+    <!-- Schritt 1: Projektordner -->
+    <section class="wizard-step" data-step="1">
+      <h2>Projektordner wählen</h2>
+      <p class="step-desc">Wähle einen leeren oder eigenen Ordner, in dem dein Wiki gespeichert wird. Es werden keine Beispiel-Kategorien angelegt — du startest komplett leer.</p>
+
+      <div class="folder-picker">
+        <span class="folder-path empty" id="projectPathLabel">noch kein Ordner gewählt</span>
+        <button class="btn" id="btnSelectFolder" type="button">Ordner wählen …</button>
+      </div>
+
+      <div class="banner error" id="folderErrorBanner"></div>
+      <div class="banner info" id="folderExistingBanner">
+        Dieser Ordner enthält bereits ein Archiv-Wiki-Projekt.
+        <button class="btn ghost btn-gap-left" id="btnOpenExisting" type="button">Direkt öffnen →</button>
+      </div>
+    </section>
+
+    <!-- Schritt 2: Editor-Konfiguration -->
+    <section class="wizard-step" data-step="2">
+      <h2>Editor-Konfiguration</h2>
+      <p class="step-desc">Diese Einstellungen kannst du später jederzeit in den Einstellungen ändern.</p>
+
+      <div class="form-grid">
+        <div class="form-row">
+          <label for="fTabSize">Tab-Größe</label>
+          <select id="fTabSize">
+            <option value="2" selected>2</option>
+            <option value="4">4</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label for="fAutoSave">Auto-Save</label>
+          <select id="fAutoSave">
+            <option value="15">15s</option>
+            <option value="30" selected>30s</option>
+            <option value="60">60s</option>
+            <option value="0">Aus</option>
+          </select>
+        </div>
+        <div class="form-row backup-row">
+          <label>Backup-Pfad<span class="hint">Standard: ~/.local/share/archiv-wiki/backups</span></label>
+          <div class="backup-value">
+            <span class="folder-path" id="backupPathLabel">wird geladen …</span>
+            <button class="btn ghost" id="btnChangeBackup" type="button">Ändern …</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Schritt 3: Cloud-Sync -->
+    <section class="wizard-step" data-step="3">
+      <h2>Cloud-Sync <span class="optional-tag">(optional)</span></h2>
+      <p class="step-desc">Nextcloud/WebDAV-Anbindung — kannst du jetzt vorbereiten oder komplett überspringen.</p>
+
+      <div class="sync-fields">
+        <input type="text" id="syncUrl" placeholder="https://deine-nextcloud.example/remote.php/dav/…">
+        <input type="text" id="syncUser" placeholder="Benutzername">
+        <input type="password" id="syncPass" placeholder="App-Passwort">
+        <label class="sync-remember-label" id="wizardRememberLabel">
+          <input type="checkbox" id="wizardSyncRemember"> Passwort merken
+        </label>
+        <label class="sync-remember-label" id="wizardAutoLabel">
+          <input type="checkbox" id="wizardSyncAuto"> Automatischer Abgleich, alle
+          <select id="wizardSyncInterval"></select>
+        </label>
+        <button class="btn" id="btnConnect" type="button">Verbindung testen</button>
+        <span class="sync-test-status" id="syncTestStatus"></span>
+      </div>
+      <p class="sync-note">Eingaben werden gespeichert, aber die eigentliche Verbindung wird erst nach Fertigstellung der Einrichtung aktiviert. Du kannst jederzeit ohne Cloud-Sync weitermachen.</p>
+    </section>
+
+    <div class="wizard-actions">
+      <button class="btn ghost" id="btnBack" type="button">← Zurück</button>
+      <span class="spacer"></span>
+      <button class="btn primary" id="btnNext" type="button" disabled>Weiter →</button>
+      <button class="btn primary" id="btnFinish" type="button">Projekt anlegen ✓</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/wizard.js"></script>
+</body>
+</html>
