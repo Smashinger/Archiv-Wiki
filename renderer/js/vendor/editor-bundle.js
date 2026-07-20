@@ -46502,6 +46502,16 @@ core_default.registerLanguage("yml", yaml);
 core_default.registerLanguage("xml", xml);
 core_default.registerLanguage("html", xml);
 core_default.registerLanguage("css", css2);
+function readAccentColor() {
+  const val = getComputedStyle(document.documentElement).getPropertyValue("--accent-color").trim();
+  return val || "#5b7fa6";
+}
+function hexToRgb(hex) {
+  const m2 = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return m2 ? `${parseInt(m2[1], 16)},${parseInt(m2[2], 16)},${parseInt(m2[3], 16)}` : "91,127,166";
+}
+var ACCENT = readAccentColor();
+var ACCENT_RGB = hexToRgb(ACCENT);
 var editorTheme = EditorView.theme({
   "&": {
     color: "#e0e0e0",
@@ -46510,19 +46520,19 @@ var editorTheme = EditorView.theme({
     fontSize: "13.5px"
   },
   ".cm-content": {
-    caretColor: "#5b7fa6",
+    caretColor: ACCENT,
     fontFamily: "'JetBrains Mono', ui-monospace, monospace",
     padding: "16px 0",
     lineHeight: "1.45"
   },
   ".cm-line": { lineHeight: "1.45" },
-  ".cm-cursor, .cm-dropCursor": { borderLeftColor: "#5b7fa6" },
-  ".cm-activeLine": { backgroundColor: "rgba(91,127,166,0.06)" },
-  ".cm-activeLineGutter": { backgroundColor: "rgba(91,127,166,0.06)" },
+  ".cm-cursor, .cm-dropCursor": { borderLeftColor: ACCENT },
+  ".cm-activeLine": { backgroundColor: `rgba(${ACCENT_RGB},0.06)` },
+  ".cm-activeLineGutter": { backgroundColor: `rgba(${ACCENT_RGB},0.06)` },
   ".cm-gutters": { backgroundColor: "#171b21", color: "#6e6e6e", border: "none" },
   "&.cm-focused": { outline: "none" },
   ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": {
-    backgroundColor: "rgba(91,127,166,0.18) !important"
+    backgroundColor: `rgba(${ACCENT_RGB},0.18) !important`
   },
   ".cm-scroller": { overflow: "auto" },
   ".cm-tooltip": {
@@ -46531,17 +46541,17 @@ var editorTheme = EditorView.theme({
     borderRadius: "8px"
   },
   ".cm-tooltip-autocomplete ul li[aria-selected]": {
-    backgroundColor: "rgba(91,127,166,0.15)",
-    color: "#5b7fa6"
+    backgroundColor: `rgba(${ACCENT_RGB},0.15)`,
+    color: ACCENT
   },
   ".cm-tooltip-autocomplete ul li": {
     padding: "4px 8px"
   }
 }, { dark: true });
 var highlightStyle = HighlightStyle.define([
-  { tag: tags.heading1, color: "#5b7fa6", fontWeight: "bold", fontSize: "1.25em" },
-  { tag: tags.heading2, color: "#5b7fa6", fontWeight: "bold", fontSize: "1.15em" },
-  { tag: [tags.heading3, tags.heading4, tags.heading5, tags.heading6], color: "#5b7fa6", fontWeight: "bold" },
+  { tag: tags.heading1, color: ACCENT, fontWeight: "bold", fontSize: "1.25em" },
+  { tag: tags.heading2, color: ACCENT, fontWeight: "bold", fontSize: "1.15em" },
+  { tag: [tags.heading3, tags.heading4, tags.heading5, tags.heading6], color: ACCENT, fontWeight: "bold" },
   { tag: tags.strong, fontWeight: "bold", color: "#e0e0e0" },
   { tag: tags.emphasis, fontStyle: "italic", color: "#e0e0e0" },
   { tag: tags.link, color: "#5ec8c0", textDecoration: "underline" },
@@ -46797,6 +46807,10 @@ function renderPreview(markdownText, options = {}) {
   html2 = html2.replace(/@@WIKILINK(\d+)@@/g, (_2, i3) => wikiStore[Number(i3)]);
   html2 = html2.replace(/<p>@@CALLOUT(\d+)@@<\/p>/g, (_2, i3) => calloutStore[Number(i3)]);
   html2 = html2.replace(/@@CALLOUT(\d+)@@/g, (_2, i3) => calloutStore[Number(i3)]);
+  if (options.projectPath) {
+    const base2 = "file://" + options.projectPath.replace(/\\/g, "/") + "/.attachments/";
+    html2 = html2.replace(/src="attachment:([^"]+)"/g, (_2, name2) => `src="${base2}${encodeURIComponent(name2)}"`);
+  }
   return html2;
 }
 export {

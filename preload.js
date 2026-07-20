@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('archivAPI', {
   // --- App-Grundinfos ---
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
   getPlatformInfo: () => ipcRenderer.invoke('app:getPlatformInfo'),
+  getBackupStatus: () => ipcRenderer.invoke('app:getBackupStatus'),
+  verifyAppLock: (password) => ipcRenderer.invoke('app:verifyAppLock', password),
 
   // --- Native Dialoge (generisch) ---
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
@@ -35,6 +37,7 @@ contextBridge.exposeInMainWorld('archivAPI', {
   // --- Export (Schritt 6): PDF/HTML pro Notiz, ZIP fürs ganze Projekt ---
   exportApi: {
     saveHtml: (html, suggestedName) => ipcRenderer.invoke('export:saveHtml', html, suggestedName),
+    saveMarkdown: (markdown, suggestedName) => ipcRenderer.invoke('export:saveMarkdown', markdown, suggestedName),
     notePdf: (suggestedName) => ipcRenderer.invoke('export:notePdf', suggestedName),
     projectZip: () => ipcRenderer.invoke('export:projectZip')
   },
@@ -61,10 +64,13 @@ contextBridge.exposeInMainWorld('archivAPI', {
   fs: {
     listTree: () => ipcRenderer.invoke('fs:listTree'),
     reorderChildren: (parentRelPath, orderedNames) => ipcRenderer.invoke('fs:reorderChildren', parentRelPath, orderedNames),
+    setCategoryIcon: (relPath, icon) => ipcRenderer.invoke('fs:setCategoryIcon', relPath, icon),
+    setProjectSetting: (key, value) => ipcRenderer.invoke('fs:setProjectSetting', key, value),
+    saveAttachment: (fileName, data) => ipcRenderer.invoke('fs:saveAttachment', fileName, data),
     getSearchDocuments: () => ipcRenderer.invoke('fs:getSearchDocuments'),
     createMainCategory: (name) => ipcRenderer.invoke('fs:createMainCategory', name),
     createSubCategory: (mainCategoryRelPath, name) => ipcRenderer.invoke('fs:createSubCategory', mainCategoryRelPath, name),
-    createNote: (categoryRelPath, title) => ipcRenderer.invoke('fs:createNote', categoryRelPath, title),
+    createNote: (categoryRelPath, title, templateBody) => ipcRenderer.invoke('fs:createNote', categoryRelPath, title, templateBody),
     readNote: (relPath) => ipcRenderer.invoke('fs:readNote', relPath),
     writeNote: (relPath, body, frontmatterPatch) => ipcRenderer.invoke('fs:writeNote', relPath, body, frontmatterPatch),
     renameEntry: (relPath, newName) => ipcRenderer.invoke('fs:renameEntry', relPath, newName),

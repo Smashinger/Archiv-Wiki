@@ -10,6 +10,7 @@
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { readAppState } = require('./main/app-state');
 const { isValidProject, readProjectConfig } = require('./main/project');
 const { registerWizardIpc } = require('./main/wizard-ipc');
@@ -255,6 +256,38 @@ function registerCoreIpc() {
     chrome: process.versions.chrome,
     node: process.versions.node
   }));
+
+  // Backup-Warnung-Feature: Anzahl aufeinanderfolgender fehlgeschlagener
+  // automatischer Backups (siehe main/backup.js) — ab 3 in Folge zeigt die
+  // App eine sichtbare Warnung, statt dass es unbemerkt weiter fehlschlägt.
+  ipcMain.handle('app:getBackupStatus', () => {
+    const state = readAppState();
+    return {
+      consecutiveFailures: state.backupConsecutiveFailures || 0,
+      lastSuccessAt: state.backupLastSuccessAt || null,
+      lastErrorAt: state.backupLastErrorAt || null
+    };
+  });
+
+  // App-Passwortschutz: Passwort selbst wird nie gespeichert, nur Salt+Hash
+  // (siehe main/wizard-ipc.js beim Setzen). Hier: mit demselben Salt erneut
+  // hashen und mit dem gespeicherten Hash vergleichen — timingSafeEqual statt
+  // === , damit die Vergleichszeit nicht verrät, wie viele Zeichen schon
+  // stimmten (Schutz gegen Timing-Angriffe, auch wenn das Risiko hier gering
+  // ist, da rein lokal — trotzdem der korrekte, saubere Weg).
+  ipcMain.handle('app:verifyAppLock', (_e, enteredPassword) => {
+    const config = readProjectConfig(currentProject?.path);
+    const appLock = config?.appLock;
+    if (!appLock?.enabled) return { ok: true }; // kein Schutz gesetzt — nichts zu prüfen
+    try {
+      const candidateHash = crypto.scryptSync(enteredPassword || '', appLock.salt, 64);
+      const storedHash = Buffer.from(appLock.hash, 'hex');
+      const ok = candidateHash.length === storedHash.length && crypto.timingSafeEqual(candidateHash, storedHash);
+      return { ok };
+    } catch {
+      return { ok: false };
+    }
+  });
 
   // Generischer Ordner-Auswahl-Dialog für spätere Fälle (z. B. "Projekt
   // wechseln" über das Menü). Der Wizard selbst nutzt den spezifischeren

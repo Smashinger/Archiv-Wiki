@@ -4,6 +4,7 @@
 
 import * as fs from './filesystem.js';
 import { buildSyncIntervalOptionsHtml } from './sync-shared.js';
+import { applyAccentPalette, buildAccentSwatchesHtml } from './theme.js';
 import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent } from './editor.js';
 import { rebuildIndex, search as searchNotes } from './search.js';
 
@@ -26,6 +27,8 @@ const els = {
   searchClear: document.getElementById('searchClear'),
   navTree: document.getElementById('navTree'),
   homeLink: document.getElementById('homeLink'),
+  tagsLink: document.getElementById('tagsLink'),
+  statsLink: document.getElementById('statsLink'),
   btnAddNote: document.getElementById('btnAddNote'),
   segAddMain: document.getElementById('segAddMain'),
   segAddSub: document.getElementById('segAddSub'),
@@ -159,12 +162,76 @@ els.overlay.addEventListener('click', closeSidebar);
 // Sidebar — Löschen bleibt davon unberührt (das läuft weiterhin immer über
 // das ⋮-Kontextmenü, unabhängig von diesem Modus).
 // ---------------------------------------------------------------------------
-els.btnEditMode.addEventListener('click', () => {
-  state.editMode = !state.editMode;
-  els.sidebar.classList.toggle('edit-mode', state.editMode);
-  els.btnEditMode.classList.toggle('active', state.editMode);
-  els.btnEditMode.title = state.editMode ? 'Bearbeiten-Modus verlassen' : 'Bearbeiten-Modus (Verschieben)';
+els.btnEditMode.addEventListener('click', (e) => {
+  e.stopPropagation();
+  showSidebarFootMenu(els.btnEditMode);
 });
+
+// Sidebar-Fuß-Menü ("⋮"): vorher direkter Umschalter NUR für den
+// Bearbeiten-Modus — jetzt ein echtes kleines Menü, das auch "Akzentfarben
+// ändern" anbietet (bisher nur einmalig im Wizard änderbar, siehe Bug-Analyse).
+function showSidebarFootMenu(anchorEl) {
+  document.querySelectorAll('.context-menu, .prompt-overlay').forEach(m => m.remove());
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.innerHTML = `
+    <button type="button" data-action="accent">🎨 Akzentfarben ändern</button>
+    <button type="button" data-action="edit-mode">✎ Bearbeiten-Modus${state.editMode ? ' (verlassen)' : ''}</button>
+  `;
+  document.body.appendChild(menu);
+  const rect = anchorEl.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  // Dieselbe Viewport-Begrenzung wie beim Icon-Picker-Fix — bleibt immer
+  // sichtbar, weicht bei Bedarf nach oben statt unten aus.
+  const top = Math.min(rect.top - menuRect.height - 4, window.innerHeight - menuRect.height - 8);
+  menu.style.top = Math.max(4, top) + 'px';
+  menu.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
+
+  menu.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    menu.remove();
+    if (btn.dataset.action === 'edit-mode') {
+      state.editMode = !state.editMode;
+      els.sidebar.classList.toggle('edit-mode', state.editMode);
+      els.btnEditMode.classList.toggle('active', state.editMode);
+    } else if (btn.dataset.action === 'accent') {
+      showAccentPickerModal();
+    }
+  });
+  setTimeout(() => document.addEventListener('click', function closeOnce() {
+    menu.remove();
+    document.removeEventListener('click', closeOnce);
+  }), 0);
+}
+
+// Akzentfarben nachträglich ändern (bisher nur einmalig im Wizard möglich).
+// Wendet die Wahl sofort live an (wie im Wizard) und speichert sie dauerhaft
+// in der Projekt-Config.
+function showAccentPickerModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'prompt-overlay';
+  overlay.innerHTML = `
+    <div class="prompt-modal">
+      <div class="prompt-title">🎨 Akzentfarbe wählen<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
+      <div class="color-swatch-row" id="accentPickerRow">${buildAccentSwatchesHtml(state.project?.config?.accentKey)}</div>
+    </div>`;
+  document.body.appendChild(overlay);
+  function close() { overlay.remove(); }
+  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-action="close-x"]').addEventListener('click', close);
+  overlay.querySelector('#accentPickerRow').addEventListener('click', async (e) => {
+    const btn = e.target.closest('.color-swatch');
+    if (!btn) return;
+    const key = btn.dataset.accent;
+    applyAccentPalette(key);
+    overlay.querySelectorAll('.color-swatch').forEach(b => b.classList.toggle('active', b === btn));
+    if (state.project?.config) state.project.config.accentKey = key;
+    try { await fs.setProjectSetting('accentKey', key); }
+    catch (err) { console.error('[Archiv Wiki] Akzentfarbe konnte nicht gespeichert werden:', err); }
+    setTimeout(close, 150);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Topbar: Papierkorb + Info direkt als Icon-Buttons (kein Dropdown mehr)
@@ -231,7 +298,7 @@ async function showBugReportModal() {
 }
 els.btnAbout.addEventListener('click', async () => {
   const version = await window.archivAPI.getVersion();
-  alert(`Archiv Wiki v${version}\nAutor: smashii\nLizenz: MIT`);
+  alert(`Archiv Wiki v${version}\nAutor: smashii\nLizenz: MIT\n\nTipp: Taste "?" zeigt alle Tastenkürzel.`);
 });
 
 // ---------------------------------------------------------------------------
@@ -481,6 +548,8 @@ window.archivAPI.syncApi.onStatusUpdate(applySyncStatus);
 // Bug-Fix: "Startseite"/homeLink lag außerhalb von #navTree und wurde daher
 // nie von wireNavInteractions() erfasst — hatte bislang GAR keinen Klick-Handler.
 els.homeLink.addEventListener('click', () => { location.hash = '#home'; });
+els.tagsLink.addEventListener('click', () => { location.hash = '#tags'; });
+els.statsLink.addEventListener('click', () => { location.hash = '#stats'; });
 
 // ---------------------------------------------------------------------------
 // Baum laden + Sidebar/Stats/Home neu rendern
@@ -526,6 +595,7 @@ function renderGroup(group, depth) {
       ${handle}
       <button type="button" class="group-header" data-toggle="${escapeHtml(group.relPath)}">
         <svg class="g-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+        <span class="g-icon">${group.icon || '📁'}</span>
         <span class="g-label">${escapeHtml(group.name)}</span>
         <span class="g-count">${notesCount}</span>
       </button>
@@ -555,7 +625,7 @@ function renderNoteItem(note) {
   li.innerHTML = `
     <span class="row-handle" draggable="true" title="Ziehen zum Verschieben/Umsortieren">⠿</span>
     <a class="nav-link" data-route="note" data-relpath="${escapeHtml(note.relPath)}">
-      <span class="nl-icon">📄</span><span class="nl-title">${escapeHtml(title)}</span>
+      <span class="nl-icon">${note.icon || '📄'}</span><span class="nl-title">${escapeHtml(title)}</span>
     </a>
     <button type="button" class="nav-icon-btn" data-context="${escapeHtml(note.relPath)}" title="Optionen">⋮</button>
   `;
@@ -607,7 +677,18 @@ function wireNavInteractions() {
   els.navTree.querySelectorAll('.nav-group').forEach(group => {
     const headerRow = group.querySelector(':scope > .group-header-row');
     group.addEventListener('dragover', (e) => {
-      if (!state.dragRelPath) return; // kein aktiver Drag (z.B. Text-Drag von außen) -> ignorieren
+      if (!state.dragRelPath) {
+        // Kein aktiver interner Drag — könnte trotzdem ein externer Datei-Drag
+        // sein (z. B. .md-Datei aus dem Dateimanager). Ohne preventDefault()
+        // hier würde das spätere "drop"-Ereignis laut HTML5-Spec NIE feuern,
+        // selbst wenn der drop-Handler selbst externe Dateien behandeln könnte.
+        if ([...(e.dataTransfer?.types || [])].includes('Files') && group.dataset.type === 'subCategory') {
+          e.preventDefault();
+          e.stopPropagation();
+          headerRow?.classList.add('drag-over');
+        }
+        return;
+      }
       e.stopPropagation(); // sonst würde beim Überfahren einer Unterkategorie zusätzlich die umschließende Hauptkategorie reagieren
       const valid = isValidDropTarget(group.dataset.relpath, group.dataset.type);
       if (valid) e.preventDefault(); // signalisiert dem Browser: hier darf gedroppt werden
@@ -649,6 +730,27 @@ function wireNavInteractions() {
     group.addEventListener('drop', async (e) => {
       e.preventDefault();
       e.stopPropagation();
+
+      // Fremde .md-Dateien aus dem Dateimanager importieren — unabhängig vom
+      // bestehenden INTERNEN Umsortier-Drag (state.dragType bleibt hier immer
+      // leer, das ist eine echte externe Datei-Drop, kein Sidebar-Element).
+      const externalFiles = [...(e.dataTransfer?.files || [])].filter(f => /\.(md|markdown)$/i.test(f.name));
+      if (externalFiles.length > 0 && group.dataset.type === 'subCategory') {
+        headerRow?.classList.remove('drag-over', 'drag-over-top', 'drag-over-bottom', 'invalid');
+        for (const file of externalFiles) {
+          try {
+            const text = await file.text();
+            const titleGuess = file.name.replace(/\.(md|markdown)$/i, '');
+            const created = await fs.createNote(group.dataset.relpath, titleGuess);
+            await fs.saveNote(created.relPath, text, undefined);
+          } catch (err) {
+            alert(`"${file.name}" konnte nicht importiert werden:\n` + err.message);
+          }
+        }
+        await refreshAll();
+        return;
+      }
+
       const dropPosition = group.dataset.dropPosition;
       headerRow?.classList.remove('drag-over', 'drag-over-top', 'drag-over-bottom', 'invalid');
       if (!isValidDropTarget(group.dataset.relpath, group.dataset.type)) return;
@@ -794,6 +896,7 @@ function showExportMenu(anchorEl) {
     const menu = document.createElement('div');
     menu.className = 'context-menu';
     menu.innerHTML = `
+      <button type="button" data-choice="md">⬇ Als Markdown-Datei (.md) exportieren</button>
       <button type="button" data-choice="html">⬇ Als HTML exportieren</button>
       <button type="button" data-choice="pdf">⬇ Als PDF exportieren</button>
       <button type="button" data-choice="zip">⬇ Ganzes Wiki als ZIP sichern</button>
@@ -896,10 +999,12 @@ async function performDelete(relPath, type) {
 
 function showContextMenu(relPath, anchorEl, type = 'note') {
   document.querySelectorAll('.context-menu').forEach(m => m.remove());
+  const isFolder = type !== 'note';
   const menu = document.createElement('div');
   menu.className = 'context-menu';
   menu.innerHTML = `
     <button type="button" data-action="rename">✎ Umbenennen</button>
+    <button type="button" data-action="icon">🎨 Icon ändern</button>
     <button type="button" class="danger" data-action="delete">🗑 Löschen</button>
   `;
   document.body.appendChild(menu);
@@ -915,8 +1020,15 @@ function showContextMenu(relPath, anchorEl, type = 'note') {
       await performDelete(relPath, type);
       return;
     }
+    if (btn.dataset.action === 'icon') {
+      menu.remove();
+      showEmojiPicker(anchorEl, async (emoji) => {
+        await fs.setCategoryIcon(relPath, emoji);
+        await refreshAll();
+      });
+      return;
+    }
     if (btn.dataset.action !== 'rename') return;
-    const isFolder = type !== 'note';
     const openRelPath = getOpenRelPath();
     const affectsOpenNote = openRelPath && (isFolder ? (openRelPath.startsWith(relPath + '/') || openRelPath === relPath) : openRelPath === relPath);
     const currentName = relPath.split('/').pop().replace(/\.md$/, '');
@@ -1019,6 +1131,48 @@ setActiveSegment('sub'); // Default: Unterkategorie ist die häufiger genutzte A
 // Notizen dürfen NUR in einer Unterkategorie liegen, nie direkt in einer
 // Hauptkategorie.
 // ---------------------------------------------------------------------------
+const NOTE_TEMPLATES = [
+  { key: 'leer', label: 'Leer', body: '# {title}\n\n' },
+  {
+    key: 'setup', label: 'Setup-Anleitung',
+    body: '# {title}\n\n> [!abstract] Zusammenfassung\n> Kurz worum es geht.\n\n## Voraussetzungen\n\n- \n\n## Schritte\n\n1. \n2. \n\n## Troubleshooting\n\n- **Problem:** \n  **Lösung:** \n'
+  },
+  {
+    key: 'problem', label: 'Problemlösung',
+    body: '# {title}\n\n> [!warning] Problem\n> Was genau geht nicht?\n\n## Ursache\n\n\n## Lösung\n\n\n## Quelle/Links\n\n- \n'
+  },
+  {
+    key: 'checkliste', label: 'Checkliste',
+    body: '# {title}\n\n- [ ] \n- [ ] \n- [ ] \n'
+  }
+];
+
+function showTemplatePickerModal() {
+  return new Promise((resolve) => {
+    document.querySelectorAll('.prompt-overlay').forEach(el => el.remove());
+    const overlay = document.createElement('div');
+    overlay.className = 'prompt-overlay';
+    overlay.innerHTML = `
+      <div class="prompt-modal">
+        <div class="prompt-title">Vorlage wählen</div>
+        <div class="template-picker-list">
+          ${NOTE_TEMPLATES.map(t => `<button type="button" class="template-picker-btn" data-key="${t.key}">${escapeHtml(t.label)}</button>`).join('')}
+        </div>
+        <div class="prompt-actions">
+          <button type="button" class="btn" data-action="cancel">Abbrechen</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    let done = false;
+    function close(value) { if (done) return; done = true; overlay.remove(); resolve(value); }
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(null); });
+    overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => close(null));
+    overlay.querySelectorAll('.template-picker-btn').forEach(btn => {
+      btn.addEventListener('click', () => close(NOTE_TEMPLATES.find(t => t.key === btn.dataset.key)));
+    });
+  });
+}
+
 els.btnAddNote.addEventListener('click', async () => {
   const subCategories = collectSubCategories(state.tree);
   if (subCategories.length === 0) {
@@ -1033,8 +1187,11 @@ els.btnAddNote.addEventListener('click', async () => {
   const title = await showPromptModal({ title: 'Titel der neuen Notiz', defaultValue: 'Neue Notiz' });
   if (!title) return;
 
+  const template = await showTemplatePickerModal();
+  if (!template) return; // Abbrechen im Vorlagen-Dialog bricht das Anlegen komplett ab
+
   try {
-    const created = await fs.createNote(targetRelPath, title);
+    const created = await fs.createNote(targetRelPath, title, template.body);
     await refreshAll();
     location.hash = '#note/' + encodeURIComponent(created.relPath);
   } catch (err) {
@@ -1114,7 +1271,37 @@ document.addEventListener('keydown', (e) => {
   else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && getOpenRelPath()) {
     e.preventDefault(); jumpToAdjacentNote(e.key === 'ArrowRight' ? 1 : -1);
   }
+  else if (e.key === '?' && !mod && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName) && !document.activeElement?.closest('.cm-editor')) {
+    e.preventDefault(); showShortcutsCheatsheet();
+  }
 });
+
+const SHORTCUTS = [
+  { keys: 'Strg/Cmd + K', desc: 'Suche fokussieren' },
+  { keys: 'Strg/Cmd + S', desc: 'Notiz speichern' },
+  { keys: 'Strg/Cmd + B', desc: 'Ansicht wechseln (Editor/Split/Vorschau)' },
+  { keys: 'Alt + ← / →', desc: 'Zur vorherigen/nächsten Notiz springen' },
+  { keys: '?', desc: 'Diesen Spickzettel anzeigen' },
+  { keys: 'Esc', desc: 'Offenes Fenster/Menü schließen' },
+];
+
+function showShortcutsCheatsheet() {
+  document.querySelectorAll('.prompt-overlay').forEach(el => el.remove());
+  const overlay = document.createElement('div');
+  overlay.className = 'prompt-overlay';
+  overlay.innerHTML = `
+    <div class="prompt-modal">
+      <div class="prompt-title">⌨️ Tastenkürzel<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
+      <div class="shortcuts-list">
+        ${SHORTCUTS.map(s => `<div class="shortcut-row"><kbd>${escapeHtml(s.keys)}</kbd><span>${escapeHtml(s.desc)}</span></div>`).join('')}
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  function close() { overlay.remove(); }
+  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('[data-action="close-x"]').addEventListener('click', close);
+  document.addEventListener('keydown', function onEsc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onEsc); } });
+}
 
 function cycleViewMode() {
   const order = ['split', 'editor', 'preview'];
@@ -1143,6 +1330,9 @@ async function render() {
   const slug = currentSlug();
   if (slug === 'home') return await renderHome();
   if (slug === 'trash') return renderTrash();
+  if (slug === 'tags') return await renderTagsOverview(null);
+  if (slug.startsWith('tags/')) return await renderTagsOverview(decodeURIComponent(slug.slice('tags/'.length)));
+  if (slug === 'stats') return await renderStatsPage();
   if (slug.startsWith('note/')) return renderNote(decodeURIComponent(slug.slice('note/'.length)));
   return await renderHome();
 }
@@ -1229,6 +1419,15 @@ function buildDashboardRow(note, excerpt, dateLabel, isRecent) {
 }
 
 // --- Home: zweigeteiltes Dashboard ("Zuletzt bearbeitet" + "Alle Notizen") ---
+// Zeitabhängige Begrüßung — nutzt denselben Namen wie das Branding über der
+// Suche (config.wikiName), fällt ohne Namen auf eine neutrale Anrede zurück.
+function greetingFor(wikiName) {
+  const hour = new Date().getHours();
+  const salutation = hour < 5 ? 'Guten Abend' : hour < 11 ? 'Guten Morgen' : hour < 18 ? 'Guten Tag' : 'Guten Abend';
+  const name = wikiName?.trim();
+  return name ? `${salutation}, ${escapeHtml(name)}` : salutation;
+}
+
 async function renderHome() {
   setBreadcrumb('Start');
   setActiveNav(null);
@@ -1251,11 +1450,31 @@ async function renderHome() {
     return tb.localeCompare(ta);
   });
   const recentNotes = sorted.slice(0, 5);
+  const pinnedNotes = sorted.filter(n => n.frontmatter?.pinned);
+
+  // Notiz-Statistik-Widget: simple, aus schon vorhandenen Frontmatter-Daten
+  // berechnet — kein zusätzlicher Speicher-/Tracking-Aufwand nötig.
+  const oneWeekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+  const editedThisWeek = notes.filter(n => {
+    const t = n.frontmatter?.modified || n.frontmatter?.created;
+    return t && new Date(t).getTime() >= oneWeekAgo;
+  }).length;
+  const categoryCount = new Set(notes.map(n => n.frontmatter?.category || n.frontmatter?.mainCategory).filter(Boolean)).size;
 
   els.contentScroll.innerHTML = `
-    <h1 class="home-heading">Deine Notizen</h1>
+    <h1 class="home-heading">${greetingFor(state.project?.config?.wikiName)}</h1>
     <p class="home-sub">${notes.length} Notiz${notes.length === 1 ? '' : 'en'}</p>
+    <div class="stats-widget">
+      <div class="stat-chip"><span class="stat-num">${notes.length}</span><span class="stat-label">Notizen gesamt</span></div>
+      <div class="stat-chip"><span class="stat-num">${editedThisWeek}</span><span class="stat-label">diese Woche bearbeitet</span></div>
+      <div class="stat-chip"><span class="stat-num">${categoryCount}</span><span class="stat-label">Themen</span></div>
+    </div>
     <div class="dashboard-sections">
+      ${pinnedNotes.length ? `
+      <div class="dashboard-section pinned">
+        <div class="dashboard-section-header">★ Angepinnt</div>
+        <div class="dashboard-list" id="pinnedList"></div>
+      </div>` : ''}
       <div class="dashboard-section recent">
         <div class="dashboard-section-header">Zuletzt bearbeitet</div>
         <div class="dashboard-list" id="recentList"></div>
@@ -1279,6 +1498,14 @@ async function renderHome() {
     return stripMarkdownSyntax(bodyByRelPath.get(note.relPath)).slice(0, 60);
   }
 
+  if (pinnedNotes.length) {
+    const pinnedList = document.getElementById('pinnedList');
+    pinnedNotes.forEach(note => {
+      const dateLabel = formatRelativeTime(note.frontmatter?.modified || note.frontmatter?.created);
+      pinnedList.appendChild(buildDashboardRow(note, excerptFor(note), dateLabel, true));
+    });
+  }
+
   const recentList = document.getElementById('recentList');
   recentNotes.forEach(note => {
     const dateLabel = formatRelativeTime(note.frontmatter?.modified || note.frontmatter?.created);
@@ -1293,6 +1520,43 @@ async function renderHome() {
 }
 
 // --- Notiz-Ansicht ---
+// Echte Backlinks (nicht zu verwechseln mit der manuellen "gehört zu →"-
+// Verknüpfung oben, siehe Kommentar dort): durchsucht alle ANDEREN Notizen
+// nach [[Ziel]]- bzw. [[Ziel|Anzeigetext]]-Links, die per Titel auf DIESE
+// Notiz zeigen. Nutzt dieselbe Titel-Match-Logik wie renderWikiLinksToPlaceholders
+// in build/editor-entry.js (case-insensitiver Titel-Vergleich).
+async function renderIncomingLinks(relPath, currentTitle) {
+  const container = document.getElementById('incomingLinks');
+  if (!container) return;
+  let docs;
+  try { docs = await fs.getSearchDocuments(); }
+  catch { container.innerHTML = ''; return; }
+
+  const linkRe = /\[\[([^\]\n|]+?)(?:\|[^\]\n]+?)?\]\]/g;
+  const linkingNotes = [];
+  for (const doc of docs) {
+    if (doc.relPath === relPath) continue;
+    let m;
+    linkRe.lastIndex = 0;
+    while ((m = linkRe.exec(doc.body || ''))) {
+      if (m[1].trim().toLowerCase() === currentTitle.toLowerCase()) {
+        linkingNotes.push(doc);
+        break;
+      }
+    }
+  }
+
+  if (linkingNotes.length === 0) { container.innerHTML = ''; return; }
+  container.innerHTML = `
+    <div class="incoming-links-label">🔗 Verlinkt von ${linkingNotes.length} Notiz${linkingNotes.length === 1 ? '' : 'en'}:</div>
+    <div class="incoming-links-list">
+      ${linkingNotes.map(n => `<a href="#" class="incoming-link-item" data-relpath="${escapeHtml(n.relPath)}">${escapeHtml(n.title)}</a>`).join('')}
+    </div>`;
+  container.querySelectorAll('.incoming-link-item').forEach(a => {
+    a.addEventListener('click', (e) => { e.preventDefault(); location.hash = '#note/' + encodeURIComponent(a.dataset.relpath); });
+  });
+}
+
 async function renderNote(relPath) {
   const node = fs.findNode(state.tree, relPath);
   if (!node) { location.hash = '#home'; return; }
@@ -1303,11 +1567,13 @@ async function renderNote(relPath) {
 
   els.contentScroll.innerHTML = `
     <div class="note-header">
+      <button type="button" class="pin-btn${node.frontmatter?.pinned ? ' active' : ''}" id="btnPinNote" title="${node.frontmatter?.pinned ? 'Von Favoriten entfernen' : 'Als Favorit anpinnen'}" aria-label="Anpinnen">${node.frontmatter?.pinned ? '★' : '☆'}</button>
       <input type="text" class="note-title-input" id="noteTitleInput" value="${escapeHtml(title)}">
       <button type="button" class="category-badge" id="noteCategoryBadge" title="In andere Kategorie verschieben">${escapeHtml(node.frontmatter?.category || node.frontmatter?.mainCategory || '')}</button>
       <input type="text" class="tags-input" id="noteTagsInput" placeholder="tag1, tag2, …">
     </div>
     <div class="backlink-row" id="backlinkRow"></div>
+    <div class="incoming-links" id="incomingLinks"></div>
     <div class="note-toolbar">
       <div class="view-toggle" id="viewToggle">
         <button type="button" data-mode="editor">Editor</button>
@@ -1355,6 +1621,8 @@ async function renderNote(relPath) {
   });
 
   wireEditorContextMenus();
+  wireImageDrop();
+  wireImageDrop();
 
   // Split-Ansicht per Ziehen in der Breite verstellbar. Reset auf 50/50 bei
   // jedem erneuten Öffnen einer Notiz (kein Persistieren über Notizen hinweg
@@ -1396,6 +1664,16 @@ async function renderNote(relPath) {
   const statWords = document.getElementById('statWords');
   const statCursor = document.getElementById('statCursor');
   const statSaved = document.getElementById('statSaved');
+  const btnPinNote = document.getElementById('btnPinNote');
+  btnPinNote.addEventListener('click', async () => {
+    const nowPinned = !node.frontmatter?.pinned;
+    await fs.saveNote(relPath, undefined, { pinned: nowPinned || null });
+    btnPinNote.textContent = nowPinned ? '★' : '☆';
+    btnPinNote.classList.toggle('active', nowPinned);
+    btnPinNote.title = nowPinned ? 'Von Favoriten entfernen' : 'Als Favorit anpinnen';
+    if (node.frontmatter) node.frontmatter.pinned = nowPinned || undefined;
+  });
+
   const categoryBadge = document.getElementById('noteCategoryBadge');
   const dateEl = els.topbarNoteDates;
 
@@ -1452,7 +1730,10 @@ async function renderNote(relPath) {
     const safeTitle = (titleInput.value.trim() || 'notiz').replace(/[\\/:*?"<>|]/g, '_') || 'notiz';
 
     try {
-      if (choice === 'html') {
+      if (choice === 'md') {
+        const result = await window.archivAPI.exportApi.saveMarkdown(getEditorContent(), safeTitle + '.md');
+        if (result?.saved) alert('Markdown-Datei exportiert nach:\n' + result.filePath);
+      } else if (choice === 'html') {
         const html = buildStandaloneNoteHtml({
           title: titleInput.value.trim() || 'Notiz',
           tags: tagsInput.value.split(',').map(t => t.trim()).filter(Boolean),
@@ -1513,6 +1794,7 @@ async function renderNote(relPath) {
     previewContainer: document.getElementById('previewContainer'),
     tabSize: state.config?.tabSize || 2,
     autoSaveSeconds: state.config?.autoSave ?? 30,
+    projectPath: state.project?.path,
     getNoteIndex: () => fs.flattenNotes(state.tree).map(n => ({
       title: n.frontmatter?.title || n.name.replace(/\.md$/, ''),
       relPath: n.relPath
@@ -1525,6 +1807,8 @@ async function renderNote(relPath) {
     onCursorActivity: (pos) => { statCursor.textContent = `Zeile ${pos.line}, Spalte ${pos.column}`; },
     onSaved
   });
+
+  await renderIncomingLinks(relPath, title);
 
   // Wiki-Links [[Notizname]] in der Vorschau: Klick navigiert zur Notiz,
   // oder bietet bei fehlender Notiz an, sie in der aktuellen Unterkategorie anzulegen.
@@ -2104,7 +2388,38 @@ function wireEditorContextMenus() {
   });
 }
 
-function showEmojiPicker(anchorEl) {
+// Bilder per Drag&Drop aus dem Dateimanager in den Editor ziehen. Datei wird
+// gelesen (FileReader, funktioniert unabhängig von contextIsolation/
+// nodeIntegration-Einstellungen — robuster als sich auf File.path zu
+// verlassen), als Bytes an den Main-Prozess geschickt und dort in
+// .attachments/ gespeichert. Markdown nutzt bewusst ein eigenes
+// "attachment:dateiname"-Präfix statt eines relativen Pfades — macht die
+// Auflösung in der Vorschau unabhängig von der Verzeichnistiefe der Notiz
+// (siehe renderPreview in build/editor-entry.js).
+function wireImageDrop() {
+  const editorEl = document.getElementById('editorContainer');
+  if (!editorEl) return;
+  editorEl.addEventListener('dragover', (e) => {
+    if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault();
+  });
+  editorEl.addEventListener('drop', async (e) => {
+    const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/'));
+    if (files.length === 0) return; // kein Bild dabei — normales Text-Drop (Umsortieren etc.) unangetastet lassen
+    e.preventDefault();
+    for (const file of files) {
+      try {
+        const buffer = await file.arrayBuffer();
+        const { fileName } = await fs.saveAttachment(file.name, buffer);
+        insertAtCursor(`\n![${file.name.replace(/\.[^.]+$/, '')}](attachment:${fileName})\n`);
+      } catch (err) {
+        alert('Bild konnte nicht eingefügt werden:\n' + err.message);
+        console.error('[Archiv Wiki] Bild-Drop fehlgeschlagen:', err);
+      }
+    }
+  });
+}
+
+function showEmojiPicker(anchorEl, onSelect) {
   document.querySelectorAll('.emoji-picker').forEach(m => m.remove());
   const picker = document.createElement('div');
   picker.className = 'emoji-picker';
@@ -2131,7 +2446,13 @@ function showEmojiPicker(anchorEl) {
   `;
   document.body.appendChild(picker);
   const rect = anchorEl.getBoundingClientRect();
-  picker.style.top = rect.bottom + 6 + 'px';
+  const pickerRect = picker.getBoundingClientRect();
+  // Bugfix: vorher wurde nur die horizontale Position begrenzt — bei
+  // Kategorien weit unten in der Sidebar rutschte das Fenster dadurch unten
+  // aus dem sichtbaren Bereich. Jetzt wie beim Tabellen-/Hinweisblock-Picker:
+  // bleibt am Klickpunkt, weicht nur nach oben aus, wenn unten kein Platz ist.
+  const top = Math.min(rect.bottom + 6, window.innerHeight - pickerRect.height - 8);
+  picker.style.top = Math.max(4, top) + 'px';
   picker.style.left = Math.min(rect.left, window.innerWidth - 320) + 'px';
 
   const searchInput = picker.querySelector('#emojiSearch');
@@ -2141,10 +2462,14 @@ function showEmojiPicker(anchorEl) {
   });
   searchInput.focus();
 
+  // onSelect optional: ohne Angabe (z. B. Editor-Toolbar) wird wie bisher
+  // direkt in den Editor eingefügt. Mit Angabe (z. B. Kategorie-Icon-Wahl)
+  // wird stattdessen der Callback aufgerufen — derselbe Picker, zwei Zwecke.
   picker.addEventListener('click', (e) => {
     const btn = e.target.closest('.emoji-btn');
     if (!btn) return;
-    insertAtCursor(btn.dataset.emoji);
+    if (onSelect) { onSelect(btn.dataset.emoji); picker.remove(); }
+    else insertAtCursor(btn.dataset.emoji); // Picker bleibt bewusst offen — mehrere Emojis nacheinander einfügen
   });
   setTimeout(() => document.addEventListener('click', function closeOnce(e) {
     if (picker.contains(e.target)) return; // Mehrere Emojis nacheinander einfügen, ohne dass es sofort zuklappt
@@ -2162,6 +2487,122 @@ function applyViewMode() {
 // ---------------------------------------------------------------------------
 // Papierkorb
 // ---------------------------------------------------------------------------
+// --- Tags: Übersicht aller vergebenen Schlagwörter, anklickbar zum Filtern ---
+async function renderTagsOverview(activeTag) {
+  setBreadcrumb(activeTag ? `Tags / ${activeTag}` : 'Tags');
+  els.homeLink.classList.remove('active');
+  els.tagsLink.classList.add('active');
+  els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.remove('active'));
+
+  const notes = fs.flattenNotes(state.tree);
+  const tagCounts = new Map();
+  notes.forEach(n => (n.frontmatter?.tags || []).forEach(t => tagCounts.set(t, (tagCounts.get(t) || 0) + 1)));
+  const sortedTags = [...tagCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+  if (sortedTags.length === 0) {
+    els.contentScroll.innerHTML = `
+      <h1 class="home-heading">Tags</h1>
+      <div class="empty-state">Noch keine Tags vergeben — trag welche im Tag-Feld einer Notiz ein (z. B. "linux, setup").</div>`;
+    return;
+  }
+
+  const tagCloudHtml = sortedTags.map(([tag, count]) => `
+    <button type="button" class="tag-chip${tag === activeTag ? ' active' : ''}" data-tag="${escapeHtml(tag)}">
+      ${escapeHtml(tag)} <span class="tag-count">${count}</span>
+    </button>`).join('');
+
+  const filteredNotes = activeTag ? notes.filter(n => (n.frontmatter?.tags || []).includes(activeTag)) : [];
+
+  els.contentScroll.innerHTML = `
+    <h1 class="home-heading">Tags</h1>
+    <div class="tag-cloud">${tagCloudHtml}</div>
+    ${activeTag ? `
+      <h2 class="tag-section-heading">Notizen mit "${escapeHtml(activeTag)}"</h2>
+      <div class="dashboard-section all" style="max-height:60vh;">
+        <div class="dashboard-list" id="tagNotesList"></div>
+      </div>` : '<p class="home-sub" style="margin-top:14px;">Klicke auf einen Tag, um die zugehörigen Notizen zu sehen.</p>'}
+  `;
+
+  els.contentScroll.querySelectorAll('.tag-chip').forEach(chip => {
+    chip.addEventListener('click', () => { location.hash = '#tags/' + encodeURIComponent(chip.dataset.tag); });
+  });
+
+  if (activeTag) {
+    const list = document.getElementById('tagNotesList');
+    let bodyByRelPath = new Map();
+    try {
+      const docs = await fs.getSearchDocuments();
+      bodyByRelPath = new Map(docs.map(d => [d.relPath, d.body]));
+    } catch { /* Ausschnitte sind rein informativ, Liste funktioniert auch ohne */ }
+    filteredNotes.forEach(note => {
+      const dateLabel = formatAbsoluteDate(note.frontmatter?.modified || note.frontmatter?.created);
+      const excerpt = stripMarkdownSyntax(bodyByRelPath.get(note.relPath)).slice(0, 60);
+      list.appendChild(buildDashboardRow(note, excerpt, dateLabel, false));
+    });
+  }
+}
+
+// --- Statistik-Seite: ausführlicher als das kleine Dashboard-Widget ---
+async function renderStatsPage() {
+  setBreadcrumb('Statistik');
+  els.homeLink.classList.remove('active');
+  els.tagsLink.classList.remove('active');
+  els.statsLink.classList.add('active');
+  els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.remove('active'));
+
+  const notes = fs.flattenNotes(state.tree);
+  const mainCategories = collectMainCategories(state.tree);
+  const subCategories = collectSubCategories(state.tree);
+
+  let bodyByRelPath = new Map();
+  try {
+    const docs = await fs.getSearchDocuments();
+    bodyByRelPath = new Map(docs.map(d => [d.relPath, d.body]));
+  } catch { /* Wortzahl ist rein informativ, Seite funktioniert auch ohne */ }
+  const totalWords = notes.reduce((sum, n) => {
+    const body = bodyByRelPath.get(n.relPath) || '';
+    return sum + stripMarkdownSyntax(body).split(/\s+/).filter(Boolean).length;
+  }, 0);
+
+  const perMainCategory = new Map();
+  notes.forEach(n => {
+    const key = n.frontmatter?.mainCategory || '(ohne Thema)';
+    perMainCategory.set(key, (perMainCategory.get(key) || 0) + 1);
+  });
+  const sortedCategories = [...perMainCategory.entries()].sort((a, b) => b[1] - a[1]);
+
+  const tagCounts = new Map();
+  notes.forEach(n => (n.frontmatter?.tags || []).forEach(t => tagCounts.set(t, (tagCounts.get(t) || 0) + 1)));
+  const topTags = [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  els.contentScroll.innerHTML = `
+    <h1 class="home-heading">Statistik</h1>
+    <div class="stats-widget">
+      <div class="stat-chip"><span class="stat-num">${notes.length}</span><span class="stat-label">Notizen</span></div>
+      <div class="stat-chip"><span class="stat-num">${mainCategories.length}</span><span class="stat-label">Hauptthemen</span></div>
+      <div class="stat-chip"><span class="stat-num">${subCategories.length}</span><span class="stat-label">Unterthemen</span></div>
+      <div class="stat-chip"><span class="stat-num">${totalWords.toLocaleString('de-DE')}</span><span class="stat-label">Wörter gesamt</span></div>
+    </div>
+    <div class="stats-columns">
+      <div class="stats-block">
+        <h2 class="tag-section-heading">Notizen pro Thema</h2>
+        <div class="stats-bar-list">
+          ${sortedCategories.map(([name, count]) => `
+            <div class="stats-bar-row">
+              <span class="stats-bar-label">${escapeHtml(name)}</span>
+              <div class="stats-bar-track"><div class="stats-bar-fill" style="width:${Math.max(4, (count / notes.length) * 100)}%"></div></div>
+              <span class="stats-bar-count">${count}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+      <div class="stats-block">
+        <h2 class="tag-section-heading">Meistgenutzte Tags</h2>
+        ${topTags.length ? `<div class="tag-cloud">${topTags.map(([tag, count]) => `<span class="tag-chip">${escapeHtml(tag)} <span class="tag-count">${count}</span></span>`).join('')}</div>` : '<p class="home-sub">Noch keine Tags vergeben.</p>'}
+      </div>
+    </div>
+  `;
+}
+
 async function renderTrash() {
   setBreadcrumb('Papierkorb');
   setActiveNav(null);
@@ -2221,12 +2662,60 @@ window.addEventListener('beforeunload', (e) => {
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
+// App-Passwortschutz: blockiert die restliche Initialisierung, bis das
+// richtige Passwort eingegeben wurde (oder gar keins gesetzt ist). Prüfung
+// läuft im Main-Prozess (main.js, app:verifyAppLock) — der Renderer bekommt
+// nur ok/nicht-ok zurück, nie den gespeicherten Hash/Salt selbst zu sehen.
+function waitForUnlock() {
+  if (!state.project?.config?.appLock?.enabled) return Promise.resolve();
+  return new Promise((resolve) => {
+    const screen = document.getElementById('lockScreen');
+    const input = document.getElementById('lockScreenPassword');
+    const errorEl = document.getElementById('lockScreenError');
+    const unlockBtn = document.getElementById('lockScreenUnlock');
+    screen.style.display = 'flex';
+    input.focus();
+
+    async function tryUnlock() {
+      const result = await window.archivAPI.verifyAppLock(input.value);
+      if (result.ok) {
+        screen.style.display = 'none';
+        resolve();
+      } else {
+        errorEl.textContent = 'Falsches Passwort.';
+        input.value = '';
+        input.focus();
+      }
+    }
+    unlockBtn.addEventListener('click', tryUnlock);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryUnlock(); });
+  });
+}
+
 (async function init() {
   state.project = await window.archivAPI.getCurrentProject();
   state.config = state.project?.config?.editor || {};
 
+  await waitForUnlock();
+
   els.projectTagline.textContent = state.project?.path || 'Kein Projekt geladen';
   els.projectTagline.title = state.project?.path || '';
+
+  applyAccentPalette(state.project?.config?.accentKey);
+
+  // Backup-Warnung: Symbol bleibt standardmäßig versteckt, erscheint nur ab
+  // 3 aufeinanderfolgenden fehlgeschlagenen automatischen Backups (main/backup.js
+  // zählt das mit) — vorher liefen Fehlschläge komplett unbemerkt im Hintergrund.
+  try {
+    const backupStatus = await window.archivAPI.getBackupStatus();
+    if (backupStatus.consecutiveFailures >= 3) {
+      const btn = document.getElementById('btnBackupWarning');
+      btn.style.display = 'flex';
+      const lastError = backupStatus.lastErrorAt ? formatRelativeTime(backupStatus.lastErrorAt) : 'unbekannt';
+      btn.title = `${backupStatus.consecutiveFailures}x automatisches Backup in Folge fehlgeschlagen (zuletzt: ${lastError})`;
+      btn.addEventListener('click', () => alert(btn.title));
+    }
+  } catch { /* Backup-Status ist rein informativ, App funktioniert auch ohne diese Prüfung */ }
 
   // Branding-Zeile über der Suche: "Wiki von [Name]", Name kommt aus der
   // Ersteinrichtung (Wizard). Ohne hinterlegten Namen wird die Zeile

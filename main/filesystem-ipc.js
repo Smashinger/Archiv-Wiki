@@ -8,6 +8,8 @@
 'use strict';
 
 const { ipcMain } = require('electron');
+const fs = require('fs');
+const path = require('path');
 const nfs = require('./notes-fs');
 const { readProjectConfig, writeProjectConfig } = require('./project');
 
@@ -41,12 +43,26 @@ function registerFilesystemIpc({ getCurrentProject }) {
     return sorted;
   }
 
+  // Eigene Icons pro Kategorie (gesetzt über Rechtsklick → "Icon ändern"),
+  // gespeichert als "relPath -> Emoji"-Map in .wiki-config.json — reine
+  // Anzeige-Zuordnung, rührt keine Ordner/Dateien an. Rekursiv angewendet,
+  // damit auch tief verschachtelte Unterkategorien ihr Icon behalten.
+  function applyCategoryIcons(nodes, categoryIcons) {
+    if (!categoryIcons) return nodes;
+    for (const node of nodes) {
+      if (categoryIcons[node.relPath]) node.icon = categoryIcons[node.relPath];
+      if (node.type === 'folder') applyCategoryIcons(node.children, categoryIcons);
+    }
+    return nodes;
+  }
+
   ipcMain.handle('fs:listTree', () => {
     const projectPath = requireProjectPath();
-    const tree = nfs.listProjectTree(projectPath);
-    const childOrder = readProjectConfig(projectPath)?.childOrder;
-    if (!childOrder) return tree;
-    return applyChildOrder(tree, '', childOrder);
+    let tree = nfs.listProjectTree(projectPath);
+    const config = readProjectConfig(projectPath) || {};
+    if (config.childOrder) tree = applyChildOrder(tree, '', config.childOrder);
+    if (config.categoryIcons) tree = applyCategoryIcons(tree, config.categoryIcons);
+    return tree;
   });
 
   ipcMain.handle('fs:reorderChildren', (_e, parentRelPath, orderedNames) => {
@@ -57,6 +73,45 @@ function registerFilesystemIpc({ getCurrentProject }) {
     return { saved: true };
   });
 
+  ipcMain.handle('fs:setCategoryIcon', (_e, relPath, icon) => {
+    const projectPath = requireProjectPath();
+    const config = readProjectConfig(projectPath) || {};
+    config.categoryIcons = { ...(config.categoryIcons || {}), [relPath]: icon };
+    writeProjectConfig(projectPath, config);
+    return { saved: true };
+  });
+
+  // Generischer Setter für einzelne Top-Level-Einstellungen in .wiki-config.json
+  // (aktuell: Akzentfarbe nachträglich ändern — siehe "⋮"-Menü in der Sidebar).
+  // Bewusst generisch statt eines eigenen Kanals pro Feld, da weitere
+  // nachträglich änderbare Einstellungen absehbar dazukommen werden.
+  ipcMain.handle('fs:setProjectSetting', (_e, key, value) => {
+    const projectPath = requireProjectPath();
+    const config = readProjectConfig(projectPath) || {};
+    config[key] = value;
+    writeProjectConfig(projectPath, config);
+    return { saved: true };
+  });
+
+  // Bilder per Drag&Drop (siehe renderer/js/app.js) — landen gesammelt in
+  // EINEM Ordner .attachments/ auf Projekt-Ebene (nicht pro Notiz-Unterordner,
+  // das hält es einfach), mit eindeutigem Dateinamen gegen Überschreiben.
+  ipcMain.handle('fs:saveAttachment', (_e, fileName, data) => {
+    const projectPath = requireProjectPath();
+    const attachDir = path.join(projectPath, '.attachments');
+    if (!fs.existsSync(attachDir)) fs.mkdirSync(attachDir, { recursive: true });
+    const ext = path.extname(fileName) || '.png';
+    const base = path.basename(fileName, ext).replace(/[^a-zA-Z0-9_-]/g, '_') || 'bild';
+    let finalName = `${base}${ext}`;
+    let counter = 1;
+    while (fs.existsSync(path.join(attachDir, finalName))) {
+      finalName = `${base}-${counter}${ext}`;
+      counter++;
+    }
+    fs.writeFileSync(path.join(attachDir, finalName), Buffer.from(data));
+    return { fileName: finalName };
+  });
+
   ipcMain.handle('fs:getSearchDocuments', () => nfs.getSearchDocuments(requireProjectPath()));
 
   ipcMain.handle('fs:createMainCategory', (_e, name) =>
@@ -65,8 +120,8 @@ function registerFilesystemIpc({ getCurrentProject }) {
   ipcMain.handle('fs:createSubCategory', (_e, mainCategoryRelPath, name) =>
     nfs.createSubCategory(requireProjectPath(), mainCategoryRelPath, name));
 
-  ipcMain.handle('fs:createNote', (_e, categoryRelPath, title) =>
-    nfs.createNote(requireProjectPath(), categoryRelPath, title));
+  ipcMain.handle('fs:createNote', (_e, categoryRelPath, title, templateBody) =>
+    nfs.createNote(requireProjectPath(), categoryRelPath, title, templateBody));
 
   ipcMain.handle('fs:readNote', (_e, relPath) =>
     nfs.readNote(requireProjectPath(), relPath));

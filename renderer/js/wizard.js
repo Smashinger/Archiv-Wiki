@@ -3,12 +3,14 @@
 // window.archivAPI (preload.js) im Main-Prozess.
 
 import { buildSyncIntervalOptionsHtml } from './sync-shared.js';
+import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml } from './theme.js';
 
 const state = {
   step: 1,
   projectPath: null,
   alreadyConfigured: false,
   backupPath: null,
+  accentKey: 'blau',
 };
 
 const els = {
@@ -43,6 +45,18 @@ const TOTAL_STEPS = 3;
 // In-App-Sync-Fenster befüllen (siehe renderer/js/sync-shared.js — Problem 2:
 // vorher gab es dafür keine gemeinsame Quelle).
 els.syncInterval.innerHTML = buildSyncIntervalOptionsHtml(15);
+
+// Akzentfarben-Auswahl: Klick wählt + wendet SOFORT live an, damit man direkt
+// sieht, wie's aussieht, statt erst nach Abschluss des Wizards.
+const swatchRow = document.getElementById('accentSwatchRow');
+swatchRow.innerHTML = buildAccentSwatchesHtml(state.accentKey);
+swatchRow.addEventListener('click', (e) => {
+  const btn = e.target.closest('.color-swatch');
+  if (!btn) return;
+  state.accentKey = btn.dataset.accent;
+  swatchRow.querySelectorAll('.color-swatch').forEach(b => b.classList.toggle('active', b === btn));
+  applyAccentPalette(state.accentKey);
+});
 
 // "Automatischer Abgleich" braucht zwingend ein gespeichertes Passwort (der
 // Hintergrund-Timer kann niemanden fragen) — deshalb an "Passwort merken"
@@ -196,6 +210,8 @@ els.btnFinish.addEventListener('click', async () => {
       projectPath: state.projectPath,
       editorConfig,
       wikiName,
+      accentKey: state.accentKey,
+      appLockPassword: document.getElementById('fAppLockPassword').value,
       backupPath: state.backupPath,
       sync,
       password: syncPassword,

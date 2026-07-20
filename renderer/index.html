@@ -17,6 +17,16 @@
 <link rel="stylesheet" href="css/vendor/katex/katex.min.css">
 </head>
 <body>
+  <div class="lock-screen" id="lockScreen" style="display:none;">
+    <div class="lock-screen-box">
+      <div class="lock-screen-icon">🔒</div>
+      <h1 class="lock-screen-title">Archiv Wiki gesperrt</h1>
+      <input type="password" id="lockScreenPassword" class="lock-screen-input" placeholder="Passwort" autocomplete="current-password">
+      <div class="lock-screen-error" id="lockScreenError"></div>
+      <button type="button" class="btn primary lock-screen-btn" id="lockScreenUnlock">Entsperren</button>
+    </div>
+  </div>
+
   <div class="overlay" id="overlay"></div>
 
   <div class="shell">
@@ -40,6 +50,8 @@
       <div class="sidebar-scroll">
         <ul class="nav-top">
           <li><a class="nav-link" id="homeLink" data-route="home"><span class="nl-icon">🏠</span><span class="nl-title">Start</span></a></li>
+          <li><a class="nav-link" id="tagsLink" data-route="tags"><span class="nl-icon">🏷</span><span class="nl-title">Tags</span></a></li>
+          <li><a class="nav-link" id="statsLink" data-route="stats"><span class="nl-icon">📊</span><span class="nl-title">Statistik</span></a></li>
         </ul>
         <nav id="navTree"><!-- von app.js gerendert --></nav>
       </div>
@@ -57,6 +69,7 @@
         <span class="spacer"></span>
         <span class="topbar-dates" id="topbarNoteDates"></span>
         <button class="icon-btn" id="btnSync" type="button" title="Cloud-Sync-Einstellungen" aria-label="Cloud-Sync-Einstellungen">☁</button>
+        <button class="icon-btn backup-warning-btn" id="btnBackupWarning" type="button" title="" aria-label="Backup-Warnung" style="display:none;">⚠️</button>
         <button class="icon-btn" id="btnTrash" type="button" title="Papierkorb" aria-label="Papierkorb">🗑</button>
         <button class="icon-btn" id="btnBugReport" type="button" title="Fehler melden" aria-label="Fehler melden">🐛</button>
         <button class="icon-btn" id="btnAbout" type="button" title="Über Archiv Wiki" aria-label="Über Archiv Wiki">ℹ</button>

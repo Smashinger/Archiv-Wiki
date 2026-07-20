@@ -200,7 +200,7 @@ function uniqueDirPath(parentDir, baseName) {
 // Notizen — dürfen ausschließlich in einer Unterkategorie (Tiefe 2) liegen
 // (strikte 3-Ebenen-Regel: Hauptkategorie → Unterkategorie → Notiz).
 // ---------------------------------------------------------------------------
-function createNote(projectPath, subCategoryRelPath, title) {
+function createNote(projectPath, subCategoryRelPath, title, templateBody) {
   const dirPath = resolveSafe(projectPath, subCategoryRelPath || '.');
   if (getDepth(subCategoryRelPath || '') !== 2 || !fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
     throw new Error('Notizen können nur in einer Unterkategorie angelegt werden.');
@@ -218,7 +218,12 @@ function createNote(projectPath, subCategoryRelPath, title) {
     created: now,
     modified: now
   };
-  writeNoteRaw(filePath, frontmatter, `# ${displayTitle}\n\n`);
+  // Vorlagen-Text (Notiz-Vorlagen-Feature): {title} wird durch den echten
+  // Titel ersetzt. Ohne Vorlage bleibt es beim bisherigen einfachen Standard.
+  const body = templateBody
+    ? templateBody.replace(/\{title\}/g, displayTitle)
+    : `# ${displayTitle}\n\n`;
+  writeNoteRaw(filePath, frontmatter, body);
 
   return { relPath: path.relative(projectPath, filePath), frontmatter };
 }

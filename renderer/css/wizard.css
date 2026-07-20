@@ -102,7 +102,7 @@
 }
 .form-row label{ font-size: 13px; color: var(--text-muted); }
 .form-row .hint{ display:block; font-size: 11px; color: var(--text-faint); margin-top: 2px; }
-.form-row select, .form-row input[type="text"]{
+.form-row select, .form-row input[type="text"], .form-row input[type="password"]{
   background: var(--bg-elev-2);
   border: 1px solid var(--border);
   color: var(--text-main);
@@ -130,6 +130,20 @@
 }
 .sync-note{ font-size: 11.5px; color: var(--text-faint); margin-bottom: 20px; }
 .sync-test-status{ display:block; font-size:12px; margin-top:8px; }
+
+.color-swatch-row{ display:flex; gap:8px; flex-wrap:wrap; }
+.color-swatch{
+  width:28px; height:28px; border-radius:50%; border:2px solid transparent;
+  cursor:pointer; padding:0; transition: transform .1s ease, border-color .15s ease;
+}
+.color-swatch:hover{ transform: scale(1.1); }
+.color-swatch.active{ border-color: var(--text-main); }
+.color-swatch-blau{ background:#5b7fa6; }
+.color-swatch-gruen{ background:#6a9b7a; }
+.color-swatch-lila{ background:#8a75a8; }
+.color-swatch-koralle{ background:#b8735f; }
+.color-swatch-tuerkis{ background:#5a9b9b; }
+.color-swatch-gold{ background:#b89550; }
 
 /* Aus components.css übernommen (wizard.html lädt diese Datei nicht) —
    bewusst dupliziert für visuelle Konsistenz mit dem späteren In-App-Sync-Fenster. */

@@ -9,6 +9,7 @@ import { readNote, saveNote } from './filesystem.js';
 
 let currentEditor = null;
 let currentRelPath = null;
+let currentProjectPath = null;
 let autosaveTimer = null;
 let dirty = false;
 
@@ -24,16 +25,18 @@ export async function openNoteInEditor({
   onChange,
   onCursorActivity,
   onSaved,
-  getNoteIndex
+  getNoteIndex,
+  projectPath
 }) {
   closeEditor();
+  currentProjectPath = projectPath || null;
 
   const note = await readNote(relPath);
   currentRelPath = relPath;
   dirty = false;
 
   function updatePreview(text) {
-    if (previewContainer) previewContainer.innerHTML = renderPreview(text, { noteIndex: getNoteIndex?.() || [] });
+    if (previewContainer) previewContainer.innerHTML = renderPreview(text, { noteIndex: getNoteIndex?.() || [], projectPath: currentProjectPath });
   }
   updatePreview(note.body);
 

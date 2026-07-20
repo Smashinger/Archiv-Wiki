@@ -13,6 +13,18 @@ export async function reorderChildren(parentRelPath, orderedNames) {
   return window.archivAPI.fs.reorderChildren(parentRelPath, orderedNames);
 }
 
+export async function setCategoryIcon(relPath, icon) {
+  return window.archivAPI.fs.setCategoryIcon(relPath, icon);
+}
+
+export async function setProjectSetting(key, value) {
+  return window.archivAPI.fs.setProjectSetting(key, value);
+}
+
+export async function saveAttachment(fileName, data) {
+  return window.archivAPI.fs.saveAttachment(fileName, data);
+}
+
 export async function getSearchDocuments() {
   return window.archivAPI.fs.getSearchDocuments();
 }
@@ -49,8 +61,8 @@ export async function createSubCategory(mainCategoryRelPath, name) {
   return window.archivAPI.fs.createSubCategory(mainCategoryRelPath, name);
 }
 
-export async function createNote(categoryRelPath, title) {
-  return window.archivAPI.fs.createNote(categoryRelPath, title);
+export async function createNote(categoryRelPath, title, templateBody) {
+  return window.archivAPI.fs.createNote(categoryRelPath, title, templateBody);
 }
 
 export async function readNote(relPath) {

@@ -13,6 +13,7 @@
 const fs = require('fs');
 const path = require('path');
 const { zipProjectTo } = require('./export-ipc');
+const { readAppState, writeAppState } = require('./app-state');
 
 const BACKUP_FILENAME_RE = /^backup-(\d{4}-\d{2}-\d{2})\.zip$/;
 const DEFAULT_KEEP_COUNT = 14; // ~2 Wochen tägliche Backups
@@ -57,10 +58,16 @@ async function maybeRunAutoBackup({ getCurrentProject }) {
     fs.mkdirSync(backupPath, { recursive: true });
     await zipProjectTo(projectPath, destPath);
     pruneOldBackups(backupPath);
+    writeAppState({ backupConsecutiveFailures: 0, backupLastSuccessAt: new Date().toISOString() });
     console.log(`[Archiv Wiki] Automatisches Backup erstellt: ${destPath}`);
   } catch (err) {
     // Ein fehlgeschlagenes Hintergrund-Backup soll die App nicht stören —
     // nur loggen, beim nächsten Timer-Tick (oder morgen) erneut versuchen.
+    // ZUSÄTZLICH aber zählen (Backup-Warnung-Feature): mehrere Fehlschläge
+    // hintereinander sollen dem Nutzer sichtbar auffallen, statt komplett
+    // unbemerkt zu bleiben.
+    const prevCount = readAppState().backupConsecutiveFailures || 0;
+    writeAppState({ backupConsecutiveFailures: prevCount + 1, backupLastErrorAt: new Date().toISOString() });
     console.error('[Archiv Wiki] Automatisches Backup fehlgeschlagen:', err.message);
   }
 }

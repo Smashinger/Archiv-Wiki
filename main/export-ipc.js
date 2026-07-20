@@ -79,6 +79,21 @@ function registerExportIpc({ getCurrentProject, getMainWindow }) {
     return { saved: true, filePath: result.filePath };
   });
 
+  // Einzelne Notiz als reine .md-Datei exportieren — z. B. zum Teilen/
+  // Weiterverwenden außerhalb der App. Identisches Muster wie der HTML-
+  // Export oben, nur andere Dateiendung/Beschriftung.
+  ipcMain.handle('export:saveMarkdown', async (_e, markdown, suggestedName) => {
+    const win = getMainWindow();
+    const result = await dialog.showSaveDialog(win, {
+      title: 'Als Markdown-Datei exportieren',
+      defaultPath: suggestedName,
+      filters: [{ name: 'Markdown-Datei', extensions: ['md'] }]
+    });
+    if (result.canceled || !result.filePath) return { saved: false };
+    fs.writeFileSync(result.filePath, markdown, 'utf8');
+    return { saved: true, filePath: result.filePath };
+  });
+
   // ---------------------------------------------------------------------
   // PDF-Export (einzelne Notiz) — nutzt Electrons eingebautes printToPDF
   // auf dem AKTUELL SICHTBAREN Hauptfenster. @media print in components.css

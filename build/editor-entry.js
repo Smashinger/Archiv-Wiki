@@ -40,6 +40,21 @@ hljs.registerLanguage('css', langCss);
 // ---------------------------------------------------------------------------
 // CodeMirror: Dark-Theme passend zu unseren CSS-Variablen (main.css)
 // ---------------------------------------------------------------------------
+// Liest die AKTUELL gesetzte Akzentfarbe (siehe renderer/js/theme.js) einmalig
+// aus, statt sie an >10 Stellen fest zu verdrahten — Editor-Cursor, aktive
+// Zeile, Auswahl-Hervorhebung und Überschriften-Farbe folgen so automatisch
+// der in den Einstellungen gewählten Farbe.
+function readAccentColor() {
+  const val = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
+  return val || '#5b7fa6';
+}
+function hexToRgb(hex) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return m ? `${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)}` : '91,127,166';
+}
+const ACCENT = readAccentColor();
+const ACCENT_RGB = hexToRgb(ACCENT);
+
 const editorTheme = EditorView.theme({
   '&': {
     color: '#e0e0e0',
@@ -48,19 +63,19 @@ const editorTheme = EditorView.theme({
     fontSize: '13.5px'
   },
   '.cm-content': {
-    caretColor: '#5b7fa6',
+    caretColor: ACCENT,
     fontFamily: "'JetBrains Mono', ui-monospace, monospace",
     padding: '16px 0',
     lineHeight: '1.45'
   },
   '.cm-line': { lineHeight: '1.45' },
-  '.cm-cursor, .cm-dropCursor': { borderLeftColor: '#5b7fa6' },
-  '.cm-activeLine': { backgroundColor: 'rgba(91,127,166,0.06)' },
-  '.cm-activeLineGutter': { backgroundColor: 'rgba(91,127,166,0.06)' },
+  '.cm-cursor, .cm-dropCursor': { borderLeftColor: ACCENT },
+  '.cm-activeLine': { backgroundColor: `rgba(${ACCENT_RGB},0.06)` },
+  '.cm-activeLineGutter': { backgroundColor: `rgba(${ACCENT_RGB},0.06)` },
   '.cm-gutters': { backgroundColor: '#171b21', color: '#6e6e6e', border: 'none' },
   '&.cm-focused': { outline: 'none' },
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
-    backgroundColor: 'rgba(91,127,166,0.18) !important'
+    backgroundColor: `rgba(${ACCENT_RGB},0.18) !important`
   },
   '.cm-scroller': { overflow: 'auto' },
   '.cm-tooltip': {
@@ -69,8 +84,8 @@ const editorTheme = EditorView.theme({
     borderRadius: '8px'
   },
   '.cm-tooltip-autocomplete ul li[aria-selected]': {
-    backgroundColor: 'rgba(91,127,166,0.15)',
-    color: '#5b7fa6'
+    backgroundColor: `rgba(${ACCENT_RGB},0.15)`,
+    color: ACCENT
   },
   '.cm-tooltip-autocomplete ul li': {
     padding: '4px 8px'
@@ -78,9 +93,9 @@ const editorTheme = EditorView.theme({
 }, { dark: true });
 
 const highlightStyle = HighlightStyle.define([
-  { tag: tags.heading1, color: '#5b7fa6', fontWeight: 'bold', fontSize: '1.25em' },
-  { tag: tags.heading2, color: '#5b7fa6', fontWeight: 'bold', fontSize: '1.15em' },
-  { tag: [tags.heading3, tags.heading4, tags.heading5, tags.heading6], color: '#5b7fa6', fontWeight: 'bold' },
+  { tag: tags.heading1, color: ACCENT, fontWeight: 'bold', fontSize: '1.25em' },
+  { tag: tags.heading2, color: ACCENT, fontWeight: 'bold', fontSize: '1.15em' },
+  { tag: [tags.heading3, tags.heading4, tags.heading5, tags.heading6], color: ACCENT, fontWeight: 'bold' },
   { tag: tags.strong, fontWeight: 'bold', color: '#e0e0e0' },
   { tag: tags.emphasis, fontStyle: 'italic', color: '#e0e0e0' },
   { tag: tags.link, color: '#5ec8c0', textDecoration: 'underline' },
@@ -394,5 +409,15 @@ export function renderPreview(markdownText, options = {}) {
   // "nackte" Vorkommen (falls doch nicht gewrappt) als Sicherheitsnetz danach.
   html = html.replace(/<p>@@CALLOUT(\d+)@@<\/p>/g, (_, i) => calloutStore[Number(i)]);
   html = html.replace(/@@CALLOUT(\d+)@@/g, (_, i) => calloutStore[Number(i)]);
+
+  // Per Drag&Drop eingefügte Bilder werden mit "attachment:dateiname" statt
+  // eines relativen Pfades referenziert (siehe Bilder-Drag&Drop-Feature) —
+  // vermeidet jede Unsicherheit über Verzeichnistiefe/relative Pfade. Hier
+  // erst zur ECHTEN file://-URL aufgelöst, sobald der Projektpfad bekannt ist.
+  if (options.projectPath) {
+    const base = 'file://' + options.projectPath.replace(/\\/g, '/') + '/.attachments/';
+    html = html.replace(/src="attachment:([^"]+)"/g, (_, name) => `src="${base}${encodeURIComponent(name)}"`);
+  }
+
   return html;
 }

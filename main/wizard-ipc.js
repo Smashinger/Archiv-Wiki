@@ -9,6 +9,7 @@
 const { ipcMain, dialog, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const {
   isDirWritable,
   hasExistingConfig,
@@ -28,7 +29,9 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
   // Schritt 1 des Wizards: Projektordner wählen + prüfen
   ipcMain.handle('wizard:selectProjectFolder', async () => {
-    const result = await dialog.showOpenDialog(getWizardWindow(), {
+    const win = getWizardWindow();
+    win?.focus();
+    const result = await dialog.showOpenDialog(win, {
       title: 'Speicherort für dein neues Archiv Wiki-Projekt wählen',
       properties: ['openDirectory', 'createDirectory']
     });
@@ -44,7 +47,13 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
   // Schritt 2 des Wizards: optionalen eigenen Backup-Pfad wählen
   ipcMain.handle('wizard:selectBackupFolder', async () => {
-    const result = await dialog.showOpenDialog(getWizardWindow(), {
+    // Best-effort gegen "Dialog öffnet im Hintergrund" (auf manchen Linux-
+    // Fenstermanagern kommt ein Dialog nicht automatisch nach vorne) — das
+    // eigentliche Vordergrund-Verhalten liegt aber teils beim Fenstermanager,
+    // nicht vollständig in der App-Kontrolle.
+    const win = getWizardWindow();
+    win?.focus();
+    const result = await dialog.showOpenDialog(win, {
       title: 'Backup-Ordner wählen',
       properties: ['openDirectory', 'createDirectory']
     });
@@ -67,7 +76,7 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
   // Neues Projekt anlegen: .wiki-config.json + .wiki-trash/ + Backup-Ordner erzeugen
   ipcMain.handle('wizard:finish', async (_event, payload) => {
-    const { projectPath, editorConfig, wikiName, backupPath, sync, password, rememberPassword } = payload || {};
+    const { projectPath, editorConfig, wikiName, accentKey, appLockPassword, backupPath, sync, password, rememberPassword } = payload || {};
 
     if (!projectPath || !isDirWritable(projectPath)) {
       throw new Error('Projektordner fehlt oder ist nicht beschreibbar.');
@@ -75,10 +84,24 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
     const resolvedBackupPath = backupPath || defaultBackupPath();
 
+    // App-Passwortschutz: NIE im Klartext gespeichert — nur Salt (zufällig,
+    // pro Projekt einmalig) + Hash (scrypt, Node-eingebaut, kein zusätzliches
+    // npm-Paket nötig). Beim Entsperren wird derselbe Hash erneut berechnet
+    // und verglichen (siehe app:verifyAppLock in main.js), das Passwort selbst
+    // verlässt den Speicher-Vorgang nie.
+    let appLock = { enabled: false };
+    if (appLockPassword && appLockPassword.trim()) {
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = crypto.scryptSync(appLockPassword, salt, 64).toString('hex');
+      appLock = { enabled: true, salt, hash };
+    }
+
     const config = {
       version: '1.0.0',
       created: new Date().toISOString(),
       wikiName: (wikiName || '').trim(),
+      accentKey: accentKey || 'blau',
+      appLock,
       editor: editorConfig || {},
       backupPath: resolvedBackupPath,
       sync: sync || { enabled: false }
