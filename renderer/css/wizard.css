@@ -5,23 +5,22 @@
 .wizard-shell{
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  max-height: 100vh;
-  overflow-y: auto;
-  padding: 32px 36px 28px;
+  height: 100vh;
+  padding: 22px 32px 18px;
+  overflow: hidden;
 }
 
 .wizard-brand{
   font-family: var(--mono);
   font-weight: 700;
-  font-size: 15px;
+  font-size: 14px;
   color: var(--accent-color);
-  margin: 0 0 4px;
+  margin: 0 0 2px;
 }
 .wizard-sub{
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--text-faint);
-  margin: 0 0 22px;
+  margin: 0 0 14px;
 }
 
 /* --- Fortschritt --- */
@@ -29,7 +28,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 26px;
+  margin-bottom: 16px;
 }
 .wizard-progress .dot{
   width: 8px; height: 8px; border-radius: 50%;
@@ -48,19 +47,19 @@
 }
 
 /* --- Schritt-Karte --- */
-.wizard-step{ flex: 1; display: none; flex-direction: column; }
+.wizard-step{ flex: 1; display: none; flex-direction: column; overflow-y: auto; min-height: 0; }
 .wizard-step.active{ display: flex; }
 
 .wizard-step h2{
   font-family: var(--mono);
-  font-size: 19px;
+  font-size: 17px;
   color: var(--text-main);
-  margin: 0 0 8px;
+  margin: 0 0 5px;
 }
 .wizard-step .step-desc{
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--text-muted);
-  margin: 0 0 22px;
+  margin: 0 0 14px;
   max-width: 56ch;
 }
 
@@ -70,8 +69,8 @@
   background: var(--bg-elev-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 12px 14px;
-  margin-bottom: 12px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
 }
 .folder-picker .folder-path{
   flex: 1; min-width: 0;
@@ -85,8 +84,8 @@
 .banner{
   font-size: 12.5px;
   border-radius: var(--radius-md);
-  padding: 10px 14px;
-  margin-bottom: 14px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
   border: 1px solid transparent;
 }
 .banner.info{ color: var(--blue); background: rgba(91,157,217,.08); border-color: rgba(91,157,217,.25); }
@@ -96,42 +95,42 @@
 .banner.show{ display: block; }
 
 /* --- Formular (Schritt 2) --- */
-.form-grid{ display: flex; flex-direction: column; gap: 4px; overflow-y: auto; padding-right: 4px; }
+.form-grid{ display: flex; flex-direction: column; gap: 0; overflow-y: auto; padding-right: 4px; }
 .form-row{
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 11px 2px;
+  padding: 7px 2px;
   border-bottom: 1px solid var(--border-soft);
 }
-.form-row label{ font-size: 13px; color: var(--text-muted); }
-.form-row .hint{ display:block; font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+.form-row label{ font-size: 12.5px; color: var(--text-muted); }
+.form-row .hint{ display:block; font-size: 10.5px; color: var(--text-faint); margin-top: 1px; }
 .form-row select, .form-row input[type="text"], .form-row input[type="password"]{
   background: var(--bg-elev-2);
   border: 1px solid var(--border);
   color: var(--text-main);
   font-family: var(--mono);
   font-size: 12.5px;
-  padding: 7px 9px;
+  padding: 5px 9px;
   border-radius: var(--radius-sm);
   min-width: 180px;
 }
 .form-row select:focus, .form-row input:focus{ border-color: var(--accent-dim); }
 .form-row.backup-row{ align-items: flex-start; }
-.form-row .backup-value{ display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.form-row .backup-value{ display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
 .form-row .backup-value .folder-path{ max-width: 260px; }
 
 /* --- Cloud-Sync (Schritt 3) --- */
-.sync-fields{ display: flex; flex-direction: column; gap: 10px; max-width: 420px; margin-bottom: 8px; }
+.sync-fields{ display: flex; flex-direction: column; gap: 7px; max-width: 420px; margin-bottom: 6px; }
 .sync-fields input{
   background: var(--bg-elev-2);
   border: 1px solid var(--border);
   color: var(--text-main);
   font-family: var(--mono);
   font-size: 12.5px;
-  padding: 9px 10px;
+  padding: 7px 10px;
   border-radius: var(--radius-sm);
 }
-.sync-note{ font-size: 11.5px; color: var(--text-faint); margin-bottom: 20px; }
-.sync-test-status{ display:block; font-size:12px; margin-top:8px; }
+.sync-note{ font-size: 11px; color: var(--text-faint); margin-bottom: 10px; }
+.sync-test-status{ display:block; font-size:12px; margin-top:6px; }
 
 .color-swatch-row{ display:flex; gap:8px; flex-wrap:wrap; }
 .color-swatch{
@@ -159,12 +158,12 @@
 /* --- Buttons --- */
 .wizard-actions{
   display: flex; align-items: center; justify-content: space-between;
-  margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border-soft);
+  margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border-soft);
 }
 .wizard-actions .spacer{ flex: 1; }
 button.btn{
   font-family: var(--mono); font-size: 12.5px; font-weight: 600;
-  border-radius: var(--radius-sm); padding: 10px 18px; cursor: pointer; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px 16px; cursor: pointer; border: 1px solid var(--border);
   background: var(--bg-elev-2); color: var(--text-muted);
 }
 button.btn:hover{ color: var(--text-main); border-color: var(--accent-dim); }

@@ -8,6 +8,24 @@ Gebaut mit [Electron](https://electronjs.org) für Linux (getestet auf Fedora).
 
 Archiv Wiki organisiert Notizen in Haupt- und Unterkategorien, mit einem Markdown-Editor, der direkt neben einer Live-Vorschau sitzt. Gedacht für alles, was man sich sonst über mehrere Textdateien, Sticky Notes und Lesezeichen verteilt merkt: Setup-Anleitungen, Problemlösungen, Checklisten, persönliche Dokumentation.
 
+## Screenshots
+
+**Einrichtung**
+
+| Projektordner wählen | Editor-Konfiguration | Cloud-Sync |
+|---|---|---|
+| ![Projektordner wählen](docs/screenshots/projektordner.png) | ![Editor-Konfiguration](docs/screenshots/editorkonfig.png) | ![Cloud-Sync](docs/screenshots/cloud.png) |
+
+**Die App**
+
+| Dashboard | Editor (Split-Ansicht) |
+|---|---|
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Editor](docs/screenshots/editor.png) |
+
+| Neue Hauptkategorie | Neue Unterkategorie |
+|---|---|
+| ![Hauptkategorie anlegen](docs/screenshots/kategorie.png) | ![Unterkategorie anlegen](docs/screenshots/unterkategorie.png) |
+
 ## Funktionen
 
 - **Editor mit Split-Ansicht** — Markdown-Quelltext und gerenderte Vorschau nebeneinander, Breite frei verstellbar

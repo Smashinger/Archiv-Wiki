@@ -72,8 +72,7 @@ function createWizardWindow() {
   wizardWindow = new BrowserWindow({
     width: 820,
     height: 760,
-    minWidth: 680,
-    minHeight: 620,
+    resizable: false,
     show: false,
     backgroundColor: '#0a0d12',
     webPreferences: {

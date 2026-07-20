@@ -73,7 +73,7 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 .nav-link .nl-icon{ flex-shrink:0; }
 .nav-link .nl-title{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-.nav-group{ margin-bottom: 6px; border-radius: var(--radius-sm); }
+.nav-group{ margin-bottom: 2px; border-radius: var(--radius-sm); }
 .nav-group.dragging{
   opacity:.55; transform: scale(1.02); box-shadow: 0 8px 24px rgba(0,0,0,.4);
   cursor: grabbing; position: relative; z-index: 5;
