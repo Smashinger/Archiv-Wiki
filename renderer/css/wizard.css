@@ -6,6 +6,8 @@
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  max-height: 100vh;
+  overflow-y: auto;
   padding: 32px 36px 28px;
 }
 
@@ -171,6 +173,8 @@ button.btn:disabled:hover{ border-color: var(--border); color: var(--text-muted)
 button.btn.primary{ background: var(--accent-color); color: #ffffff; border-color: var(--accent-color); }
 button.btn.primary:hover{ color: #ffffff; border-color: var(--accent-color); filter: brightness(1.08); }
 button.btn.ghost{ background: transparent; border-color: transparent; }
+button.btn.ghost.subtle{ color: var(--text-faint); font-size: 12.5px; }
+button.btn.ghost.subtle:hover{ color: var(--text-muted); }
 .btn-gap-left{ margin-left: 8px; }
 .optional-tag{ color: var(--text-faint); font-weight: 400; }
 /* Anfangszustand von #btnFinish (display:none) wird von wizard.js beim

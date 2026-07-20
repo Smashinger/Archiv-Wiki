@@ -30,7 +30,7 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
   // Schritt 1 des Wizards: Projektordner wählen + prüfen
   ipcMain.handle('wizard:selectProjectFolder', async () => {
     const win = getWizardWindow();
-    win?.focus();
+    if (win) { win.show(); win.moveTop(); win.focus(); }
     const result = await dialog.showOpenDialog(win, {
       title: 'Speicherort für dein neues Archiv Wiki-Projekt wählen',
       properties: ['openDirectory', 'createDirectory']
@@ -47,12 +47,14 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
   // Schritt 2 des Wizards: optionalen eigenen Backup-Pfad wählen
   ipcMain.handle('wizard:selectBackupFolder', async () => {
-    // Best-effort gegen "Dialog öffnet im Hintergrund" (auf manchen Linux-
-    // Fenstermanagern kommt ein Dialog nicht automatisch nach vorne) — das
-    // eigentliche Vordergrund-Verhalten liegt aber teils beim Fenstermanager,
-    // nicht vollständig in der App-Kontrolle.
+    // Verstärkter Best-effort gegen "Dialog öffnet im Hintergrund": show()
+    // holt das Fenster aus einem eventuell minimierten Zustand, moveTop()
+    // hebt es im Z-Order nach vorne (unabhängig von reiner Eingabefokus-
+    // Vergabe durch focus()), erst danach der Dialog selbst — auf manchen
+    // Linux-Fenstermanagern bleibt "automatisch nach vorne" letztlich trotzdem
+    // eine Entscheidung des Fenstermanagers, nicht zu 100% von der App erzwingbar.
     const win = getWizardWindow();
-    win?.focus();
+    if (win) { win.show(); win.moveTop(); win.focus(); }
     const result = await dialog.showOpenDialog(win, {
       title: 'Backup-Ordner wählen',
       properties: ['openDirectory', 'createDirectory']

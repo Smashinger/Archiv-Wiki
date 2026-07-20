@@ -10,7 +10,7 @@
    stabil, keine Timing-Abhängigkeit von Easing-Kurven. */
 .sidebar-brand{
   display:flex; align-items:baseline; gap:3px;
-  font-family: var(--mono); font-size:13px; font-weight:700;
+  font-family: var(--font-brand); font-size:15px; font-weight:600;
   color: var(--accent-color); letter-spacing:.02em;
   padding: 2px 2px 12px;
 }
@@ -73,7 +73,7 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 .nav-link .nl-icon{ flex-shrink:0; }
 .nav-link .nl-title{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-.nav-group{ margin-bottom: 2px; border-radius: var(--radius-sm); }
+.nav-group{ margin-bottom: 6px; border-radius: var(--radius-sm); }
 .nav-group.dragging{
   opacity:.55; transform: scale(1.02); box-shadow: 0 8px 24px rgba(0,0,0,.4);
   cursor: grabbing; position: relative; z-index: 5;
@@ -169,13 +169,36 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 .home-heading{ font-family: var(--mono); font-size: 22px; color: var(--text-main); margin: 0 0 6px; }
 .home-sub{ color: var(--text-muted); font-size: 14px; margin: 0 0 20px; }
 
-.stats-widget{ display:flex; gap:10px; margin: 0 0 18px; flex-wrap:wrap; }
+/* Begrenzt NUR den Dashboard-Inhalt auf eine ruhige Lesebreite — bewusst
+   NICHT am geteilten .content-scroll-Container (den nutzt auch die
+   Notiz-Editor-Ansicht, die laut früherem Nutzer-Feedback ausdrücklich KEINE
+   Breitenbegrenzung haben soll, siehe Test dazu). */
+.dashboard-wrap{ max-width: 1180px; margin: 0 auto; }
+
+.stats-widget{ display:flex; gap:10px; margin: 0 0 28px; flex-wrap:wrap; }
 .stat-chip{
   display:flex; flex-direction:column; gap:2px; background: var(--bg-elev);
   border:1px solid var(--border); border-radius: var(--radius-md); padding:10px 16px; min-width:110px;
+  font-family: inherit; cursor:pointer; text-align:left; transition: border-color .15s ease, background .15s ease;
 }
+.stat-chip:hover{ border-color: var(--accent-dim); background: var(--bg-elev-2); }
 .stat-chip .stat-num{ font-family: var(--mono); font-size:20px; font-weight:700; color: var(--accent-color); }
 .stat-chip .stat-label{ font-size:11px; color: var(--text-faint); }
+
+.pinned-strip{
+  display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; margin: 0 0 28px;
+}
+.pinned-chip{
+  display:flex; align-items:center; gap:7px; flex-shrink:0; max-width:200px;
+  background: var(--bg-elev); border:1px solid var(--border); border-radius: var(--radius-md);
+  padding:8px 14px; cursor:pointer; font-family: inherit; transition: border-color .15s ease, background .15s ease;
+}
+.pinned-chip:hover{ border-color: var(--accent-dim); background: var(--bg-elev-2); }
+.pinned-chip-icon{ font-size:14px; flex-shrink:0; }
+.pinned-chip-title{
+  font-family: var(--mono); font-size:12.5px; color: var(--text-main);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
 
 .tag-cloud{ display:flex; flex-wrap:wrap; gap:8px; margin: 0 0 16px; }
 .tag-chip{
@@ -197,11 +220,10 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 .stats-bar-fill{ height:100%; background: var(--accent-color); border-radius:4px; }
 .stats-bar-count{ font-family: var(--mono); font-size:11px; color: var(--text-faint); width:24px; text-align:right; flex-shrink:0; }
 
-.dashboard-sections{ display:flex; flex-direction:column; gap:16px; height: calc(100vh - 300px); min-height: 400px; }
+.dashboard-sections{ display:flex; flex-direction:column; gap:16px; height: calc(100vh - 360px); min-height: 340px; }
 .dashboard-section{ display:flex; flex-direction:column; border-radius: var(--radius-md); border:1px solid var(--border); overflow:hidden; min-height:0; }
 .dashboard-section.recent{ flex: 0 0 35%; background: var(--bg-elev-2); }
 .dashboard-section.all{ flex: 1 1 65%; background: var(--bg-elev); }
-.dashboard-section.pinned{ flex: 0 0 auto; max-height: 180px; background: var(--bg-elev-2); border-color: var(--accent-dim); }
 .dashboard-section-header{
   font-family: var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.07em;
   color: var(--text-faint); padding:10px 16px; border-bottom:1px solid var(--border-soft); flex-shrink:0;
@@ -260,6 +282,19 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 }
 .lock-screen-error{ min-height:16px; color: var(--red); font-size:12px; }
 .lock-screen-btn{ width:100%; height:38px; }
+
+/* Eigener Tooltip für abgeschnittene Texte (siehe renderer/js/tooltip.js) —
+   bewusst kein Browser-Standard-Tooltip, passend zum Dark-Theme mit
+   denselben Variablen wie der Rest der App. */
+.ellipsis-tooltip{
+  display:none; position:fixed; z-index:300; max-width:280px;
+  background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-sm);
+  padding:6px 10px; font-size:12px; line-height:1.4; color: var(--text-main);
+  box-shadow: 0 4px 14px rgba(0,0,0,.35);
+  white-space: normal; word-wrap: break-word; overflow-wrap: break-word;
+  animation: tooltip-fade-in .12s ease;
+}
+@keyframes tooltip-fade-in{ from{ opacity:0; transform: translateY(-2px); } to{ opacity:1; transform: translateY(0); } }
 
 .color-swatch-row{ display:flex; gap:8px; flex-wrap:wrap; }
 .color-swatch{
@@ -387,6 +422,8 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 /* --- Leerzustände / Hinweise --- */
 .empty-state{ color: var(--text-faint); font-size:14px; padding: 60px 20px; text-align:center; }
 .empty-state .btn{ margin-top:14px; }
+.empty-state-title{ font-family: var(--mono); font-size:16px; color: var(--text-main); margin-bottom:8px; }
+.empty-state-body{ color: var(--text-faint); font-size:13px; max-width:360px; margin:0 auto; line-height:1.5; }
 
 /* --- Papierkorb-Kopf: Titel links, Leeren-Icon-Button rechts --- */
 .trash-header{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }

@@ -18,6 +18,7 @@ const els = {
   progressLabel: document.getElementById('progressLabel'),
   steps: document.querySelectorAll('.wizard-step'),
   btnBack: document.getElementById('btnBack'),
+  btnCancel: document.getElementById('btnCancel'),
   btnNext: document.getElementById('btnNext'),
   btnFinish: document.getElementById('btnFinish'),
 
@@ -96,7 +97,8 @@ function renderStep() {
     dot.classList.toggle('active', n === state.step);
     dot.classList.toggle('done', n < state.step);
   });
-  els.progressLabel.textContent = `Schritt ${state.step} von ${TOTAL_STEPS}`;
+  const STEP_NAMES = { 1: 'Projektordner', 2: 'Einstellungen', 3: 'Cloud-Sync' };
+els.progressLabel.textContent = `${STEP_NAMES[state.step]} · Schritt ${state.step} von ${TOTAL_STEPS}`;
 
   els.btnBack.style.visibility = state.step === 1 ? 'hidden' : 'visible';
   els.btnNext.style.display = state.step === TOTAL_STEPS ? 'none' : 'inline-flex';
@@ -171,6 +173,11 @@ els.btnNext.addEventListener('click', () => {
   if (state.step < TOTAL_STEPS) {
     state.step += 1;
     renderStep();
+  }
+});
+els.btnCancel.addEventListener('click', () => {
+  if (confirm('Einrichtung abbrechen? Bisherige Eingaben gehen verloren.')) {
+    window.close();
   }
 });
 els.btnBack.addEventListener('click', () => {

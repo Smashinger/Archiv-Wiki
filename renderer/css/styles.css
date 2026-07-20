@@ -4,7 +4,32 @@
    Layout (Sidebar/Topbar/Shell) steht in layout.css, wiederverwendbare
    UI-Bausteine (Nav, Karten, Suche, Stats) in components.css.
 */
+
+/* Oswald SemiBold — NUR für das Sidebar-Branding ("Wiki von …"), nicht für
+   die restliche App (siehe --font-brand unten, separat von --mono/--sans).
+   Lokal gebündelt (nicht von Google Fonts geladen) — die CSP der App
+   erlaubt font-src nur 'self', ein externes CDN würde lautlos blockiert.
+   Nur latin + latin-ext eingebunden (deckt auch deutsche Umlaute/ß ab),
+   die übrigen Sprachvarianten des Fonts wurden bewusst weggelassen. */
+@font-face{
+  font-family: 'Oswald';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../assets/fonts/oswald-latin-ext-600-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1E00-1E9F,U+2020,U+20A0-20AB;
+}
+@font-face{
+  font-family: 'Oswald';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../assets/fonts/oswald-latin-600-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
 :root{
+  --font-brand: 'Oswald', var(--mono);
   --bg-color: #121519;
   --bg-elev: #171b21;
   --bg-elev-2: #2b2b2b;

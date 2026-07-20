@@ -5,6 +5,7 @@
 import * as fs from './filesystem.js';
 import { buildSyncIntervalOptionsHtml } from './sync-shared.js';
 import { applyAccentPalette, buildAccentSwatchesHtml } from './theme.js';
+import { initEllipsisTooltips } from './tooltip.js';
 import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent } from './editor.js';
 import { rebuildIndex, search as searchNotes } from './search.js';
 
@@ -27,8 +28,6 @@ const els = {
   searchClear: document.getElementById('searchClear'),
   navTree: document.getElementById('navTree'),
   homeLink: document.getElementById('homeLink'),
-  tagsLink: document.getElementById('tagsLink'),
-  statsLink: document.getElementById('statsLink'),
   btnAddNote: document.getElementById('btnAddNote'),
   segAddMain: document.getElementById('segAddMain'),
   segAddSub: document.getElementById('segAddSub'),
@@ -548,8 +547,9 @@ window.archivAPI.syncApi.onStatusUpdate(applySyncStatus);
 // Bug-Fix: "Startseite"/homeLink lag außerhalb von #navTree und wurde daher
 // nie von wireNavInteractions() erfasst — hatte bislang GAR keinen Klick-Handler.
 els.homeLink.addEventListener('click', () => { location.hash = '#home'; });
-els.tagsLink.addEventListener('click', () => { location.hash = '#tags'; });
-els.statsLink.addEventListener('click', () => { location.hash = '#stats'; });
+// Tags/Statistik haben keinen eigenen Sidebar-Link mehr — Navigation dorthin
+// läuft jetzt über die Dashboard-Kacheln (siehe renderHome), Routen selbst
+// bleiben unverändert erreichbar (#tags, #stats).
 
 // ---------------------------------------------------------------------------
 // Baum laden + Sidebar/Stats/Home neu rendern
@@ -1405,13 +1405,19 @@ function formatAbsoluteDate(isoString) {
 function buildDashboardRow(note, excerpt, dateLabel, isRecent) {
   const title = note.frontmatter?.title || note.name;
   const category = note.frontmatter?.category || note.relPath.split('/').slice(0, -1).pop() || '';
+  const tags = note.frontmatter?.tags || [];
+  // Kategorie + (bis zu 2) Tags kombiniert, z. B. "Linux · Hardware, Setup" —
+  // Notiz-Vorlagen-Beispiel aus der Anforderung nachgebildet, ohne dafür eine
+  // zweite Zeile/eigene Karten-Struktur einzuführen (bleibt konsistent mit
+  // "Alle Notizen", das dieselbe Zeile nutzt).
+  const tagLabel = [category, tags.slice(0, 2).join(', ')].filter(Boolean).join(' · ');
   const row = document.createElement('div');
   row.className = 'dashboard-row' + (isRecent ? ' recent-row' : '');
   row.innerHTML = `
-    <span class="dr-icon">📄</span>
+    <span class="dr-icon">${note.icon || '📄'}</span>
     <span class="dr-title">${escapeHtml(title)}</span>
     <span class="dr-excerpt">${escapeHtml(excerpt)}</span>
-    <span class="dr-tag">${escapeHtml(category)}</span>
+    <span class="dr-tag">${escapeHtml(tagLabel)}</span>
     <span class="dr-date">${escapeHtml(dateLabel)}</span>
   `;
   row.addEventListener('click', () => { location.hash = '#note/' + encodeURIComponent(note.relPath); });
@@ -1435,7 +1441,8 @@ async function renderHome() {
   if (notes.length === 0) {
     els.contentScroll.innerHTML = `
       <div class="empty-state">
-        Noch keine Notizen — leg über „+ Thema" in der Sidebar eine Kategorie an, dann „+ Notiz" darin.
+        <div class="empty-state-title">Dein Archiv ist noch leer.</div>
+        <div class="empty-state-body">Erstelle deine erste Wissensseite, um dein persönliches Wiki aufzubauen — über „+ Thema" in der Sidebar eine Kategorie anlegen, dann „+ Notiz" darin.</div>
       </div>`;
     return;
   }
@@ -1452,7 +1459,7 @@ async function renderHome() {
   const recentNotes = sorted.slice(0, 5);
   const pinnedNotes = sorted.filter(n => n.frontmatter?.pinned);
 
-  // Notiz-Statistik-Widget: simple, aus schon vorhandenen Frontmatter-Daten
+  // Notiz-Statistik-Kacheln: simple, aus schon vorhandenen Frontmatter-Daten
   // berechnet — kein zusätzlicher Speicher-/Tracking-Aufwand nötig.
   const oneWeekAgo = Date.now() - 7 * 24 * 3600 * 1000;
   const editedThisWeek = notes.filter(n => {
@@ -1460,31 +1467,51 @@ async function renderHome() {
     return t && new Date(t).getTime() >= oneWeekAgo;
   }).length;
   const categoryCount = new Set(notes.map(n => n.frontmatter?.category || n.frontmatter?.mainCategory).filter(Boolean)).size;
+  const tagCount = new Set(notes.flatMap(n => n.frontmatter?.tags || [])).size;
+
+  // Begrüßungs-Unterzeile erzählt jetzt kurz, was diese Woche passiert ist,
+  // statt nur die reine Notiz-Anzahl zu wiederholen (die steht ja schon in
+  // der Kachel darunter).
+  const subLine = editedThisWeek > 0
+    ? `Du hast diese Woche ${editedThisWeek} Seite${editedThisWeek === 1 ? '' : 'n'} bearbeitet.`
+    : `${notes.length} Notiz${notes.length === 1 ? '' : 'en'} insgesamt.`;
 
   els.contentScroll.innerHTML = `
-    <h1 class="home-heading">${greetingFor(state.project?.config?.wikiName)}</h1>
-    <p class="home-sub">${notes.length} Notiz${notes.length === 1 ? '' : 'en'}</p>
-    <div class="stats-widget">
-      <div class="stat-chip"><span class="stat-num">${notes.length}</span><span class="stat-label">Notizen gesamt</span></div>
-      <div class="stat-chip"><span class="stat-num">${editedThisWeek}</span><span class="stat-label">diese Woche bearbeitet</span></div>
-      <div class="stat-chip"><span class="stat-num">${categoryCount}</span><span class="stat-label">Themen</span></div>
-    </div>
-    <div class="dashboard-sections">
-      ${pinnedNotes.length ? `
-      <div class="dashboard-section pinned">
-        <div class="dashboard-section-header">★ Angepinnt</div>
-        <div class="dashboard-list" id="pinnedList"></div>
-      </div>` : ''}
-      <div class="dashboard-section recent">
-        <div class="dashboard-section-header">Zuletzt bearbeitet</div>
-        <div class="dashboard-list" id="recentList"></div>
+    <div class="dashboard-wrap">
+      <h1 class="home-heading">${greetingFor(state.project?.config?.wikiName)}</h1>
+      <p class="home-sub">${subLine}</p>
+      <div class="stats-widget">
+        <button type="button" class="stat-chip" id="statChipNotes"><span class="stat-num">${notes.length}</span><span class="stat-label">📄 Notizen gesamt</span></button>
+        <button type="button" class="stat-chip" id="statChipWeek"><span class="stat-num">${editedThisWeek}</span><span class="stat-label">✏️ diese Woche bearbeitet</span></button>
+        <button type="button" class="stat-chip" id="statChipTopics"><span class="stat-num">${categoryCount}</span><span class="stat-label">📚 Themen</span></button>
+        <button type="button" class="stat-chip" id="statChipTags"><span class="stat-num">${tagCount}</span><span class="stat-label">🏷 Tags</span></button>
       </div>
-      <div class="dashboard-section all">
-        <div class="dashboard-section-header">Alle Notizen</div>
-        <div class="dashboard-list" id="allList"></div>
+      ${pinnedNotes.length ? `
+      <div class="pinned-strip" id="pinnedStrip"></div>` : ''}
+      <div class="dashboard-sections">
+        <div class="dashboard-section recent" id="recentSection">
+          <div class="dashboard-section-header">Zuletzt bearbeitet</div>
+          <div class="dashboard-list" id="recentList"></div>
+        </div>
+        <div class="dashboard-section all" id="allSection">
+          <div class="dashboard-section-header">Alle Notizen</div>
+          <div class="dashboard-list" id="allList"></div>
+        </div>
       </div>
     </div>
   `;
+
+  // Kacheln führen zum jeweils passenden Bereich — entweder eine eigene
+  // Ansicht (Themen → Statistik-Seite, Tags → Tag-Übersicht) oder ein
+  // Sprung zum entsprechenden Bereich weiter unten auf demselben Dashboard.
+  document.getElementById('statChipNotes').addEventListener('click', () => {
+    document.getElementById('allSection').scrollIntoView({ behavior: 'smooth' });
+  });
+  document.getElementById('statChipWeek').addEventListener('click', () => {
+    document.getElementById('recentSection').scrollIntoView({ behavior: 'smooth' });
+  });
+  document.getElementById('statChipTopics').addEventListener('click', () => { location.hash = '#stats'; });
+  document.getElementById('statChipTags').addEventListener('click', () => { location.hash = '#tags'; });
 
   // Ein einziger Abruf für alle Notiz-Inhalte (statt pro Zeile einzeln
   // fs.readNote aufzurufen) — dieselben Daten, die auch die Volltextsuche nutzt.
@@ -1499,10 +1526,16 @@ async function renderHome() {
   }
 
   if (pinnedNotes.length) {
-    const pinnedList = document.getElementById('pinnedList');
+    const strip = document.getElementById('pinnedStrip');
     pinnedNotes.forEach(note => {
-      const dateLabel = formatRelativeTime(note.frontmatter?.modified || note.frontmatter?.created);
-      pinnedList.appendChild(buildDashboardRow(note, excerptFor(note), dateLabel, true));
+      const title = note.frontmatter?.title || note.name;
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'pinned-chip';
+      chip.innerHTML = `<span class="pinned-chip-icon">${note.icon || '★'}</span><span class="pinned-chip-title">${escapeHtml(title)}</span>`;
+      chip.title = title;
+      chip.addEventListener('click', () => { location.hash = '#note/' + encodeURIComponent(note.relPath); });
+      strip.appendChild(chip);
     });
   }
 
@@ -2491,7 +2524,6 @@ function applyViewMode() {
 async function renderTagsOverview(activeTag) {
   setBreadcrumb(activeTag ? `Tags / ${activeTag}` : 'Tags');
   els.homeLink.classList.remove('active');
-  els.tagsLink.classList.add('active');
   els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.remove('active'));
 
   const notes = fs.flattenNotes(state.tree);
@@ -2546,8 +2578,6 @@ async function renderTagsOverview(activeTag) {
 async function renderStatsPage() {
   setBreadcrumb('Statistik');
   els.homeLink.classList.remove('active');
-  els.tagsLink.classList.remove('active');
-  els.statsLink.classList.add('active');
   els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.remove('active'));
 
   const notes = fs.flattenNotes(state.tree);
@@ -2702,6 +2732,7 @@ function waitForUnlock() {
   els.projectTagline.title = state.project?.path || '';
 
   applyAccentPalette(state.project?.config?.accentKey);
+  initEllipsisTooltips();
 
   // Backup-Warnung: Symbol bleibt standardmäßig versteckt, erscheint nur ab
   // 3 aufeinanderfolgenden fehlgeschlagenen automatischen Backups (main/backup.js

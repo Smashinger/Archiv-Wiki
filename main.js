@@ -70,10 +70,10 @@ let currentProject = { path: null, config: null };
 // ---------------------------------------------------------------------------
 function createWizardWindow() {
   wizardWindow = new BrowserWindow({
-    width: 760,
-    height: 620,
-    minWidth: 640,
-    minHeight: 560,
+    width: 820,
+    height: 760,
+    minWidth: 680,
+    minHeight: 620,
     show: false,
     backgroundColor: '#0a0d12',
     webPreferences: {
