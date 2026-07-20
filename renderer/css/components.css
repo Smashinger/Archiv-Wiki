@@ -4,6 +4,26 @@
 
 /* --- Suchfeld: einziges Element, volle Breite, trägt seine Box-Optik selbst
    (kein umschließender Container mehr nötig, seit die Stats-Chips weg sind). --- */
+/* --- Branding-Zeile ("Wiki von [Name]") über dem Durchsuchen-Feld ---
+   steps(1) statt einer weichen Opacity-Transition: klassisches, hartes
+   Terminal-Cursor-Blinken, in jedem Browser/Chromium-Renderer gleich
+   stabil, keine Timing-Abhängigkeit von Easing-Kurven. */
+.sidebar-brand{
+  display:flex; align-items:baseline; gap:3px;
+  font-family: var(--mono); font-size:13px; font-weight:700;
+  color: var(--accent-color); letter-spacing:.02em;
+  padding: 2px 2px 12px;
+}
+.brand-cursor{
+  display:inline-block; width:7px; height:14px; flex-shrink:0;
+  background: var(--accent-color);
+  animation: brand-cursor-blink 1s steps(1) infinite;
+}
+@keyframes brand-cursor-blink{
+  0%, 49%  { opacity: 1; }
+  50%, 100%{ opacity: 0; }
+}
+
 .search-wrap{ position:relative; width:100%; margin: 2px 0 14px; }
 .search-wrap input{
   box-sizing:border-box; height:40px; width:100%;

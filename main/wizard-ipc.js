@@ -67,7 +67,7 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
   // Neues Projekt anlegen: .wiki-config.json + .wiki-trash/ + Backup-Ordner erzeugen
   ipcMain.handle('wizard:finish', async (_event, payload) => {
-    const { projectPath, editorConfig, backupPath, sync, password, rememberPassword } = payload || {};
+    const { projectPath, editorConfig, wikiName, backupPath, sync, password, rememberPassword } = payload || {};
 
     if (!projectPath || !isDirWritable(projectPath)) {
       throw new Error('Projektordner fehlt oder ist nicht beschreibbar.');
@@ -78,6 +78,7 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
     const config = {
       version: '1.0.0',
       created: new Date().toISOString(),
+      wikiName: (wikiName || '').trim(),
       editor: editorConfig || {},
       backupPath: resolvedBackupPath,
       sync: sync || { enabled: false }

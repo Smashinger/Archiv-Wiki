@@ -2228,6 +2228,16 @@ window.addEventListener('beforeunload', (e) => {
   els.projectTagline.textContent = state.project?.path || 'Kein Projekt geladen';
   els.projectTagline.title = state.project?.path || '';
 
+  // Branding-Zeile über der Suche: "Wiki von [Name]", Name kommt aus der
+  // Ersteinrichtung (Wizard). Ohne hinterlegten Namen wird die Zeile
+  // ausgeblendet statt eine Lücke/"Wiki von" ohne Namen zu zeigen.
+  const wikiName = state.project?.config?.wikiName?.trim();
+  if (wikiName) {
+    document.getElementById('sidebarBrandText').textContent = `Wiki von ${wikiName}`;
+  } else {
+    document.getElementById('sidebarBrand').style.display = 'none';
+  }
+
   await refreshAll();
   render();
 })();

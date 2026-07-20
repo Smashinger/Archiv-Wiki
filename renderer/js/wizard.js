@@ -171,6 +171,8 @@ els.btnFinish.addEventListener('click', async () => {
   els.btnFinish.disabled = true;
   els.btnFinish.textContent = 'Lege an …';
 
+  const wikiName = document.getElementById('fWikiName').value.trim();
+
   const editorConfig = {
     tabSize: Number(document.getElementById('fTabSize').value),
     autoSave: Number(document.getElementById('fAutoSave').value),
@@ -193,6 +195,7 @@ els.btnFinish.addEventListener('click', async () => {
     await window.archivAPI.finishWizard({
       projectPath: state.projectPath,
       editorConfig,
+      wikiName,
       backupPath: state.backupPath,
       sync,
       password: syncPassword,
