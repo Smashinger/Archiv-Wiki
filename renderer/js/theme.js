@@ -2,20 +2,20 @@
 // Wählbare Akzentfarben-Paletten. Jede Farbe hat drei Abstufungen (wie
 // bisher fest im CSS: --accent-color/--accent-dim/--accent-soft), damit
 // Buttons/Hover/Glow-Schatten weiterhin stimmig zusammenpassen, egal welche
-// Farbe gewählt ist. Alle Töne bewusst entsättigt gehalten (wie schon beim
-// ursprünglichen Blau), passend zum eher zurückhaltenden Look der App.
+// Farbe gewählt ist. Alle Töne bewusst entsättigt gehalten, passend zum eher
+// zurückhaltenden Look der App — keine grellen Neonfarben.
 
 export const ACCENT_PALETTES = {
-  blau:    { label: 'Blau (Standard)', color: '#5b7fa6', dim: '#47648a', soft: 'rgba(91,127,166,0.08)' },
-  gruen:   { label: 'Grün',            color: '#6a9b7a', dim: '#527a5f', soft: 'rgba(106,155,122,0.08)' },
-  lila:    { label: 'Lila',            color: '#8a75a8', dim: '#6d5b86', soft: 'rgba(138,117,168,0.08)' },
-  koralle: { label: 'Koralle',         color: '#b8735f', dim: '#95594a', soft: 'rgba(184,115,95,0.08)' },
-  tuerkis: { label: 'Türkis',          color: '#5a9b9b', dim: '#457878', soft: 'rgba(90,155,155,0.08)' },
-  gold:    { label: 'Gold',            color: '#b89550', dim: '#93763e', soft: 'rgba(184,149,80,0.08)' }
+  orange:  { label: 'Archiv Orange (Standard)', color: '#c17d45', dim: '#9c6537', soft: 'rgba(193,125,69,0.08)' },
+  ocean:   { label: 'Ocean Blue',                color: '#4a80a8', dim: '#3a6688', soft: 'rgba(74,128,168,0.08)' },
+  emerald: { label: 'Emerald Green',             color: '#4f9b73', dim: '#3e7d5c', soft: 'rgba(79,155,115,0.08)' },
+  violet:  { label: 'Violet',                    color: '#8a6fb5', dim: '#6d5892', soft: 'rgba(138,111,181,0.08)' },
+  crimson: { label: 'Crimson Red',                color: '#b0495a', dim: '#8f3a48', soft: 'rgba(176,73,90,0.08)' },
+  cyan:    { label: 'Cyan',                      color: '#3fa3ab', dim: '#327f86', soft: 'rgba(63,163,171,0.08)' }
 };
 
 export function applyAccentPalette(key) {
-  const palette = ACCENT_PALETTES[key] || ACCENT_PALETTES.blau;
+  const palette = ACCENT_PALETTES[key] || ACCENT_PALETTES.orange;
   const root = document.documentElement.style;
   root.setProperty('--accent-color', palette.color);
   root.setProperty('--accent-dim', palette.dim);

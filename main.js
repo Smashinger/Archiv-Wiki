@@ -8,6 +8,7 @@
 'use strict';
 
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron');
+const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -266,6 +267,57 @@ function registerCoreIpc() {
       lastSuccessAt: state.backupLastSuccessAt || null,
       lastErrorAt: state.backupLastErrorAt || null
     };
+  });
+
+  // Update-Hinweis (bewusst der "einfache Weg", siehe Absprache): fragt nur
+  // ab, ob es ein neueres Release gibt, lädt aber NICHTS automatisch herunter
+  // und tauscht nichts selbst aus. Owner/Repo kommen aus derselben
+  // package.json-Konfiguration, die auch "npm run release" nutzt (build.publish)
+  // — nirgends ein zweites Mal fest hinterlegt. Versionsnummern selbst werden
+  // nie im Code hinterlegt, sondern zur Laufzeit von app.getVersion() bzw.
+  // von GitHub abgefragt.
+  function compareVersions(a, b) {
+    const pa = String(a).replace(/^v/i, '').split('.').map(Number);
+    const pb = String(b).replace(/^v/i, '').split('.').map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const na = pa[i] || 0, nb = pb[i] || 0;
+      if (na !== nb) return na - nb;
+    }
+    return 0;
+  }
+
+  ipcMain.handle('app:checkForUpdate', () => {
+    const currentVersion = app.getVersion();
+    const { owner, repo } = require('./package.json').build.publish;
+    return new Promise((resolve) => {
+      const req = https.get(
+        `https://api.github.com/repos/${owner}/${repo}/releases/latest`,
+        { headers: { 'User-Agent': 'archiv-wiki-update-check' }, timeout: 6000 },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            try {
+              const json = JSON.parse(data);
+              const latestVersion = String(json.tag_name || '').replace(/^v/i, '');
+              if (!latestVersion) return resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null });
+              resolve({
+                currentVersion,
+                latestVersion,
+                updateAvailable: compareVersions(latestVersion, currentVersion) > 0,
+                releaseUrl: json.html_url || `https://github.com/${owner}/${repo}/releases/latest`
+              });
+            } catch {
+              resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null });
+            }
+          });
+        }
+      );
+      // Netzwerk-Aussetzer/Timeout dürfen die App nie blockieren oder abstürzen
+      // lassen — einfach "keine Update-Info verfügbar" zurückgeben.
+      req.on('error', () => resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null }));
+      req.on('timeout', () => { req.destroy(); resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null }); });
+    });
   });
 
   // App-Passwortschutz: Passwort selbst wird nie gespeichert, nur Salt+Hash

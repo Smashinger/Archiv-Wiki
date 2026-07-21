@@ -1,7 +1,7 @@
 {
   "name": "archiv-wiki",
   "productName": "Archiv-Wiki",
-  "version": "1.2.2",
+  "version": "1.0.0",
   "description": "Persönliches Markdown-Wiki für den Desktop – Notizen, Setups und Checklisten, 100% lokal.",
   "main": "main.js",
   "author": {
@@ -19,7 +19,6 @@
     "dev": "electron . --dev",
     "build:vendor": "node build/build.mjs",
     "dist": "electron-builder",
-    "dist:rpm": "electron-builder --linux rpm",
     "release": "electron-builder --publish always",
     "postinstall": "electron-builder install-app-deps"
   },

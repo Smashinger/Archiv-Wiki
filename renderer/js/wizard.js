@@ -10,7 +10,7 @@ const state = {
   projectPath: null,
   alreadyConfigured: false,
   backupPath: null,
-  accentKey: 'blau',
+  accentKey: 'orange',
 };
 
 const els = {
@@ -41,6 +41,18 @@ const els = {
 };
 
 const TOTAL_STEPS = 3;
+
+// Update-Hinweis (derselbe "einfache Weg" wie in der Haupt-App: nur
+// informieren, nichts automatisch herunterladen/austauschen). Nutzt denselben
+// bestehenden app:checkForUpdate-Kanal — keine zweite Prüf-Logik nötig.
+window.archivAPI.checkForUpdate().then(({ currentVersion, latestVersion, updateAvailable, releaseUrl }) => {
+  if (!updateAvailable) return; // kein Hinweis, wenn keine neuere Version existiert
+  document.getElementById('wizardUpdateCurrent').textContent = currentVersion;
+  document.getElementById('wizardUpdateLatest').textContent = latestVersion;
+  const hint = document.getElementById('wizardUpdateHint');
+  hint.style.display = 'block';
+  document.getElementById('btnWizardUpdate').addEventListener('click', () => window.open(releaseUrl, '_blank'));
+}).catch(() => { /* kein Netz/GitHub nicht erreichbar — Einrichtung läuft ganz normal ohne Hinweis weiter */ });
 
 // Sync-Intervall-Dropdown mit den GLEICHEN Optionen wie im späteren
 // In-App-Sync-Fenster befüllen (siehe renderer/js/sync-shared.js — Problem 2:

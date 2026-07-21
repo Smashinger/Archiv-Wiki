@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('archivAPI', {
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
   getPlatformInfo: () => ipcRenderer.invoke('app:getPlatformInfo'),
   getBackupStatus: () => ipcRenderer.invoke('app:getBackupStatus'),
+  checkForUpdate: () => ipcRenderer.invoke('app:checkForUpdate'),
   verifyAppLock: (password) => ipcRenderer.invoke('app:verifyAppLock', password),
 
   // --- Native Dialoge (generisch) ---

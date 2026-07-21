@@ -38,9 +38,9 @@
   --text-main: #e0e0e0;
   --text-muted: #a0a0a0;
   --text-faint: #6e6e6e;
-  --accent-color: #5b7fa6; /* Standard/Fallback — wird beim Start ggf. von der gewählten Palette überschrieben, siehe renderer/js/theme.js */
-  --accent-dim: #47648a;
-  --accent-soft: rgba(91,127,166,0.08);
+  --accent-color: #c17d45; /* Standard/Fallback (Archiv Orange) — wird beim Start ggf. von der gewählten Palette überschrieben, siehe renderer/js/theme.js */
+  --accent-dim: #9c6537;
+  --accent-soft: rgba(193,125,69,0.08);
   --cyan: #5ec8c0;
   --blue: #5b9dd9;
   --red: #e2585a;

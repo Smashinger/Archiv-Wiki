@@ -105,6 +105,15 @@
       <p class="sync-note">Eingaben werden gespeichert, aber die eigentliche Verbindung wird erst nach Fertigstellung der Einrichtung aktiviert. Du kannst jederzeit ohne Cloud-Sync weitermachen.</p>
     </section>
 
+    <div class="wizard-update-hint" id="wizardUpdateHint" style="display:none;">
+      <div class="wizard-update-hint-text">
+        <span class="update-dot dot-available"></span>
+        <span>Update verfügbar · Version <span id="wizardUpdateLatest"></span></span>
+      </div>
+      <p class="wizard-update-hint-sub">Du verwendest derzeit Version <span id="wizardUpdateCurrent"></span>. Wir empfehlen, vor der Einrichtung die aktuelle Version herunterzuladen.</p>
+      <button type="button" class="btn ghost" id="btnWizardUpdate">GitHub Releases öffnen</button>
+    </div>
+
     <div class="wizard-actions">
       <button class="btn ghost subtle" id="btnCancel" type="button">Abbrechen</button>
       <button class="btn ghost" id="btnBack" type="button">← Zurück</button>

@@ -1,5 +1,7 @@
 # Archiv Wiki
 
+![Archiv Wiki](docs/branding/readme-banner.png)
+
 Ein persönliches Markdown-Wiki für den Desktop — Notizen, Setups und Checklisten, 100 % lokal. Keine Cloud-Pflicht, keine Telemetrie, kein Account nötig.
 
 Gebaut mit [Electron](https://electronjs.org) für Linux (getestet auf Fedora).
@@ -45,14 +47,10 @@ Archiv Wiki organisiert Notizen in Haupt- und Unterkategorien, mit einem Markdow
 
 Fertige Pakete gibt es unter [Releases](../../releases):
 
-- **AppImage** (empfohlen, läuft auf jeder Linux-Distribution ohne Installation):
+- **AppImage** (läuft auf jeder Linux-Distribution ohne Installation):
   ```bash
   chmod +x Archiv-Wiki-*.AppImage
   ./Archiv-Wiki-*.AppImage
-  ```
-- **RPM** (Fedora/RHEL-basierte Distributionen):
-  ```bash
-  sudo dnf install ./archiv-wiki-*.rpm
   ```
 
 ## Selbst bauen
@@ -62,7 +60,7 @@ git clone git@github.com:Smashinger/archiv-wiki.git
 cd archiv-wiki
 npm install
 npm run dev      # zum Ausprobieren/Entwickeln
-npm run dist     # baut AppImage (+ RPM) in dist/
+npm run dist     # baut AppImage in dist/
 ```
 
 ## Lizenz

@@ -46,7 +46,7 @@ hljs.registerLanguage('css', langCss);
 // der in den Einstellungen gewählten Farbe.
 function readAccentColor() {
   const val = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
-  return val || '#5b7fa6';
+  return val || '#c17d45';
 }
 function hexToRgb(hex) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);

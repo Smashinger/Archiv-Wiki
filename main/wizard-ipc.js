@@ -102,7 +102,7 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
       version: '1.0.0',
       created: new Date().toISOString(),
       wikiName: (wikiName || '').trim(),
-      accentKey: accentKey || 'blau',
+      accentKey: accentKey || 'orange',
       appLock,
       editor: editorConfig || {},
       backupPath: resolvedBackupPath,

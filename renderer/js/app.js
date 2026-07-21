@@ -22,7 +22,10 @@ const state = {
 };
 
 const els = {
-  projectTagline: document.getElementById('projectTagline'),
+  updateStatusTop: document.getElementById('updateStatusTop'),
+  updateDot: document.getElementById('updateDot'),
+  updateStatusLabel: document.getElementById('updateStatusLabel'),
+  updateStatusCurrent: document.getElementById('updateStatusCurrent'),
   btnEditMode: document.getElementById('btnEditMode'),
   navSearch: document.getElementById('navSearch'),
   searchClear: document.getElementById('searchClear'),
@@ -2696,6 +2699,40 @@ window.addEventListener('beforeunload', (e) => {
 // richtige Passwort eingegeben wurde (oder gar keins gesetzt ist). Prüfung
 // läuft im Main-Prozess (main.js, app:verifyAppLock) — der Renderer bekommt
 // nur ok/nicht-ok zurück, nie den gespeicherten Hash/Salt selbst zu sehen.
+// Update-Hinweis im Sidebar-Footer (ersetzt die bisherige Archivpfad-Anzeige).
+// "Einfacher Weg" wie besprochen: informiert nur, lädt/tauscht nichts selbst
+// aus. Versionsnummern kommen beide zur Laufzeit (app.getVersion() bzw.
+// GitHub-Releases-API), stehen nirgends fest im Code.
+async function checkForUpdateAndRender() {
+  els.updateStatusCurrent.textContent = '';
+  try {
+    const { currentVersion, latestVersion, updateAvailable, releaseUrl } = await window.archivAPI.checkForUpdate();
+    els.updateStatusCurrent.textContent = `v${currentVersion}`;
+
+    if (!latestVersion) {
+      // Kein Netz/GitHub nicht erreichbar — lieber still "aktuell" zeigen als
+      // eine verwirrende Fehlermeldung im Sidebar-Footer.
+      els.updateDot.className = 'update-dot dot-neutral';
+      els.updateStatusLabel.textContent = 'Auf dem neuesten Stand';
+      return;
+    }
+
+    if (updateAvailable) {
+      els.updateDot.className = 'update-dot dot-available';
+      els.updateStatusLabel.textContent = `Update verfügbar · v${latestVersion}`;
+      els.updateStatusTop.classList.add('clickable');
+      els.updateStatusTop.addEventListener('click', () => window.open(releaseUrl, '_blank'));
+    } else {
+      els.updateDot.className = 'update-dot dot-neutral';
+      els.updateStatusLabel.textContent = 'Auf dem neuesten Stand';
+    }
+  } catch {
+    els.updateStatusCurrent.textContent = '';
+    els.updateDot.className = 'update-dot dot-neutral';
+    els.updateStatusLabel.textContent = 'Auf dem neuesten Stand';
+  }
+}
+
 function waitForUnlock() {
   if (!state.project?.config?.appLock?.enabled) return Promise.resolve();
   return new Promise((resolve) => {
@@ -2728,8 +2765,7 @@ function waitForUnlock() {
 
   await waitForUnlock();
 
-  els.projectTagline.textContent = state.project?.path || 'Kein Projekt geladen';
-  els.projectTagline.title = state.project?.path || '';
+  checkForUpdateAndRender();
 
   applyAccentPalette(state.project?.config?.accentKey);
   initEllipsisTooltips();
