@@ -11,7 +11,12 @@ export const ACCENT_PALETTES = {
   emerald: { label: 'Emerald Green',             color: '#4f9b73', dim: '#3e7d5c', soft: 'rgba(79,155,115,0.08)' },
   violet:  { label: 'Violet',                    color: '#8a6fb5', dim: '#6d5892', soft: 'rgba(138,111,181,0.08)' },
   crimson: { label: 'Crimson Red',                color: '#b0495a', dim: '#8f3a48', soft: 'rgba(176,73,90,0.08)' },
-  cyan:    { label: 'Cyan',                      color: '#3fa3ab', dim: '#327f86', soft: 'rgba(63,163,171,0.08)' }
+  cyan:    { label: 'Cyan',                      color: '#3fa3ab', dim: '#327f86', soft: 'rgba(63,163,171,0.08)' },
+  rose:    { label: 'Rose',                      color: '#b5688a', dim: '#914f6d', soft: 'rgba(181,104,138,0.08)' },
+  amber:   { label: 'Amber',                     color: '#b8953f', dim: '#937632', soft: 'rgba(184,149,63,0.08)' },
+  slate:   { label: 'Slate',                     color: '#6b7d94', dim: '#556377', soft: 'rgba(107,125,148,0.08)' },
+  lime:    { label: 'Lime',                      color: '#8a9b4f', dim: '#6e7c3e', soft: 'rgba(138,155,79,0.08)' },
+  indigo:  { label: 'Indigo',                    color: '#5f6bb0', dim: '#4a548c', soft: 'rgba(95,107,176,0.08)' }
 };
 
 export function applyAccentPalette(key) {

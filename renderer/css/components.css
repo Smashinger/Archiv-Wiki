@@ -321,6 +321,11 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 .color-swatch-violet{ background:#8a6fb5; }
 .color-swatch-crimson{ background:#b0495a; }
 .color-swatch-cyan{ background:#3fa3ab; }
+.color-swatch-rose{ background:#b5688a; }
+.color-swatch-amber{ background:#b8953f; }
+.color-swatch-slate{ background:#6b7d94; }
+.color-swatch-lime{ background:#8a9b4f; }
+.color-swatch-indigo{ background:#5f6bb0; }
 
 .shortcuts-list{ display:flex; flex-direction:column; gap:4px; margin: 4px 0 10px; }
 .shortcut-row{ display:flex; align-items:center; justify-content:space-between; gap:14px; padding:8px 4px; border-bottom:1px solid var(--border-soft); }

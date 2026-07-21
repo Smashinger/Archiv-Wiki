@@ -107,11 +107,11 @@
 
     <div class="wizard-update-hint" id="wizardUpdateHint" style="display:none;">
       <div class="wizard-update-hint-text">
-        <span class="update-dot dot-available"></span>
-        <span>Update verfügbar · Version <span id="wizardUpdateLatest"></span></span>
+        <span class="update-dot" id="wizardUpdateDot"></span>
+        <span id="wizardUpdateLabel"></span>
       </div>
-      <p class="wizard-update-hint-sub">Du verwendest derzeit Version <span id="wizardUpdateCurrent"></span>. Wir empfehlen, vor der Einrichtung die aktuelle Version herunterzuladen.</p>
-      <button type="button" class="btn ghost" id="btnWizardUpdate">GitHub Releases öffnen</button>
+      <p class="wizard-update-hint-sub" id="wizardUpdateSub"></p>
+      <button type="button" class="btn ghost" id="btnWizardUpdate" style="display:none;">GitHub Releases öffnen</button>
     </div>
 
     <div class="wizard-actions">

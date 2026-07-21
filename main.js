@@ -76,6 +76,7 @@ function createWizardWindow() {
     resizable: false,
     show: false,
     backgroundColor: '#0a0d12',
+    icon: path.join(__dirname, 'assets/icons/512x512.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -123,6 +124,7 @@ function createMainWindow() {
     show: false, // erst zeigen, wenn Inhalt bereit ist (kein weißer Blitz)
     backgroundColor: '#0a0d12', // Dark-Theme-Hintergrund aus main.css
     autoHideMenuBar: false,
+    icon: path.join(__dirname, 'assets/icons/512x512.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
