@@ -2713,22 +2713,26 @@ async function checkForUpdateAndRender() {
       // Kein Netz/GitHub nicht erreichbar — lieber still "aktuell" zeigen als
       // eine verwirrende Fehlermeldung im Sidebar-Footer.
       els.updateDot.className = 'update-dot dot-neutral';
+      els.updateStatusLabel.className = 'update-status-label label-neutral';
       els.updateStatusLabel.textContent = 'Auf dem neuesten Stand';
       return;
     }
 
     if (updateAvailable) {
       els.updateDot.className = 'update-dot dot-available';
-      els.updateStatusLabel.textContent = `Update verfügbar · v${latestVersion}`;
+      els.updateStatusLabel.className = 'update-status-label label-available';
+      els.updateStatusLabel.textContent = `Neue Version verfügbar ${latestVersion}`;
       els.updateStatusTop.classList.add('clickable');
       els.updateStatusTop.addEventListener('click', () => window.open(releaseUrl, '_blank'));
     } else {
       els.updateDot.className = 'update-dot dot-neutral';
+      els.updateStatusLabel.className = 'update-status-label label-neutral';
       els.updateStatusLabel.textContent = 'Auf dem neuesten Stand';
     }
   } catch {
     els.updateStatusCurrent.textContent = '';
     els.updateDot.className = 'update-dot dot-neutral';
+    els.updateStatusLabel.className = 'update-status-label label-neutral';
     els.updateStatusLabel.textContent = 'Auf dem neuesten Stand';
   }
 }

@@ -49,11 +49,10 @@ const TOTAL_STEPS = 3;
 // grau "Auf dem neuesten Stand" ODER grün "Update verfügbar" — vorher stand
 // "Update verfügbar" + der grüne Punkt fest im HTML, wurde nie auf den
 // Kein-Update-Fall umgeschaltet (Bug, per Screenshot gemeldet).
-window.archivAPI.checkForUpdate().then(({ currentVersion, latestVersion, updateAvailable, releaseUrl }) => {
+window.archivAPI.checkForUpdate().then(({ latestVersion, updateAvailable, releaseUrl }) => {
   const hint = document.getElementById('wizardUpdateHint');
   const dot = document.getElementById('wizardUpdateDot');
   const label = document.getElementById('wizardUpdateLabel');
-  const sub = document.getElementById('wizardUpdateSub');
   const btn = document.getElementById('btnWizardUpdate');
 
   if (!latestVersion) {
@@ -61,6 +60,7 @@ window.archivAPI.checkForUpdate().then(({ currentVersion, latestVersion, updateA
     // eine verwirrende Fehlermeldung (konsistent zum Sidebar-Footer der Haupt-App).
     hint.style.display = 'block';
     dot.className = 'update-dot dot-neutral';
+    label.className = 'label-neutral';
     label.textContent = 'Auf dem neuesten Stand';
     return;
   }
@@ -68,14 +68,14 @@ window.archivAPI.checkForUpdate().then(({ currentVersion, latestVersion, updateA
   hint.style.display = 'block';
   if (updateAvailable) {
     dot.className = 'update-dot dot-available';
-    label.textContent = `Update verfügbar · Version ${latestVersion}`;
-    sub.textContent = `Du verwendest derzeit Version ${currentVersion}. Wir empfehlen, vor der Einrichtung die aktuelle Version herunterzuladen.`;
+    label.className = 'label-available';
+    label.textContent = `Neue Version verfügbar ${latestVersion}`;
     btn.style.display = '';
     btn.addEventListener('click', () => window.open(releaseUrl, '_blank'));
   } else {
     dot.className = 'update-dot dot-neutral';
+    label.className = 'label-neutral';
     label.textContent = 'Auf dem neuesten Stand';
-    sub.textContent = '';
     btn.style.display = 'none';
   }
 }).catch(() => { /* kein Netz/GitHub nicht erreichbar — Einrichtung läuft ganz normal ohne Hinweis weiter */ });

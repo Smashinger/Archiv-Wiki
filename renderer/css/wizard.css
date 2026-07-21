@@ -188,11 +188,11 @@ button.btn.ghost.subtle:hover{ color: var(--text-muted); }
    Rahmen in Signalfarbe, keine auffällige Hintergrundfarbe, nur ein kleiner
    grüner Punkt (auch aus components.css bekannt) markiert "es gibt was Neues". */
 .wizard-update-hint{
-  background: var(--bg-elev-2); border:1px solid var(--border-soft); border-radius: var(--radius-md);
-  padding: 10px 14px; margin-bottom: 12px;
+  padding: 0; margin-bottom: 16px;
 }
 .wizard-update-hint-text{ display:flex; align-items:center; gap:7px; font-family: var(--mono); font-size:12.5px; color: var(--text-main); }
-.wizard-update-hint-sub{ font-size:11.5px; color: var(--text-faint); margin: 4px 0 8px; }
 .update-dot{ width:7px; height:7px; border-radius:50%; flex-shrink:0; }
 .update-dot.dot-available{ background: var(--green); }
 .update-dot.dot-neutral{ background: var(--text-faint); }
+.label-available{ color: var(--green); }
+.label-neutral{ color: var(--text-faint); }
