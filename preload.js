@@ -18,7 +18,16 @@ contextBridge.exposeInMainWorld('archivAPI', {
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
   getPlatformInfo: () => ipcRenderer.invoke('app:getPlatformInfo'),
   getBackupStatus: () => ipcRenderer.invoke('app:getBackupStatus'),
+  runBackupNow: () => ipcRenderer.invoke('app:runBackupNow'),
+  openBackupFolder: () => ipcRenderer.invoke('app:openBackupFolder'),
+  moveProjectFolder: () => ipcRenderer.invoke('app:moveProjectFolder'),
   checkForUpdate: () => ipcRenderer.invoke('app:checkForUpdate'),
+  settings: {
+    get: () => ipcRenderer.invoke('settings:get'),
+    update: (patch) => ipcRenderer.invoke('settings:update', patch),
+    setAppLockPassword: (password) => ipcRenderer.invoke('settings:setAppLockPassword', password)
+  },
+  chooseBackupFolder: () => ipcRenderer.invoke('settings:chooseBackupFolder'),
   verifyAppLock: (password) => ipcRenderer.invoke('app:verifyAppLock', password),
 
   // --- Native Dialoge (generisch) ---
@@ -56,6 +65,7 @@ contextBridge.exposeInMainWorld('archivAPI', {
     getAutoSyncSettings: () => ipcRenderer.invoke('sync:getAutoSyncSettings'),
     saveAutoSyncSettings: (settings) => ipcRenderer.invoke('sync:saveAutoSyncSettings', settings),
     getStatus: () => ipcRenderer.invoke('sync:getStatus'),
+    getHistory: () => ipcRenderer.invoke('sync:getHistory'),
     onStatusUpdate: (callback) => {
       ipcRenderer.on('sync:statusUpdate', (_e, status) => callback(status));
     }
@@ -82,8 +92,24 @@ contextBridge.exposeInMainWorld('archivAPI', {
     emptyTrash: () => ipcRenderer.invoke('fs:emptyTrash')
   },
 
-  // --- Menü-Events (Main → Renderer) ---
+  getCloseBehavior: () => ipcRenderer.invoke('app:getCloseBehavior'),
+  setCloseBehavior: (value) => ipcRenderer.invoke('app:setCloseBehavior', value),
+  resolveCloseDialog: (result) => ipcRenderer.invoke('app:resolveCloseDialog', result),
+
+  // --- Menü-/Tray-Events (Main → Renderer) ---
   onMenuOpenProject: (callback) => {
     ipcRenderer.on('menu:open-project', () => callback());
+  },
+  onShowCloseDialog: (callback) => {
+    ipcRenderer.on('app:show-close-dialog', () => callback());
+  },
+  onGoHome: (callback) => {
+    ipcRenderer.on('menu:go-home', () => callback());
+  },
+  onCheckForUpdatesRequested: (callback) => {
+    ipcRenderer.on('menu:check-for-updates', () => callback());
+  },
+  onOpenSettingsRequested: (callback) => {
+    ipcRenderer.on('menu:open-settings', () => callback());
   }
 });

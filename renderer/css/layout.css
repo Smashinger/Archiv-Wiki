@@ -11,17 +11,23 @@
   flex-shrink: 0;
   background: var(--bg-elev);
   border-right: 1px solid var(--border);
-  padding: 20px 16px 12px;
+  padding: var(--density-sidebar-pad);
   position: fixed;
   top: 0; left: 0; bottom: 0;
-  overflow-y: auto;
   z-index: 40;
   display: flex;
   flex-direction: column;
   transition: transform .22s ease;
 }
-.sidebar::-webkit-scrollbar{ width: 8px; }
-.sidebar::-webkit-scrollbar-thumb{ background: var(--border); border-radius: var(--radius-sm); }
+/* Moderne, schmale Scrollleisten — konsistent in der gesamten Anwendung
+   (vorher nur in der Sidebar), angelehnt an Obsidian/VS Code/Discord: kein
+   auffälliger heller Spur-Hintergrund, halbtransparenter, dezent gerundeter
+   Balken, der beim Hover etwas deutlicher wird. */
+*::-webkit-scrollbar{ width: 8px; height: 8px; }
+*::-webkit-scrollbar-track{ background: transparent; }
+*::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.12); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover{ background: rgba(255,255,255,.22); background-clip: padding-box; }
+*::-webkit-scrollbar-corner{ background: transparent; }
 
 .sidebar-scroll{ flex: 1; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
 
@@ -70,6 +76,13 @@
   justify-content: center; cursor: pointer; font-size: 15px; flex-shrink: 0;
 }
 .icon-btn:hover{ color: var(--accent-color); border-color: var(--accent-dim); }
+.topbar-icon-divider{ width:1px; height:20px; background: var(--border); flex-shrink:0; margin: 0 2px; }
+.trash-btn{ position: relative; }
+.trash-count{
+  position: absolute; top: -5px; right: -5px; min-width: 15px; height: 15px;
+  padding: 0 3px; border-radius: 999px; background: var(--bg-elev); border: 1px solid var(--border);
+  color: var(--text-faint); font-family: var(--mono); font-size: 9px; line-height: 13px; text-align: center;
+}
 
 .content-scroll{
   flex: 1;

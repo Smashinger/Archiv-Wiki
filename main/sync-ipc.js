@@ -15,6 +15,20 @@ const path = require('path');
 const fs = require('fs');
 const { readProjectConfig, writeProjectConfig, TRASH_DIRNAME } = require('./project');
 const { classifyFile, isExcluded, MANIFEST_FILENAME } = require('./sync-classify');
+const { readAppState, writeAppState } = require('./app-state');
+
+// Sync-Verlauf/Protokoll (Punkt 3.3): letzte 20 Abgleiche, jeweils mit
+// Zeitstempel, Dauer, Anzahl übertragener Dateien, Erfolg/Fehler und
+// Warnungen (= ungelöste Konflikte). Gleiches Speicher-Muster wie der
+// Backup-Status in app-state.js — bewusst nicht pro Projekt, sondern global,
+// konsistent mit dem bestehenden backupConsecutiveFailures-Ansatz.
+const MAX_SYNC_HISTORY = 20;
+function recordSyncHistory(entry) {
+  const state = readAppState();
+  const history = Array.isArray(state.syncHistory) ? state.syncHistory : [];
+  history.unshift(entry); // neueste zuerst
+  writeAppState({ syncHistory: history.slice(0, MAX_SYNC_HISTORY) });
+}
 
 // Merkt sich pro Datei den Stand ZUM ZEITPUNKT DES LETZTEN ERFOLGREICHEN
 // ABGLEICHS (lokales mtime+size, Remote-ETag+size). Damit lässt sich beim
@@ -111,7 +125,9 @@ async function maybeRunAutoSync({ getCurrentProject, getMainWindow }) {
   currentStatus = { ...currentStatus, state: 'syncing' };
   broadcastStatus(getMainWindow);
 
+  syncInProgress = true;
   try {
+    const startedAt = Date.now();
     const result = await performSyncAll({ projectPath: project.path, url, username: config.sync?.username || '', password });
     currentStatus = {
       state: result.conflicts.length ? 'conflicts' : 'idle',
@@ -120,8 +136,19 @@ async function maybeRunAutoSync({ getCurrentProject, getMainWindow }) {
       conflictCount: result.conflicts.length,
       conflicts: result.conflicts
     };
+    recordSyncHistory({
+      timestamp: currentStatus.lastSyncAt,
+      durationMs: Date.now() - startedAt,
+      filesCount: result.uploaded + result.downloaded + result.deletedLocal + result.deletedRemote,
+      success: true,
+      error: null,
+      warnings: result.conflicts.length
+    });
   } catch (err) {
     currentStatus = { ...currentStatus, state: 'error', lastError: err.message };
+    recordSyncHistory({ timestamp: new Date().toISOString(), durationMs: null, filesCount: 0, success: false, error: err.message, warnings: 0 });
+  } finally {
+    syncInProgress = false;
   }
   broadcastStatus(getMainWindow);
 }
@@ -132,6 +159,11 @@ async function maybeRunAutoSync({ getCurrentProject, getMainWindow }) {
 // auch der Hintergrund-Timer (Stufe 6, rein im Main-Prozess, kein IPC nötig)
 // dieselbe Logik nutzen. Siehe classifyFile()-Kommentar für die Regeln.
 // ---------------------------------------------------------------------------
+// Für sauberes Beenden (main.js quitCleanly): zeigt an, ob GERADE ein
+// Cloud-Abgleich läuft.
+let syncInProgress = false;
+function isSyncInProgress() { return syncInProgress; }
+
 async function performSyncAll({ projectPath, url, username, password }) {
   if (!url) throw new Error('Bitte eine WebDAV-URL angeben.');
   const { createClient } = await import('webdav');
@@ -304,7 +336,18 @@ function registerSyncIpc({ getCurrentProject, getMainWindow }) {
   ipcMain.handle('sync:saveSettings', (_e, { url, username }) => {
     const projectPath = requireProjectPath();
     const config = readProjectConfig(projectPath) || {};
-    config.sync = { ...(config.sync || {}), url: url || '', username: username || '' };
+    const newUrl = url || '', newUsername = username || '';
+    // Bugfix (per Nutzer-Meldung: .wiki-config.json tauchte bei JEDEM Abgleich
+    // als "Konflikt" auf): vorher wurde hier UNBEDINGT geschrieben, bei jedem
+    // Klick auf "Abgleich" — auch wenn sich an URL/Benutzername gar nichts
+    // geändert hatte. Das gab der Datei jedes Mal einen frischen Zeitstempel,
+    // kurz bevor der Sync-Vergleich überhaupt lief, und ließ sie dadurch
+    // fälschlich immer als "gerade eben lokal geändert" erscheinen. Jetzt nur
+    // noch schreiben, wenn sich tatsächlich etwas unterscheidet.
+    if (config.sync?.url === newUrl && config.sync?.username === newUsername) {
+      return { saved: true };
+    }
+    config.sync = { ...(config.sync || {}), url: newUrl, username: newUsername };
     writeProjectConfig(projectPath, config);
     return { saved: true };
   });
@@ -377,11 +420,18 @@ function registerSyncIpc({ getCurrentProject, getMainWindow }) {
   //   - beide Seiten haben unabhängig (nie synchronisiert) dieselbe Datei
   //     mit UNTERSCHIEDLICHEM Inhalt angelegt                  → ebenfalls Konflikt
   // ---------------------------------------------------------------------
+  ipcMain.handle('sync:getHistory', () => {
+    const state = readAppState();
+    return Array.isArray(state.syncHistory) ? state.syncHistory : [];
+  });
+
   ipcMain.handle('sync:syncAll', async (_e, { url, username, password }) => {
     const projectPath = requireProjectPath();
     currentStatus = { ...currentStatus, state: 'syncing' };
     broadcastStatus(getMainWindow);
+    syncInProgress = true;
     try {
+      const startedAt = Date.now();
       const result = await performSyncAll({ projectPath, url, username, password });
       currentStatus = {
         state: result.conflicts.length ? 'conflicts' : 'idle',
@@ -390,12 +440,23 @@ function registerSyncIpc({ getCurrentProject, getMainWindow }) {
         conflictCount: result.conflicts.length,
         conflicts: result.conflicts
       };
+      recordSyncHistory({
+        timestamp: currentStatus.lastSyncAt,
+        durationMs: Date.now() - startedAt,
+        filesCount: result.uploaded + result.downloaded + result.deletedLocal + result.deletedRemote,
+        success: true,
+        error: null,
+        warnings: result.conflicts.length
+      });
       broadcastStatus(getMainWindow);
       return result;
     } catch (err) {
       currentStatus = { ...currentStatus, state: 'error', lastError: err.message };
+      recordSyncHistory({ timestamp: new Date().toISOString(), durationMs: null, filesCount: 0, success: false, error: err.message, warnings: 0 });
       broadcastStatus(getMainWindow);
       throw err;
+    } finally {
+      syncInProgress = false;
     }
   });
 
@@ -495,4 +556,4 @@ function registerSyncIpc({ getCurrentProject, getMainWindow }) {
   });
 }
 
-module.exports = { registerSyncIpc, savePasswordForProject };
+module.exports = { registerSyncIpc, savePasswordForProject, isSyncInProgress };

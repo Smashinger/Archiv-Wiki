@@ -1,14 +1,14 @@
 {
   "name": "archiv-wiki",
   "productName": "Archiv-Wiki",
-  "version": "1.4.1",
+  "version": "1.8.0",
   "description": "Persönliches Markdown-Wiki für den Desktop – Notizen, Setups und Checklisten, 100% lokal.",
   "main": "main.js",
   "author": {
-    "name": "smashii",
+    "name": "Smashinger",
     "email": "smashii@example.com"
   },
-  "homepage": "https://github.com/smashii/archiv-wiki",
+  "homepage": "https://github.com/Smashinger/archiv-wiki",
   "license": "MIT",
   "private": true,
   "engines": {
@@ -30,6 +30,7 @@
     "@codemirror/lang-markdown": "^6.5.1",
     "@codemirror/language": "^6.12.4",
     "@codemirror/autocomplete": "^6.20.0",
+    "@codemirror/search": "^6.5.11",
     "@codemirror/state": "^6.7.1",
     "flexsearch": "^0.8.212",
     "@codemirror/view": "^6.43.6",
@@ -52,7 +53,11 @@
       "main/**/*",
       "preload.js",
       "renderer/**/*",
+      "assets/**/*",
       "!renderer/**/*.map"
+    ],
+    "asarUnpack": [
+      "assets/icons/**/*"
     ],
     "directories": {
       "output": "dist",

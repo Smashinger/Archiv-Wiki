@@ -47,12 +47,15 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
   // Schritt 2 des Wizards: optionalen eigenen Backup-Pfad wählen
   ipcMain.handle('wizard:selectBackupFolder', async () => {
-    // Verstärkter Best-effort gegen "Dialog öffnet im Hintergrund": show()
-    // holt das Fenster aus einem eventuell minimierten Zustand, moveTop()
-    // hebt es im Z-Order nach vorne (unabhängig von reiner Eingabefokus-
-    // Vergabe durch focus()), erst danach der Dialog selbst — auf manchen
-    // Linux-Fenstermanagern bleibt "automatisch nach vorne" letztlich trotzdem
-    // eine Entscheidung des Fenstermanagers, nicht zu 100% von der App erzwingbar.
+    // Best-effort gegen "Dialog öffnet im Hintergrund": show() holt das
+    // Fenster aus einem eventuell minimierten Zustand, moveTop() hebt es im
+    // Z-Order nach vorne, erst danach der Dialog selbst. WICHTIG (per
+    // Nutzer-Rückmeldung gelernt): KEIN setAlwaysOnTop verwenden — das fixiert
+    // das Wizard-Fenster dauerhaft ganz oben und blockiert dadurch den
+    // Dialog selbst, der dann nicht mehr bedienbar hinter ihm feststeckt.
+    // Auf manchen Linux-Fenstermanagern bleibt "automatisch nach vorne"
+    // letztlich trotzdem eine Entscheidung des Fenstermanagers, nicht zu
+    // 100% von der App erzwingbar.
     const win = getWizardWindow();
     if (win) { win.show(); win.moveTop(); win.focus(); }
     const result = await dialog.showOpenDialog(win, {

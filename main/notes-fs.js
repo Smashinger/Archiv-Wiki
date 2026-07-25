@@ -97,7 +97,8 @@ function getSearchDocuments(projectPath) {
             relPath: entryRelPath,
             title: frontmatter.title || entry.name,
             body,
-            tags: frontmatter.tags || []
+            tags: frontmatter.tags || [],
+            category: frontmatter.category || frontmatter.mainCategory || ''
           });
         } catch { /* defekte Notiz — einfach überspringen statt Index-Aufbau abzubrechen */ }
       }

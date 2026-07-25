@@ -10,6 +10,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { markdown, markdownLanguage, markdownKeymap } from '@codemirror/lang-markdown';
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
+import { search, searchKeymap, setSearchQuery, SearchQuery, findNext, findPrevious, closeSearchPanel } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
 
 import { marked } from 'marked';
@@ -48,11 +49,19 @@ function readAccentColor() {
   const val = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim();
   return val || '#c17d45';
 }
+// Wird von theme.js (applyAccentPalette) gesetzt — bei eigenen (frei
+// gewählten) Akzentfarben automatisch berechnet, damit der markierte
+// Suchtreffer bei JEDER Farbe lesbar bleibt, nicht nur bei den 11 Presets.
+function readAccentContrastText() {
+  const val = getComputedStyle(document.documentElement).getPropertyValue('--accent-contrast-text').trim();
+  return val || '#12151a';
+}
 function hexToRgb(hex) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return m ? `${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)}` : '91,127,166';
 }
 const ACCENT = readAccentColor();
+const ACCENT_CONTRAST_TEXT = readAccentContrastText();
 const ACCENT_RGB = hexToRgb(ACCENT);
 
 const editorTheme = EditorView.theme({
@@ -89,7 +98,25 @@ const editorTheme = EditorView.theme({
   },
   '.cm-tooltip-autocomplete ul li': {
     padding: '4px 8px'
-  }
+  },
+  // Such-Panel (@codemirror/search) — Standardaussehen ist hell/unpassend,
+  // hier ans bestehende Dark Theme + aktuelle Akzentfarbe angeglichen.
+  '.cm-panels': { backgroundColor: '#171b21', color: '#e0e0e0', border: 'none' },
+  '.cm-panels.cm-panels-top': { borderBottom: '1px solid #2a2f38' },
+  '.cm-search': { padding: '6px 8px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
+  '.cm-search label': { fontSize: '11.5px', color: '#9a9a9a' },
+  '.cm-textfield': {
+    backgroundColor: '#22262d', border: '1px solid #333a45', borderRadius: '6px',
+    color: '#e0e0e0', fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: '12px', padding: '4px 7px'
+  },
+  '.cm-button': {
+    backgroundImage: 'none', backgroundColor: '#22262d', border: '1px solid #333a45', borderRadius: '6px',
+    color: '#c8c8c8', fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: '11.5px', padding: '3px 9px', cursor: 'pointer'
+  },
+  '.cm-button:hover': { borderColor: ACCENT, color: ACCENT },
+  // Alle Treffer hervorgehoben (dezent, Akzentfarbe), aktueller Treffer stärker.
+  '.cm-searchMatch': { backgroundColor: `rgba(${ACCENT_RGB},0.28)`, borderRadius: '2px' },
+  '.cm-searchMatch-selected': { backgroundColor: ACCENT, color: ACCENT_CONTRAST_TEXT, borderRadius: '2px' }
 }, { dark: true });
 
 const highlightStyle = HighlightStyle.define([
@@ -131,7 +158,12 @@ export function wikiLinkCompletionSource(getNoteIndex) {
 // ---------------------------------------------------------------------------
 export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, onSave, onCursorActivity, getNoteIndex }) {
   const saveKeymap = keymap.of([
-    { key: 'Mod-s', preventDefault: true, run: () => { onSave?.(); return true; } }
+    { key: 'Mod-s', preventDefault: true, run: () => { onSave?.(); return true; } },
+    // Zusätzlich zu den Standard-Suchkürzeln (Strg+F öffnet, Strg+G/Umschalt+Strg+G
+    // weiter/zurück) — F3/Umschalt+F3 sind aus Browsern/VS Code/Obsidian vertraut.
+    { key: 'F3', preventDefault: true, run: findNext },
+    { key: 'Shift-F3', preventDefault: true, run: findPrevious },
+    { key: 'Escape', run: closeSearchPanel }
   ]);
 
   function reportCursor(state) {
@@ -148,7 +180,8 @@ export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, 
       highlightActiveLine(),
       history(),
       saveKeymap,
-      keymap.of([...markdownKeymap, indentWithTab, ...defaultKeymap, ...historyKeymap, ...completionKeymap]),
+      search({ top: true }),
+      keymap.of([...markdownKeymap, indentWithTab, ...defaultKeymap, ...historyKeymap, ...completionKeymap, ...searchKeymap]),
       markdown({ base: markdownLanguage }),
       autocompletion({ override: [wikiLinkCompletionSource(getNoteIndex)] }),
       syntaxHighlighting(highlightStyle),
@@ -169,6 +202,16 @@ export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, 
     getContent: () => view.state.doc.toString(),
     setContent: (text) => {
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+    },
+    // Brücke von der Header-Suche: setzt dieselbe Suchanfrage, die auch die
+    // manuelle Editor-Suche (Strg+F) nutzt, und springt zum ersten Treffer —
+    // dadurch läuft Hervorhebung/Navigation über EIN einziges System,
+    // nicht über eine zweite, separat gebaute Markierungslogik.
+    jumpToMatch: (query) => {
+      if (!query) return;
+      view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: query })) });
+      findNext(view);
+      view.focus();
     },
     insertAtCursor: (text) => {
       const { from, to } = view.state.selection.main;
@@ -418,6 +461,12 @@ export function renderPreview(markdownText, options = {}) {
     const base = 'file://' + options.projectPath.replace(/\\/g, '/') + '/.attachments/';
     html = html.replace(/src="attachment:([^"]+)"/g, (_, name) => `src="${base}${encodeURIComponent(name)}"`);
   }
+
+  // Aus der Icon-Bibliothek eingefügte Symbole (siehe showIconPicker in
+  // app.js) werden mit "icon:kategorie/name" referenziert — gleiches Prinzip
+  // wie bei attachment:, nur zeigt es auf die mit der App mitgelieferte
+  // Icon-Bibliothek statt auf projekteigene Anhänge.
+  html = html.replace(/src="icon:([^"]+)"/g, (_, id) => `src="assets/icon-library/${id}.svg" class="preview-lib-icon"`);
 
   return html;
 }

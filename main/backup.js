@@ -43,17 +43,52 @@ function pruneOldBackups(backupPath, keepCount = DEFAULT_KEEP_COUNT) {
   }
 }
 
+// Datum der neuesten vorhandenen Backup-Datei in diesem Ordner (oder null,
+// falls noch keine existiert) — bewusst aus den Dateinamen selbst abgeleitet
+// statt aus einem globalen App-Zustand, damit das Intervall korrekt PRO
+// PROJEKT funktioniert (ein globaler Zeitstempel würde sich bei mehreren
+// verschiedenen Projekten/Backup-Ordnern gegenseitig verwechseln).
+function latestBackupDate(backupPath) {
+  let files;
+  try {
+    files = fs.readdirSync(backupPath).filter(f => BACKUP_FILENAME_RE.test(f)).sort();
+  } catch {
+    return null;
+  }
+  if (files.length === 0) return null;
+  const match = files[files.length - 1].match(BACKUP_FILENAME_RE);
+  return new Date(match[1]);
+}
+
 // Wird regelmäßig aufgerufen (siehe Timer in main.js) — entscheidet selbst,
-// ob heute schon ein Backup existiert, und legt bei Bedarf eins an.
+// ob laut eingestelltem Intervall ein neues Backup fällig ist, und legt bei
+// Bedarf eins an. intervalDays: 0 = deaktiviert, sonst Anzahl Tage seit dem
+// letzten vorhandenen Backup IN DIESEM Ordner (Standard 1 = täglich, wie
+// bisher fest verdrahtet).
+// Für sauberes Beenden (main.js quitCleanly): zeigt an, ob GERADE ein
+// automatisches Backup läuft, damit das Beenden kurz darauf warten kann statt
+// mitten im Zip-Schreiben abzubrechen.
+let backupInProgress = false;
+function isBackupInProgress() { return backupInProgress; }
+
 async function maybeRunAutoBackup({ getCurrentProject }) {
   const project = getCurrentProject();
   const projectPath = project?.path;
   const backupPath = project?.config?.backupPath;
+  const intervalDays = project?.config?.backupIntervalDays ?? 1;
   if (!projectPath || !backupPath) return;
+  if (intervalDays <= 0) return; // per Einstellung deaktiviert
+
+  const lastDate = latestBackupDate(backupPath);
+  if (lastDate) {
+    const daysSinceLast = (Date.now() - lastDate.getTime()) / 86400000;
+    if (daysSinceLast < intervalDays) return; // laut Intervall noch nicht fällig
+  }
 
   const destPath = path.join(backupPath, backupFileNameFor(new Date()));
-  if (fs.existsSync(destPath)) return; // heute schon gesichert
+  if (fs.existsSync(destPath)) return; // heute schon gesichert (z. B. mehrere Programmstarts am selben Tag)
 
+  backupInProgress = true;
   try {
     fs.mkdirSync(backupPath, { recursive: true });
     await zipProjectTo(projectPath, destPath);
@@ -66,10 +101,34 @@ async function maybeRunAutoBackup({ getCurrentProject }) {
     // ZUSÄTZLICH aber zählen (Backup-Warnung-Feature): mehrere Fehlschläge
     // hintereinander sollen dem Nutzer sichtbar auffallen, statt komplett
     // unbemerkt zu bleiben.
+    // Bugfix (Nutzer-Meldung: "keine aussagekräftige Fehlermeldung, auch
+    // nicht in den DevTools"): der echte Fehlertext wurde bisher NUR in die
+    // Konsole geloggt, nirgends dauerhaft gespeichert — wer nicht im exakten
+    // Moment des Fehlschlags hinschaute, sah nachträglich nichts mehr davon.
+    // Jetzt wird er mitgespeichert, damit die Oberfläche ihn später zeigen kann.
     const prevCount = readAppState().backupConsecutiveFailures || 0;
-    writeAppState({ backupConsecutiveFailures: prevCount + 1, backupLastErrorAt: new Date().toISOString() });
+    writeAppState({
+      backupConsecutiveFailures: prevCount + 1,
+      backupLastErrorAt: new Date().toISOString(),
+      backupLastErrorMessage: err.message,
+      backupLastErrorCode: err.code || null
+    });
     console.error('[Archiv Wiki] Automatisches Backup fehlgeschlagen:', err.message);
+  } finally {
+    backupInProgress = false;
   }
 }
 
-module.exports = { maybeRunAutoBackup, pruneOldBackups, backupFileNameFor };
+// Für die Anzeige im Einstellungsfenster ("Nächstes geplantes Backup") —
+// reine Berechnung, kein Seiteneffekt. Nutzt dieselbe projektspezifische
+// Grundlage wie maybeRunAutoBackup (siehe latestBackupDate).
+function nextScheduledBackup(backupPath, intervalDays) {
+  if (!intervalDays || intervalDays <= 0) return null; // deaktiviert
+  const lastDate = latestBackupDate(backupPath);
+  if (!lastDate) return new Date(); // noch nie gesichert → jederzeit fällig
+  const next = new Date(lastDate);
+  next.setDate(next.getDate() + intervalDays);
+  return next;
+}
+
+module.exports = { maybeRunAutoBackup, pruneOldBackups, backupFileNameFor, nextScheduledBackup, latestBackupDate, isBackupInProgress };

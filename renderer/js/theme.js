@@ -19,12 +19,52 @@ export const ACCENT_PALETTES = {
   indigo:  { label: 'Indigo',                    color: '#5f6bb0', dim: '#4a548c', soft: 'rgba(95,107,176,0.08)' }
 };
 
-export function applyAccentPalette(key) {
-  const palette = ACCENT_PALETTES[key] || ACCENT_PALETTES.orange;
+// --- Hilfsfunktionen für eigene (freie) Akzentfarben ---
+function hexToRgbTuple(hex) {
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  return [r, g, b];
+}
+
+// Leitet aus einer frei gewählten Farbe automatisch "dim" (etwas dunkler,
+// für Hover-Zustände) und "soft" (8% deckend, für dezente Hintergründe) ab —
+// dieselben zwei Abstufungen, die jede feste Palette auch hat.
+function deriveAccentShades(hex) {
+  const [r, g, b] = hexToRgbTuple(hex);
+  const dim = '#' + [r, g, b].map(c => Math.max(0, Math.round(c * 0.8)).toString(16).padStart(2, '0')).join('');
+  const soft = `rgba(${r},${g},${b},0.08)`;
+  return { dim, soft };
+}
+
+// Kontrast-Sicherheit (Nutzer-Anforderung): einfacher, bewährter Luminanz-Test
+// nach WCAG-Näherung — entscheidet, ob Text AUF der Akzentfarbe (z. B. der
+// markierte Suchtreffer im Editor) hell oder dunkel sein muss, damit er bei
+// JEDER frei gewählten Farbe lesbar bleibt.
+export function getContrastTextColor(hex) {
+  const [r, g, b] = hexToRgbTuple(hex);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.55 ? '#12151a' : '#f5f5f5';
+}
+
+
+// key: entweder einer der 11 Preset-Schlüssel, ODER 'custom' (dann customHex
+// verwenden, dessen dim/soft-Abstufungen automatisch abgeleitet werden).
+export function applyAccentPalette(key, customHex) {
+  let color, dim, soft;
+  if (key === 'custom' && customHex) {
+    color = customHex;
+    ({ dim, soft } = deriveAccentShades(customHex));
+  } else {
+    const palette = ACCENT_PALETTES[key] || ACCENT_PALETTES.orange;
+    ({ color, dim, soft } = palette);
+  }
   const root = document.documentElement.style;
-  root.setProperty('--accent-color', palette.color);
-  root.setProperty('--accent-dim', palette.dim);
-  root.setProperty('--accent-soft', palette.soft);
+  root.setProperty('--accent-color', color);
+  root.setProperty('--accent-dim', dim);
+  root.setProperty('--accent-soft', soft);
+  root.setProperty('--accent-contrast-text', key === 'custom' && customHex ? getContrastTextColor(customHex) : '#12151a');
 }
 
 // Baut die Farbkreis-Auswahl als feste CSS-Klassen (.color-swatch-<name>)
@@ -34,7 +74,68 @@ export function applyAccentPalette(key) {
 // erschienen komplett weiß. Feste Klassen umgehen das, ohne die CSP
 // aufzuweichen. Von Wizard UND dem In-App-"Akzentfarben ändern"-Menü genutzt.
 export function buildAccentSwatchesHtml(selectedKey) {
-  return Object.entries(ACCENT_PALETTES).map(([key, p]) =>
+  const presets = Object.entries(ACCENT_PALETTES).map(([key, p]) =>
     `<button type="button" class="color-swatch color-swatch-${key}${key === selectedKey ? ' active' : ''}" data-accent="${key}" title="${p.label}"></button>`
   ).join('');
+  // Bewusst OHNE Inline-Style (würde im Wizard durch dessen strengere CSP
+  // stillschweigend blockiert, siehe Kommentar oben) — Auswahl-Zustand läuft
+  // nur über die "active"-Klasse mit Rahmen, wie bei den festen Farben auch.
+  const custom = `<button type="button" class="color-swatch color-swatch-custom${selectedKey === 'custom' ? ' active' : ''}" data-accent="custom" title="Eigene Farbe wählen…">🎨</button>`;
+  return presets + custom;
+}
+
+// Drei wählbare Sidebar-Dichte-Stufen. "Standard" entspricht der neuen,
+// bereits verdichteten Basis (siehe --density-* Variablen in styles.css) —
+// NICHT dem ursprünglichen, großzügigeren Zustand. "Groß" kommt in etwa dem
+// alten Verhalten von vor der Verdichtung nahe, für Nutzer, die es lieber
+// etwas geräumiger/lesbarer mögen.
+export const SIDEBAR_DENSITY_PRESETS = {
+  kompakt: {
+    label: 'Kompakt',
+    sidebarPad: '14px 10px 8px',
+    navFont: '11.5px', navPad: '4px 7px', navGap: '7px',
+    groupFont: '11px', groupPad: '5px 7px 4px', groupGap: '6px',
+    iconSize: '11px'
+  },
+  standard: {
+    label: 'Standard',
+    sidebarPad: '16px 12px 10px',
+    navFont: '12.5px', navPad: '5px 8px', navGap: '8px',
+    groupFont: '11.5px', groupPad: '6px 8px 5px', groupGap: '7px',
+    iconSize: '12px'
+  },
+  gross: {
+    label: 'Groß',
+    sidebarPad: '20px 16px 12px',
+    navFont: '14px', navPad: '7px 10px', navGap: '10px',
+    groupFont: '13px', groupPad: '8px 10px 7px', groupGap: '9px',
+    iconSize: '14px'
+  }
+};
+
+export function applySidebarDensity(key) {
+  const preset = SIDEBAR_DENSITY_PRESETS[key] || SIDEBAR_DENSITY_PRESETS.standard;
+  const root = document.documentElement.style;
+  root.setProperty('--density-sidebar-pad', preset.sidebarPad);
+  root.setProperty('--density-nav-font', preset.navFont);
+  root.setProperty('--density-nav-pad', preset.navPad);
+  root.setProperty('--density-nav-gap', preset.navGap);
+  root.setProperty('--density-group-font', preset.groupFont);
+  root.setProperty('--density-group-pad', preset.groupPad);
+  root.setProperty('--density-group-gap', preset.groupGap);
+  root.setProperty('--density-icon-size', preset.iconSize);
+}
+
+// Editor-Schriftgröße — sitzt direkt in der Editor-Werkzeugleiste als kleines
+// Dropdown (Punkt 2 der Korrektur-Runde: kein Menüpunkt/Popup mehr).
+// Übersteuert von außen die im Editor-Bundle mitgelieferte Basisgröße
+// (siehe components.css .cm-editor).
+export const EDITOR_FONT_SIZE_MIN = 12;
+export const EDITOR_FONT_SIZE_MAX = 18;
+export const EDITOR_FONT_SIZE_DEFAULT = 13;
+
+export function applyEditorFontSize(px) {
+  const clamped = Math.min(EDITOR_FONT_SIZE_MAX, Math.max(EDITOR_FONT_SIZE_MIN, Number(px) || EDITOR_FONT_SIZE_DEFAULT));
+  document.documentElement.style.setProperty('--editor-font-size', `${clamped}px`);
+  return clamped;
 }

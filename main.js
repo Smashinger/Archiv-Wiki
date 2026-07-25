@@ -7,20 +7,50 @@
 
 'use strict';
 
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, Tray } = require('electron');
 const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { readAppState } = require('./main/app-state');
+const { readAppState, writeAppState } = require('./main/app-state');
 const { isValidProject, readProjectConfig } = require('./main/project');
 const { registerWizardIpc } = require('./main/wizard-ipc');
 const { registerFilesystemIpc } = require('./main/filesystem-ipc');
 const { registerExportIpc, exportProjectZip } = require('./main/export-ipc');
-const { registerSyncIpc } = require('./main/sync-ipc');
-const { maybeRunAutoBackup } = require('./main/backup');
+const { registerSyncIpc, isSyncInProgress } = require('./main/sync-ipc');
+const { registerSettingsIpc } = require('./main/settings-ipc');
+const { maybeRunAutoBackup, nextScheduledBackup, backupFileNameFor, isBackupInProgress } = require('./main/backup');
 
 const isDev = process.argv.includes('--dev');
+
+// Bugfix (Nutzer-Meldung: gebaute AppImage startete ohne jede sichtbare
+// Fehlermeldung nicht mehr): native Bild-Ladefunktionen (Tray(), das
+// icon:-Feld von BrowserWindow) lesen NICHT über Electrons für fs.* gepatchte
+// ASAR-Virtualisierung, sondern greifen direkt aufs Dateisystem zu — ein Pfad
+// wie ".../app.asar/assets/icons/32x32.png" existiert für sie schlicht nicht.
+// asarUnpack (siehe package.json) legt diese Dateien zusätzlich in einem
+// echten ".../app.asar.unpacked/..."-Ordner ab; hier wird für genau diese
+// nativen Ladefunktionen dorthin umgeleitet. Im Entwicklungsmodus (kein
+// ASAR vorhanden) bleibt der Pfad unverändert.
+function resolveNativeAssetPath(relativePath) {
+  const fullPath = path.join(__dirname, relativePath);
+  return fullPath.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`);
+}
+
+// Im Entwicklungs-/Test-Modus einen komplett eigenen Speicherort für alles,
+// was sich die App SELBST merkt (zuletzt geöffnetes Projekt, Sync-Zugangs-
+// daten, Backup-Status) — sonst teilen sich Test-Version und "echte" Version
+// genau diese wichtigen Dinge. WICHTIG (per Nutzer-Test entdeckt): das reine
+// "--user-data-dir=..."-Flag beim Start reicht dafür NICHT aus — das
+// betrifft nur den Chromium-eigenen Teil (Cache, Cookies, Sessions), nicht
+// das, was Electron selbst über app.getPath('userData') verwaltet (genau
+// dort landen app-state.json und sync-credentials.json, siehe
+// main/app-state.js). Deshalb hier zusätzlich explizit im Code umgeleitet,
+// auf denselben Ordner, den das CLI-Flag ohnehin schon anlegt — beides landet
+// dadurch konsolidiert an einem einzigen, bereits bekannten Ort.
+if (isDev) {
+  app.setPath('userData', path.join(app.getPath('home'), '.archiv-wiki-dev-settings'));
+}
 
 // ---------------------------------------------------------------------------
 // Start-Diagnose: zeigt IMMER im Terminal, aus welchem Ordner main.js läuft
@@ -60,6 +90,12 @@ if (!gotLock) {
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
+let tray = null;
+// Variante 1 (Nutzer-Entscheidung): X schließt die App nicht wirklich, sie
+// läuft im Hintergrund weiter (Tray-Symbol), wie bei Discord/Slack üblich.
+// isQuitting unterscheidet "X geklickt" (nur verstecken) von "wirklich
+// beenden" (z. B. über das Tray-Menü, Strg+Q, oder das Anwendungsmenü).
+let isQuitting = false;
 /** @type {BrowserWindow | null} */
 let wizardWindow = null;
 /** Aktuell offenes Projekt (gesetzt sobald Wizard fertig ist oder ein
@@ -76,7 +112,7 @@ function createWizardWindow() {
     resizable: false,
     show: false,
     backgroundColor: '#0a0d12',
-    icon: path.join(__dirname, 'assets/icons/512x512.png'),
+    icon: resolveNativeAssetPath('assets/icons/512x512.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -124,7 +160,7 @@ function createMainWindow() {
     show: false, // erst zeigen, wenn Inhalt bereit ist (kein weißer Blitz)
     backgroundColor: '#0a0d12', // Dark-Theme-Hintergrund aus main.css
     autoHideMenuBar: false,
-    icon: path.join(__dirname, 'assets/icons/512x512.png'),
+    icon: resolveNativeAssetPath('assets/icons/512x512.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -154,7 +190,43 @@ function createMainWindow() {
     return { action: 'deny' };
   });
 
+  // Zentrale Schließen-Logik (löst das vorherige feste "immer minimieren"
+  // ab): liest die gespeicherte Einstellung (main/close-behavior.js) und
+  // entscheidet, ob gefragt, minimiert oder wirklich beendet wird. isQuitting
+  // bleibt die Ausnahme für "wirklich beenden" (Tray-Menü, Strg+Q, usw.).
+  // Vorläufig (Nutzer-Anforderung nach dem Tray-Icon-Absturz): normales
+  // Schließen statt Nachfragen/Minimieren — bis das Tray-Symbol nachweislich
+  // zuverlässig lädt, sonst könnte ein Fenster ohne jede Möglichkeit zum
+  // Wiederherstellen im Hintergrund verschwinden. handleCloseRequest() bleibt
+  // vollständig erhalten (siehe unten) — Reaktivierung ist nur diese eine
+  // Zeile: `if (isQuitting) return; e.preventDefault(); handleCloseRequest();`
   mainWindow.on('closed', () => { mainWindow = null; });
+}
+
+// Einzige Stelle, an der "X geklickt" ausgewertet wird — Tray-Menü,
+// Anwendungsmenü "Beenden" und Strg+Q laufen NICHT hierüber (die wollen ja
+// immer wirklich beenden), sondern setzen direkt isQuitting. Nur der
+// eigentliche Fenster-X-Klick ist mehrdeutig und braucht diese Prüfung.
+function handleCloseRequest() {
+  const behavior = readAppState().closeBehavior || 'ask';
+  if (behavior === 'tray') { mainWindow.hide(); return; }
+  if (behavior === 'quit') { quitCleanly(); return; }
+  // 'ask' (Standard): Renderer zeigt den Auswahl-Dialog, Antwort kommt über
+  // den 'app:resolveCloseDialog'-Kanal weiter unten zurück.
+  mainWindow.webContents.send('app:show-close-dialog');
+}
+
+// Sauberes Beenden (Nutzer-Anforderung): falls GERADE ein Backup oder
+// Cloud-Abgleich läuft, kurz darauf warten statt mitten drin abzuwürgen —
+// beides sind bei uns kurze, in sich abgeschlossene Vorgänge (kein dauerhaft
+// offener Verbindungs-Zustand), ein kurzes Warten reicht dafür aus.
+async function quitCleanly() {
+  const start = Date.now();
+  while ((isBackupInProgress() || isSyncInProgress()) && Date.now() - start < 5000) {
+    await new Promise(r => setTimeout(r, 100));
+  }
+  isQuitting = true;
+  app.quit();
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +304,7 @@ function buildMenu() {
               type: 'info',
               title: 'Über Archiv Wiki',
               message: 'Archiv Wiki',
-              detail: `Version ${app.getVersion()}\nAutor: smashii\nLizenz: MIT`
+              detail: `Version ${app.getVersion()}\nAutor: Smashinger\nLizenz: MIT`
             });
           }
         }
@@ -264,20 +336,103 @@ function registerCoreIpc() {
   // App eine sichtbare Warnung, statt dass es unbemerkt weiter fehlschlägt.
   ipcMain.handle('app:getBackupStatus', () => {
     const state = readAppState();
+    const intervalDays = currentProject?.config?.backupIntervalDays ?? 1;
+    const backupPath = currentProject?.config?.backupPath;
     return {
       consecutiveFailures: state.backupConsecutiveFailures || 0,
       lastSuccessAt: state.backupLastSuccessAt || null,
-      lastErrorAt: state.backupLastErrorAt || null
+      lastErrorAt: state.backupLastErrorAt || null,
+      lastErrorMessage: state.backupLastErrorMessage || null,
+      lastErrorCode: state.backupLastErrorCode || null,
+      intervalDays,
+      nextScheduledAt: backupPath ? nextScheduledBackup(backupPath, intervalDays) : null
     };
+  });
+
+  // "Backup jetzt erstellen"-Button im neuen Einstellungsfenster — erzwingt
+  // ein Backup unabhängig vom Intervall (löscht dafür einfach die heutige
+  // Datei, falls schon vorhanden, maybeRunAutoBackup erledigt den Rest).
+  ipcMain.handle('app:runBackupNow', async () => {
+    const backupPath = currentProject?.config?.backupPath;
+    if (backupPath) {
+      const todayFile = path.join(backupPath, backupFileNameFor(new Date()));
+      try { fs.unlinkSync(todayFile); } catch { /* existiert nicht, kein Problem */ }
+    }
+    await maybeRunAutoBackup({ getCurrentProject: () => currentProject });
+    return readAppState();
+  });
+
+  // "Backup-Ordner öffnen"-Button — zeigt den Ordner im Dateimanager des Systems.
+  ipcMain.handle('app:openBackupFolder', () => {
+    const backupPath = currentProject?.config?.backupPath;
+    if (backupPath) shell.openPath(backupPath);
+  });
+
+  // "Ändern"-Button beim Speicherort (Einstellungsfenster → Allgemein):
+  // Nutzer-Entscheidung war ausdrücklich "verschieben, alles bleibt erhalten"
+  // — kopiert deshalb alles an den neuen Ort und lässt den ALTEN Ordner
+  // bewusst unangetastet stehen (kein "richtiges" Verschieben mit Löschen),
+  // damit selbst bei einem Fehler mitten im Kopieren nichts verloren gehen
+  // kann. Der Nutzer kann den alten Ordner danach selbst manuell entfernen.
+  ipcMain.handle('app:moveProjectFolder', async () => {
+    const oldPath = currentProject?.path;
+    if (!oldPath) throw new Error('Kein Projekt geöffnet.');
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Neuen Speicherort für dein Wiki wählen',
+      properties: ['openDirectory', 'createDirectory']
+    });
+    if (result.canceled || result.filePaths.length === 0) return { moved: false };
+    const newPath = result.filePaths[0];
+
+    if (path.resolve(newPath) === path.resolve(oldPath)) {
+      return { moved: false, error: 'Das ist bereits der aktuelle Speicherort.' };
+    }
+    let existingFiles;
+    try { existingFiles = fs.readdirSync(newPath); }
+    catch (err) { return { moved: false, error: `Ordner konnte nicht gelesen werden: ${err.message}` }; }
+    if (existingFiles.length > 0) {
+      return { moved: false, error: 'Der gewählte Ordner ist nicht leer. Bitte einen leeren Ordner wählen, damit nichts überschrieben wird.' };
+    }
+
+    try {
+      fs.cpSync(oldPath, newPath, { recursive: true });
+      currentProject = { path: newPath, config: currentProject.config };
+      writeAppState({ lastProjectPath: newPath });
+      console.log(`[Archiv Wiki] Speicherort verschoben: ${oldPath} → ${newPath}`);
+      return { moved: true, newPath, oldPath };
+    } catch (err) {
+      return { moved: false, error: `Kopieren fehlgeschlagen: ${err.message}` };
+    }
+  });
+
+  // Schließen-Verhalten: bewusst GLOBAL (app-state.json), nicht pro Projekt —
+  // das betrifft die App als Ganzes, nicht den Wiki-Inhalt. Wird trotzdem im
+  // selben "Allgemein"-Tab des Einstellungsfensters angezeigt.
+  ipcMain.handle('app:getCloseBehavior', () => readAppState().closeBehavior || 'ask');
+  ipcMain.handle('app:setCloseBehavior', (_e, value) => {
+    writeAppState({ closeBehavior: value });
+  });
+
+  // Antwort aus dem Auswahl-Dialog (siehe handleCloseRequest/'app:show-close-dialog').
+  ipcMain.handle('app:resolveCloseDialog', (_e, { choice, remember }) => {
+    if (remember) writeAppState({ closeBehavior: choice });
+    if (choice === 'tray') mainWindow.hide();
+    else if (choice === 'quit') quitCleanly();
+    // choice === 'cancel' (Abbrechen): nichts tun, Fenster bleibt einfach offen.
   });
 
   // Update-Hinweis (bewusst der "einfache Weg", siehe Absprache): fragt nur
   // ab, ob es ein neueres Release gibt, lädt aber NICHTS automatisch herunter
-  // und tauscht nichts selbst aus. Owner/Repo kommen aus derselben
-  // package.json-Konfiguration, die auch "npm run release" nutzt (build.publish)
-  // — nirgends ein zweites Mal fest hinterlegt. Versionsnummern selbst werden
-  // nie im Code hinterlegt, sondern zur Laufzeit von app.getVersion() bzw.
-  // von GitHub abgefragt.
+  // und tauscht nichts selbst aus.
+  // Bugfix (nur durch einen echten, tatsächlich gebauten Test-Lauf gefunden,
+  // nicht durch bloßes Code-Lesen): electron-builder entfernt das komplette
+  // "build"-Feld aus dem package.json, das im FERTIGEN Programm landet —
+  // "build.publish" existierte im echten AppImage dadurch nie, nur beim
+  // Entwickeln (npm run dev), wo die unveränderte Quell-package.json genutzt
+  // wird. Owner/Repo werden deshalb jetzt aus "homepage" abgeleitet (bleibt
+  // beim Bauen erhalten) statt aus "build" — weiterhin nirgends fest im Code
+  // hinterlegt, nur eine andere Quelle.
   function compareVersions(a, b) {
     const pa = String(a).replace(/^v/i, '').split('.').map(Number);
     const pb = String(b).replace(/^v/i, '').split('.').map(Number);
@@ -288,9 +443,16 @@ function registerCoreIpc() {
     return 0;
   }
 
+  function getRepoOwnerAndName() {
+    const homepage = require('./package.json').homepage || '';
+    const match = homepage.match(/github\.com\/([^/]+)\/([^/]+?)\/?$/);
+    if (!match) throw new Error('Konnte Owner/Repo nicht aus "homepage" in package.json ableiten.');
+    return { owner: match[1], repo: match[2] };
+  }
+
   ipcMain.handle('app:checkForUpdate', () => {
     const currentVersion = app.getVersion();
-    const { owner, repo } = require('./package.json').build.publish;
+    const { owner, repo } = getRepoOwnerAndName();
     return new Promise((resolve) => {
       const req = https.get(
         `https://api.github.com/repos/${owner}/${repo}/releases/latest`,
@@ -299,26 +461,52 @@ function registerCoreIpc() {
           let data = '';
           res.on('data', (chunk) => { data += chunk; });
           res.on('end', () => {
+            // Bugfix (per Nutzer-Test entdeckt): vorher wurde JEDE Antwort
+            // blind als Erfolg behandelt, ganz ohne den HTTP-Status zu prüfen.
+            // Ein Fehler von GitHub (z. B. 403 bei Rate-Limit — unangemeldet
+            // nur 60 Anfragen/Stunde erlaubt — oder 404, falls kein
+            // veröffentlichtes, nicht-Vorab-Release existiert) sah dadurch
+            // optisch GENAUSO aus wie "wirklich aktuell", ganz ohne Hinweis,
+            // dass eigentlich gar nicht geprüft werden konnte.
+            if (res.statusCode !== 200) {
+              console.error(`[Archiv Wiki] Update-Check: GitHub antwortete mit Status ${res.statusCode} (${res.statusMessage || ''}). Details:`, data.slice(0, 300));
+              return resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null });
+            }
             try {
               const json = JSON.parse(data);
               const latestVersion = String(json.tag_name || '').replace(/^v/i, '');
-              if (!latestVersion) return resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null });
+              if (!latestVersion) {
+                console.error('[Archiv Wiki] Update-Check: GitHub-Antwort enthielt keinen tag_name — Rohdaten:', data.slice(0, 300));
+                return resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null });
+              }
+              const lastCheckAt = new Date().toISOString();
+              writeAppState({ lastUpdateCheckAt: lastCheckAt });
               resolve({
                 currentVersion,
                 latestVersion,
                 updateAvailable: compareVersions(latestVersion, currentVersion) > 0,
-                releaseUrl: json.html_url || `https://github.com/${owner}/${repo}/releases/latest`
+                releaseUrl: json.html_url || `https://github.com/${owner}/${repo}/releases/latest`,
+                lastCheckAt
               });
-            } catch {
+            } catch (err) {
+              console.error('[Archiv Wiki] Update-Check: GitHub-Antwort konnte nicht als JSON gelesen werden:', err.message);
               resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null });
             }
           });
         }
       );
       // Netzwerk-Aussetzer/Timeout dürfen die App nie blockieren oder abstürzen
-      // lassen — einfach "keine Update-Info verfügbar" zurückgeben.
-      req.on('error', () => resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null }));
-      req.on('timeout', () => { req.destroy(); resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null }); });
+      // lassen — einfach "keine Update-Info verfügbar" zurückgeben, aber jetzt
+      // protokolliert statt komplett lautlos.
+      req.on('error', (err) => {
+        console.error('[Archiv Wiki] Update-Check: Netzwerkfehler:', err.message);
+        resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null });
+      });
+      req.on('timeout', () => {
+        console.error('[Archiv Wiki] Update-Check: Zeitüberschreitung (>6s) bei der Anfrage an GitHub.');
+        req.destroy();
+        resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null });
+      });
     });
   });
 
@@ -362,8 +550,58 @@ function registerCoreIpc() {
 // ---------------------------------------------------------------------------
 // App Lifecycle
 // ---------------------------------------------------------------------------
+// Tray-Symbol (Variante 1, Nutzer-Entscheidung): X schließt die App nicht
+// wirklich, sie läuft im Hintergrund weiter — per Klick auf dieses Symbol
+// wieder holbar, per Rechtsklick beendbar. Bekanntes Muster von Discord/Slack.
+// Hinweis: Tray-Unterstützung ist unter Linux je nach Desktop-Umgebung
+// unterschiedlich zuverlässig (unter GNOME z. B. oft nur mit einer
+// zusätzlichen Erweiterung sichtbar) — das ist eine Einschränkung des
+// jeweiligen Systems, keine Einschränkung dieser App.
+function createTray() {
+  // Bugfix (Nutzer-Meldung: App startete komplett nicht mehr, unhandled
+  // promise rejection beim Icon-Laden): Tray ist eine reine Komfort-Funktion
+  // — ein fehlendes oder nicht ladbares Icon darf niemals den kompletten
+  // Programmstart verhindern. Existenzprüfung + try/catch, bei Fehlschlag
+  // läuft die App einfach ohne Tray-Symbol weiter.
+  const iconPath = resolveNativeAssetPath('assets/icons/32x32.png');
+  if (!fs.existsSync(iconPath)) {
+    console.warn(`[Archiv Wiki] Tray-Icon nicht gefunden unter ${iconPath} — Tray-Symbol wird übersprungen, App startet trotzdem normal weiter.`);
+    return;
+  }
+  try {
+    tray = new Tray(iconPath);
+  } catch (err) {
+    console.error('[Archiv Wiki] Tray-Symbol konnte nicht erstellt werden, wird übersprungen:', err.message);
+    tray = null;
+    return;
+  }
+  tray.setToolTip('Archiv Wiki');
+  function showAndFocus() { mainWindow?.show(); mainWindow?.focus(); }
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Fenster öffnen', click: showAndFocus },
+    { label: 'Dashboard öffnen', click: () => { showAndFocus(); mainWindow?.webContents.send('menu:go-home'); } },
+    { label: 'Nach Updates suchen', click: () => { showAndFocus(); mainWindow?.webContents.send('menu:check-for-updates'); } },
+    {
+      label: 'Backup jetzt erstellen',
+      click: async () => {
+        const backupPath = currentProject?.config?.backupPath;
+        if (backupPath) { try { fs.unlinkSync(path.join(backupPath, backupFileNameFor(new Date()))); } catch { /* existiert nicht */ } }
+        await maybeRunAutoBackup({ getCurrentProject: () => currentProject });
+      }
+    },
+    { type: 'separator' },
+    { label: 'Einstellungen…', click: () => { showAndFocus(); mainWindow?.webContents.send('menu:open-settings'); } },
+    { type: 'separator' },
+    { label: 'Archiv-Wiki beenden', click: () => quitCleanly() }
+  ]));
+  // Linksklick auf das Symbol selbst öffnet/fokussiert ebenfalls (zusätzlich
+  // zum Rechtsklick-Menü) — unter Windows/den meisten Linux-Umgebungen üblich.
+  tray.on('click', showAndFocus);
+}
+
 app.whenReady().then(() => {
   buildMenu();
+  createTray();
   registerCoreIpc();
 
   // Jede IPC-Registrierung einzeln absichern: schlägt eine fehl (z. B. ein
@@ -377,6 +615,7 @@ app.whenReady().then(() => {
   safeRegister('registerFilesystemIpc', () => registerFilesystemIpc({ getCurrentProject: () => currentProject }));
   safeRegister('registerExportIpc', () => registerExportIpc({ getCurrentProject: () => currentProject, getMainWindow: () => mainWindow }));
   safeRegister('registerSyncIpc', () => registerSyncIpc({ getCurrentProject: () => currentProject, getMainWindow: () => mainWindow }));
+  safeRegister('registerSettingsIpc', () => registerSettingsIpc({ getCurrentProject: () => currentProject, getMainWindow: () => mainWindow }));
 
   // Automatisches Backup: einmal am Tag ein ZIP-Snapshot in den beim
   // Einrichten gewählten backupPath (siehe main/backup.js — vorher wurde
@@ -406,6 +645,12 @@ app.whenReady().then(() => {
     else createWizardWindow();
   });
 });
+
+// Zentrale Stelle für ALLE Beenden-Wege (Anwendungsmenü, Strg+Q, Tray-Menü,
+// window-all-closed) — setzt isQuitting, BEVOR die close-Handler der Fenster
+// laufen, damit das Hauptfenster dann wirklich schließt statt nur versteckt
+// zu werden (siehe mainWindow.on('close', ...) weiter oben).
+app.on('before-quit', () => { isQuitting = true; });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

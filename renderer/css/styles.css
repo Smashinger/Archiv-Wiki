@@ -30,6 +30,19 @@
 
 :root{
   --font-brand: 'Oswald', var(--mono);
+  /* Sidebar-Dichte (3 wählbare Stufen, siehe renderer/js/theme.js
+     SIDEBAR_DENSITY_PRESETS) — "Standard" hier ist bewusst schon die neu
+     verdichtete Basis aus der allgemeinen Platznutzungs-Optimierung, NICHT
+     der ursprüngliche, großzügigere Zustand (der ist jetzt "Groß"). */
+  --density-sidebar-pad: 16px 12px 10px;
+  --density-nav-font: 12.5px;
+  --density-nav-pad: 5px 8px;
+  --density-nav-gap: 8px;
+  --density-group-font: 11.5px;
+  --density-group-pad: 6px 8px 5px;
+  --density-group-gap: 7px;
+  --density-icon-size: 12px;
+  --editor-font-size: 13px;
   --bg-color: #121519;
   --bg-elev: #171b21;
   --bg-elev-2: #2b2b2b;
@@ -51,7 +64,7 @@
   --mono: 'JetBrains Mono', ui-monospace, monospace;
   --sans: 'Inter', system-ui, sans-serif;
   --sidebar-w: 292px;
-  --topbar-h: 52px;
+  --topbar-h: 46px;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;

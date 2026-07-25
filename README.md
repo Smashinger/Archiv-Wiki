@@ -66,3 +66,6 @@ npm run dist     # baut AppImage in dist/
 ## Lizenz
 
 MIT — siehe [LICENSE](LICENSE).
+
+Verwendete Drittanbieter-Bibliotheken, Schriftart und Icon-Quellen samt ihrer
+jeweiligen Lizenzen: siehe [THIRD_PARTY.md](THIRD_PARTY.md).

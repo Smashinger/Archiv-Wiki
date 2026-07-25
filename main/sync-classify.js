@@ -6,8 +6,15 @@
 const TRASH_DIRNAME = '.wiki-trash';
 const MANIFEST_FILENAME = '.wiki-sync-manifest.json';
 
+const CONFIG_FILENAME = '.wiki-config.json';
+
 function isExcluded(relPath) {
-  return relPath === TRASH_DIRNAME || relPath.startsWith(TRASH_DIRNAME + '/') || relPath === MANIFEST_FILENAME;
+  // .wiki-config.json bewusst ausgeschlossen: enthält u. a. den Backup-Pfad,
+  // der pro Gerät unterschiedlich sein kann (und meistens auch sollte) —
+  // gehört daher grundsätzlich nicht synchronisiert, jedes Gerät behält seine
+  // eigenen Einstellungen (Nutzer-Meldung: sonst wiederkehrender Konflikt
+  // bei praktisch jedem Start).
+  return relPath === TRASH_DIRNAME || relPath.startsWith(TRASH_DIRNAME + '/') || relPath === MANIFEST_FILENAME || relPath === CONFIG_FILENAME;
 }
 
 // ---------------------------------------------------------------------------

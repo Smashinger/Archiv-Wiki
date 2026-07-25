@@ -44,6 +44,30 @@
 .search-wrap.has-value .search-clear{ display:flex; }
 .search-wrap.has-value kbd{ display:none; }
 
+/* --- Header-Suche: Ergebnis-Dropdown (ersetzt den früheren Baum-Filter) --- */
+.search-dropdown{
+  position:absolute; top: calc(100% + 4px); left:0; right:0; z-index:30;
+  background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-md);
+  max-height: 420px; overflow-y:auto; box-shadow: 0 12px 32px rgba(0,0,0,.45);
+}
+.search-dropdown-empty{ padding:16px; font-size:12px; color: var(--text-faint); text-align:center; }
+.search-result{
+  display:block; width:100%; text-align:left; background:transparent; border:none;
+  border-bottom:1px solid var(--border-soft); padding:10px 12px; cursor:pointer;
+}
+.search-result:last-child{ border-bottom:none; }
+.search-result:hover, .search-result.active{ background: var(--bg-elev); }
+.search-result-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.search-result-title{ font-size:12.5px; color: var(--text-main); font-family: var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.search-result-category{
+  flex-shrink:0; font-family: var(--mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.04em;
+  color: var(--text-faint); background: var(--bg-elev-2); border:1px solid var(--border-soft); border-radius: var(--radius-sm); padding:2px 6px;
+}
+.search-result-tags{ display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; }
+.search-result-tag{ font-family: var(--mono); font-size:9.5px; color: var(--accent-color); background: var(--accent-soft); border-radius: var(--radius-sm); padding:1px 6px; }
+.search-result-snippet{ margin-top:6px; font-size:11.5px; color: var(--text-muted); line-height:1.5; }
+.search-result-snippet mark, .search-result-title mark{ background: color-mix(in srgb, var(--accent-color) 35%, transparent); color: var(--text-main); border-radius:2px; padding:0 1px; }
+
 /* --- Action-Row: drei gleich große Buttons nebeneinander. "+ Notiz" bleibt
    akzentfarben (Haupt-Aktion), "+ Haupt"/"+ Unter" gleichen sich dezent an
    den Sidebar-Hintergrund an statt zwei weitere auffällige Buttons zu sein. */
@@ -66,8 +90,8 @@
 
 
 /* --- Nav-Baum --- */
-.nav-top{ list-style:none; margin:0 0 4px; padding:0; }
-a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: var(--sans); font-size: 13px; color: var(--text-muted); padding: 6px 9px; border-radius: var(--radius-sm); border-left: 2px solid transparent; cursor:pointer; }
+.nav-top{ list-style:none; margin:0 0 8px; padding:0 0 8px; border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-gap); font-family: var(--sans); font-size: var(--density-nav-font); color: var(--text-muted); padding: var(--density-nav-pad); border-radius: var(--radius-sm); border-left: 2px solid transparent; cursor:pointer; }
 .nav-link:hover{ color: var(--text-main); background: var(--bg-elev-2); }
 .nav-link.active{ color: var(--accent-color); background: var(--accent-soft); border-left-color: var(--accent-color); font-weight:600; }
 .nav-link .nl-icon{ flex-shrink:0; }
@@ -79,25 +103,29 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
   cursor: grabbing; position: relative; z-index: 5;
 }
 .group-header-row{ display:flex; align-items:center; gap:2px; }
-.group-header{ flex:1; min-width:0; display:flex; align-items:center; gap:8px; background:transparent; border:none; cursor:pointer; text-align:left; padding: 7px 9px 6px; border-radius: var(--radius-sm); margin-bottom:0; font-family: var(--mono); font-size: 12px; letter-spacing:.05em; text-transform:uppercase; color: var(--text-muted); }
+.group-header{ flex:1; min-width:0; display:flex; align-items:center; gap:var(--density-group-gap); background:transparent; border:none; cursor:pointer; text-align:left; padding: var(--density-group-pad); border-radius: var(--radius-sm); margin-bottom:0; font-family: var(--mono); font-size: var(--density-group-font); letter-spacing:.05em; text-transform:uppercase; color: var(--text-muted); }
 .group-header:hover{ background: var(--bg-elev-2); color: var(--text-main); }
 .group-header .g-label{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; background:none; border:none; color:inherit; font:inherit; text-transform:inherit; letter-spacing:inherit; cursor:pointer; padding:0; }
 .group-header .g-count{ font-family: var(--mono); font-size:10px; color: var(--text-faint); background: var(--bg-elev-2); border:1px solid var(--border); padding: 1px 7px; border-radius: var(--radius-sm); flex-shrink:0; }
 .group-header .g-chevron{ width:11px; height:11px; stroke: var(--text-faint); transition: transform .18s ease; flex-shrink:0; }
-.group-header .g-icon{ flex-shrink:0; font-size:12px; line-height:1; }
+.group-header .g-icon{ flex-shrink:0; font-size:var(--density-icon-size); line-height:1; }
+/* Bibliotheks-Icons (SVG als <img>, siehe renderIconHtml in app.js) — Größe
+   richtet sich am umgebenden Element aus, invertiert (weiß) fürs Dark Theme,
+   passend zu den restlichen Symbolen. */
+.lib-icon{ width: 1.2em; height: 1.2em; vertical-align: -0.22em; filter: invert(1) brightness(1.7); }
 
 /* Hauptkategorie (Ebene 1): deutlich größer + Akzentfarbe, damit sie klar
    von Notizen UND Unterkategorien zu unterscheiden ist (Nutzerfeedback). */
 .nav-group.level-1 > .group-header-row .group-header{
-  font-size: 14px; font-weight:700; color: var(--accent-color); text-transform:none; letter-spacing:0; padding: 8px 9px;
+  font-size: calc(var(--density-group-font) + 2.5px); font-weight:700; color: var(--accent-color); text-transform:none; letter-spacing:0; padding: var(--density-nav-pad);
 }
 .nav-group.level-1 > .group-header-row .group-header:hover{ background: var(--accent-soft); }
 .nav-group.level-1 > .group-header-row .g-chevron{ width:13px; height:13px; stroke: var(--accent-color); }
 .nav-group.level-1 > .group-header-row .g-count{ color: var(--accent-color); border-color: var(--accent-dim); }
 
-/* Unterkategorie (Ebene 2): weiterhin kompakt/uppercase, aber etwas
-   lesbarer als zuvor (12px statt 11px) und klar sekundär zur Hauptkategorie. */
-.nav-group.level-2 > .group-header-row .group-header{ font-size: 12px; }
+/* Unterkategorie (Ebene 2): folgt der normalen Dichte-Basis, bewusst kein
+   eigener Override mehr — die Hierarchie kommt schon über Ebene 1 (größer,
+   fett, Akzentfarbe) und die Notiz-Zeilen (kleiner) zustande. */
 
 .nav-group.collapsed .g-chevron{ transform: rotate(-90deg); }
 .nav-group.collapsed .group-list{ max-height:0; opacity:0; margin:0; border-color:transparent; }
@@ -112,7 +140,6 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
   transition: max-height .25s ease, opacity .2s ease, border-color .2s ease;
 }
 .group-list > li{ margin-bottom: 1px; }
-.nav-hidden{ display:none !important; }
 
 .nav-item-row{ display:flex; align-items:center; gap:2px; }
 .nav-item-row > .nav-link{ flex:1; min-width:0; }
@@ -271,7 +298,7 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 @media (max-width:560px){ .note-grid{ grid-template-columns: 1fr; } }
 
 /* --- Notiz-Ansicht: Titel + Kategorie + Tags in EINER Zeile (Zeitstempel sitzt jetzt in der Topbar) --- */
-.note-header{ display:flex; align-items:center; gap:10px; margin-bottom: 18px; flex-wrap: nowrap; }
+.note-header{ display:flex; align-items:center; gap:10px; margin-bottom: 14px; flex-wrap: nowrap; }
 .pin-btn{
   flex-shrink:0; background:transparent; border:none; cursor:pointer;
   font-size:20px; line-height:1; color: var(--text-faint); padding:2px;
@@ -311,6 +338,21 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 @keyframes tooltip-fade-in{ from{ opacity:0; transform: translateY(-2px); } to{ opacity:1; transform: translateY(0); } }
 
 .color-swatch-row{ display:flex; gap:8px; flex-wrap:wrap; }
+.density-option-row{ display:flex; gap:8px; }
+.density-option{
+  flex:1; font-family: var(--mono); font-size:12.5px; color: var(--text-muted);
+  background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-sm);
+  padding:8px 10px; cursor:pointer; transition: border-color .15s ease, color .15s ease;
+}
+.density-option:hover{ color: var(--text-main); border-color: var(--accent-dim); }
+.density-option.active{ background: var(--accent-color); color:#fff; border-color: var(--accent-color); }
+.font-size-select{
+  background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text-muted); font-family: var(--mono); font-size:11.5px; padding: 5px 6px;
+  cursor:pointer; height: 30px;
+}
+.font-size-select:hover{ color: var(--text-main); border-color: var(--accent-dim); }
+.font-size-select:focus{ outline:none; border-color: var(--accent-color); }
 .color-swatch{
   width:32px; height:32px; border-radius:50%; border:2px solid transparent;
   cursor:pointer; padding:0; transition: transform .1s ease, border-color .15s ease;
@@ -328,8 +370,23 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 .color-swatch-slate{ background:#6b7d94; }
 .color-swatch-lime{ background:#8a9b4f; }
 .color-swatch-indigo{ background:#5f6bb0; }
+.color-swatch-custom{
+  background: conic-gradient(from 180deg, #c17d45, #4a80a8, #4f9b73, #8a6fb5, #b0495a, #c17d45);
+  font-size: 13px; display:flex; align-items:center; justify-content:center;
+}
+/* Natives Farbfeld bleibt technisch vorhanden/klickbar (per .click() aus JS
+   ausgelöst), aber unsichtbar — die "Eigene…"-Kachel selbst ist die
+   eigentliche, sichtbare Bedienfläche. */
+.settings-hidden-color-input{
+  position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; border:none; padding:0;
+}
 
 .shortcuts-list{ display:flex; flex-direction:column; gap:4px; margin: 4px 0 10px; }
+.shortcut-section-label{
+  font-family: var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em;
+  color: var(--text-faint); margin: 10px 4px 2px;
+}
+.shortcut-section-label:first-child{ margin-top:0; }
 .shortcut-row{ display:flex; align-items:center; justify-content:space-between; gap:14px; padding:8px 4px; border-bottom:1px solid var(--border-soft); }
 .shortcut-row:last-child{ border-bottom:none; }
 .shortcut-row span{ color: var(--text-muted); font-size:12.5px; }
@@ -389,7 +446,7 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 }
 .backlink-add:hover{ color: var(--accent-color); border-color: var(--accent-dim); }
 
-.note-toolbar{ display:flex; align-items:center; gap:10px; margin-bottom: 14px; }
+.note-toolbar{ display:flex; align-items:center; gap:10px; margin-bottom: 10px; }
 .note-toolbar .spacer{ flex:1; }
 .view-toggle{ display:flex; background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-sm); padding:2px; }
 .view-toggle button{ background:transparent; border:none; color: var(--text-faint); font-family: var(--mono); font-size:11.5px; padding: 5px 11px; border-radius: var(--radius-sm); cursor:pointer; }
@@ -411,6 +468,11 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 .note-split.mode-editor .editor-pane{ flex:1; }
 .note-split.mode-preview .editor-pane{ display:none; }
 .note-split.mode-preview .preview-pane{ flex:1; }
+/* Übersteuert die im Editor-Bundle fest hinterlegte Schriftgröße von außen —
+   !important nötig, da CodeMirrors eigenes, mitgeliefertes Theme sonst
+   Vorrang hätte (siehe build/editor-entry.js, dort bleibt 13.5px als
+   Bundle-interner Basiswert stehen, wird aber hierdurch überschrieben). */
+.cm-editor{ font-size: var(--editor-font-size) !important; }
 .split-resizer{ display:none; flex-shrink:0; width:14px; cursor:col-resize; position:relative; }
 .split-resizer::after{
   content:''; position:absolute; left:50%; top:0; bottom:0; width:1px;
@@ -433,7 +495,7 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 
 /* --- Bottombar --- */
 .note-bottombar{
-  display:flex; align-items:center; gap:16px; margin-top:10px; padding-top:10px;
+  display:flex; align-items:center; gap:16px; margin-top:8px; padding-top:8px;
   border-top:1px solid var(--border-soft); font-family: var(--mono); font-size:11px; color: var(--text-faint);
 }
 .note-bottombar .spacer{ flex:1; }
@@ -485,24 +547,62 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
    zu können (ein display:none-Element hat immer ein Null-Rechteck). */
 .context-menu hr{ border:none; border-top:1px solid var(--border-soft); margin:4px 0; }
 
-/* --- Icon-/Emoji-Picker (Editor-Toolbar) --- */
-.emoji-picker{
-  position: fixed; z-index: 65; background: var(--bg-elev-2); border:1px solid var(--border);
-  border-radius: var(--radius-md); padding:10px; width: 320px; max-height: 420px; overflow-y:auto;
-  box-shadow: 0 12px 32px rgba(0,0,0,.45);
-}
-.emoji-search{
-  width:100%; box-sizing:border-box; background: var(--bg-elev); border:1px solid var(--border);
-  color: var(--text-main); font-family: var(--mono); font-size:12px; padding:7px 9px;
-  border-radius: var(--radius-sm); margin-bottom:8px; position:sticky; top:0;
-}
-.emoji-search::placeholder{ color: var(--text-faint); }
+/* --- Icon-/Emoji-Picker (Editor-Toolbar) ---
+   Bausteine (Grid/Button/Gruppen-Label/Leer-Meldung) bleiben — werden vom
+   neuen showIconPicker im Emoji-Reiter weiterhin genutzt. Der alte Container
+   (.emoji-picker) und das alte Suchfeld (.emoji-search) sind entfernt, da
+   showEmojiPicker komplett durch showIconPicker (.icon-picker/
+   .icon-picker-search) ersetzt wurde. */
 .emoji-empty{ font-size:12px; color: var(--text-faint); text-align:center; padding:16px 0; }
 .emoji-group-label{ font-family: var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color: var(--text-faint); margin: 8px 2px 4px; }
 .emoji-group-label:first-child{ margin-top:2px; }
 .emoji-grid{ display:grid; grid-template-columns: repeat(8, 1fr); gap:2px; }
 .emoji-btn{ background:transparent; border:none; border-radius: var(--radius-sm); font-size:17px; padding:5px 0; cursor:pointer; line-height:1; }
 .emoji-btn:hover{ background: var(--bg-elev); }
+
+/* --- Erweitertes Icon-Auswahlfenster (Bibliothek + Emoji-Reiter) --- */
+.icon-picker{
+  position: fixed; z-index: 65; background: var(--bg-elev-2); border:1px solid var(--border);
+  border-radius: var(--radius-md); padding:10px; width: 340px; max-height: 440px; overflow-y:auto;
+  box-shadow: 0 12px 32px rgba(0,0,0,.45);
+}
+.icon-picker-tabs{ display:flex; gap:4px; margin-bottom:8px; background: var(--bg-elev); border-radius: var(--radius-sm); padding:2px; }
+.icon-picker-tabs button{
+  flex:1; background:transparent; border:none; color: var(--text-faint); font-family: var(--mono);
+  font-size:11.5px; padding:6px 0; border-radius: var(--radius-sm); cursor:pointer;
+}
+.icon-picker-tabs button.active{ background: var(--bg-elev-2); color: var(--accent-color); }
+.icon-picker-search{
+  width:100%; box-sizing:border-box; background: var(--bg-elev); border:1px solid var(--border);
+  color: var(--text-main); font-family: var(--mono); font-size:12px; padding:7px 9px;
+  border-radius: var(--radius-sm); margin-bottom:8px;
+}
+.icon-picker-search::placeholder{ color: var(--text-faint); }
+.icon-picker-section-label{ font-family: var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color: var(--text-faint); margin: 8px 2px 4px; }
+.icon-picker-section-label:first-child{ margin-top:2px; }
+.icon-picker-grid{ display:grid; grid-template-columns: repeat(6, 1fr); gap:2px; }
+.icon-lib-btn{
+  position:relative; background:transparent; border:none; border-radius: var(--radius-sm);
+  padding:7px 0; cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.icon-lib-btn:hover{ background: var(--bg-elev); }
+.icon-lib-btn .lib-icon{ width:18px; height:18px; }
+.icon-fav-star{
+  position:absolute; top:-2px; right:-2px; font-size:9px; color: var(--text-faint);
+  opacity:0; transition: opacity .1s ease;
+}
+.icon-lib-btn:hover .icon-fav-star, .icon-fav-star.active{ opacity:1; }
+.icon-fav-star.active{ color: var(--accent-color); }
+.icon-hover-preview{
+  position:fixed; z-index:70; background: var(--bg-elev-2); border:1px solid var(--border);
+  border-radius: var(--radius-sm); padding:8px 12px; display:flex; align-items:center; gap:8px;
+  box-shadow: 0 8px 20px rgba(0,0,0,.4); font-family: var(--mono); font-size:11.5px; color: var(--text-main);
+  pointer-events:none; white-space:nowrap;
+}
+.icon-hover-preview-img{ width:28px; height:28px; }
+/* In den Notiztext eingefügte Bibliotheks-Icons (siehe icon:-Auflösung in
+   build/editor-entry.js) — klein wie ein Inline-Symbol, kein normales Bild. */
+.preview-lib-icon{ width:1.2em; height:1.2em; vertical-align:-0.2em; display:inline-block; }
 
 /* --- Formatierungs-Toolbar (Fett/Kursiv/Durchgestrichen/Link/Code/Listen/Callout) --- */
 .format-toolbar{ display:flex; gap:2px; align-items:center; padding-left:4px; border-left:1px solid var(--border-soft); margin-left:2px; }
@@ -560,7 +660,80 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
   font-family: var(--mono); font-size: 13px; padding: 9px 11px; border-radius: var(--radius-sm); margin-bottom: 16px;
 }
 .prompt-input:focus{ border-color: var(--accent-dim); }
+
+/* --- Wiki-Link-Autocomplete (Notiz-Vorschläge beim Tippen) --- */
+.wikilink-target-wrap{ position: relative; }
+.wikilink-suggestions{
+  position: absolute; top: calc(100% - 14px); left:0; right:0; z-index: 5;
+  background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: 0 8px 20px rgba(0,0,0,.4); max-height: 180px; overflow-y: auto;
+}
+.wikilink-suggestion{
+  display: flex; align-items:center; justify-content:space-between; gap:8px;
+  width: 100%; text-align: left; background: transparent; border: none;
+  color: var(--text-muted); font-family: var(--mono); font-size: 12.5px; padding: 8px 11px; cursor: pointer;
+}
+.wikilink-suggestion:hover, .wikilink-suggestion.active{ background: var(--bg-elev); color: var(--text-main); }
+.wikilink-suggestion-category{
+  flex-shrink:0; font-size:9.5px; color: var(--text-faint); text-transform:uppercase; letter-spacing:.04em;
+}
+.wikilink-suggestion-empty{ padding:10px 11px; font-size:12px; color: var(--text-faint); }
+.wikilink-suggestion-more{ padding:6px 11px; font-size:10.5px; color: var(--text-faint); border-top:1px solid var(--border-soft); }
 .prompt-actions{ display: flex; justify-content: flex-end; gap: 8px; }
+
+/* --- Neues, zentrales Einstellungsfenster --- */
+.settings-overlay{
+  position: fixed; inset: 0; z-index: 75; background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center;
+}
+.settings-modal{
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  width: 640px; max-width: calc(100vw - 40px); max-height: calc(100vh - 80px);
+  box-shadow: 0 20px 60px rgba(0,0,0,.5); display: flex; flex-direction: column; overflow: hidden;
+}
+.settings-modal-header{
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 13px; color: var(--text-main); flex-shrink: 0;
+}
+/* Bugfix (Nutzer-Screenshot: X erschien außerhalb des Fensters): .modal-close-x
+   ist fürs ältere .prompt-title-Muster auf position:absolute ausgelegt — hier
+   in der Flex-Kopfzeile gab es dafür keinen passenden Bezugspunkt. Läuft hier
+   stattdessen normal in der Flex-Reihenfolge mit, space-between erledigt die
+   Ausrichtung schon von selbst. */
+.settings-modal-header .modal-close-x{ position: static; }
+.settings-modal-body{ display: flex; flex: 1; min-height: 0; }
+.settings-nav{
+  width: 150px; flex-shrink: 0; border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; padding: 10px; gap: 2px; overflow-y: auto;
+}
+.settings-nav button{
+  text-align: left; background: transparent; border: none; color: var(--text-muted);
+  font-family: var(--mono); font-size: 12px; padding: 8px 10px; border-radius: var(--radius-sm); cursor: pointer;
+}
+.settings-nav button:hover{ background: var(--bg-elev-2); color: var(--text-main); }
+.settings-nav button.active{ background: var(--bg-elev-2); color: var(--accent-color); }
+.settings-content{ flex: 1; min-width: 0; padding: 20px 24px; overflow-y: auto; }
+.settings-content h3{ margin: 0 0 16px; font-size: 14px; color: var(--text-main); }
+.settings-field{
+  display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px;
+}
+.settings-field > span:first-child{ font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+.settings-field input[type="text"], .settings-field input[type="number"], .settings-field input[type="password"], .settings-field select{
+  background: var(--bg-elev-2); border: 1px solid var(--border); color: var(--text-main);
+  font-family: var(--mono); font-size: 12.5px; padding: 8px 10px; border-radius: var(--radius-sm); max-width: 260px;
+}
+.settings-field input:focus, .settings-field select:focus{ border-color: var(--accent-dim); outline: none; }
+.settings-readonly-value{
+  font-family: var(--mono); font-size: 12px; color: var(--text-muted);
+  background: var(--bg-elev-2); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+  padding: 8px 10px; word-break: break-all;
+}
+.settings-hint{ font-size: 11.5px; color: var(--text-faint); line-height: 1.5; margin: 4px 0 0; }
+.settings-hint-error{ color: var(--red); }
+.settings-button-row{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.settings-inline-btn{ align-self: flex-start; margin-top: 2px; }
+.update-status-inline{ display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12.5px; }
 
 /* --- Sync-Einstellungen-Modal (Schritt 6, Stufe 1) --- */
 .sync-modal{ width: 380px; }
@@ -589,11 +762,46 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:9px; font-family: v
 .sync-remember-label input[type="checkbox"]{ accent-color: var(--accent-color); }
 .sync-remember-disabled{ opacity:.5; cursor:not-allowed; }
 
+/* --- Schließen-Auswahl-Dialog --- */
+.close-dialog-options{ display:flex; flex-direction:column; gap:10px; margin: 4px 0 14px; }
+.close-dialog-option{
+  display:flex; align-items:flex-start; gap:9px; font-size:12.5px; color: var(--text-main);
+  cursor:pointer; line-height:1.4;
+}
+.close-dialog-option input[type="radio"]{ accent-color: var(--accent-color); margin-top:2px; flex-shrink:0; }
+.close-dialog-remember{ display:flex; align-items:center; gap:7px; font-size:11.5px; color: var(--text-muted); margin: 0 0 14px; cursor:pointer; }
+.close-dialog-remember input[type="checkbox"]{ accent-color: var(--accent-color); }
+
 .sync-retry-row{ margin: -4px 0 10px; }
 .sync-retry-row:empty{ display:none; }
 .sync-retry-row #syncRetryBtn{ font-size:12px; padding:6px 12px; }
 
 .sync-conflict-list{ display:flex; flex-direction:column; gap:8px; max-height:220px; overflow-y:auto; margin: 0 0 12px; }
+.sync-history-toggle{
+  background:none; border:none; color: var(--text-faint); font-family: var(--mono); font-size:11.5px;
+  cursor:pointer; padding: 2px 0; margin-bottom: 8px; text-align:left;
+}
+.sync-history-toggle:hover{ color: var(--accent-color); }
+.backup-error-details-toggle{
+  background:none; border:none; color: var(--text-faint); font-family: var(--mono); font-size:11.5px;
+  cursor:pointer; padding: 2px 0; text-align:left;
+}
+.backup-error-details-toggle:hover{ color: var(--accent-color); }
+.backup-error-details{
+  background: var(--bg-elev-2); border:1px solid var(--border-soft); border-radius: var(--radius-sm);
+  padding:8px 10px; margin-top:6px; font-family: var(--mono); font-size:11px; color: var(--text-muted);
+  white-space: pre-wrap; word-break: break-word; max-height:120px; overflow-y:auto;
+}
+.sync-history-list{ display:flex; flex-direction:column; gap:6px; max-height:180px; overflow-y:auto; margin: 0 0 12px; }
+.sync-history-row{
+  display:flex; align-items:center; gap:8px; font-size:11.5px; color: var(--text-muted);
+  background: var(--bg-elev-2); border:1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 6px 9px;
+}
+.sync-history-row.sync-history-error{ color: var(--red); border-color: var(--red); }
+.shr-icon{ flex-shrink:0; }
+.shr-main{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family: var(--mono); }
+.shr-detail{ flex-shrink:0; color: var(--text-faint); font-family: var(--mono); font-size:10.5px; }
+.sync-history-empty{ font-size:11.5px; color: var(--text-faint); margin: 0 0 12px; }
 .sync-conflict-row{ background: rgba(226,88,90,.06); border:1px solid rgba(226,88,90,.25); border-radius: var(--radius-md); padding:8px 10px; }
 .sync-conflict-row.sync-conflict-resolved{ background: rgba(110,201,123,.06); border-color: rgba(110,201,123,.25); }
 .sync-conflict-path{ font-family: var(--mono); font-size:11.5px; color: var(--text-main); word-break:break-all; }

@@ -4,10 +4,14 @@
 
 import * as fs from './filesystem.js';
 import { buildSyncIntervalOptionsHtml } from './sync-shared.js';
-import { applyAccentPalette, buildAccentSwatchesHtml } from './theme.js';
+import { applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, EDITOR_FONT_SIZE_DEFAULT } from './theme.js';
+import { ICON_LIBRARY, ICON_CATEGORIES, searchIconLibrary } from './icon-library.js';
+import { fetchUpdateStatus, renderUpdateStatus } from './update-check.js';
+import { showSettingsWindow } from './settings-window.js';
+import { animateIn, animateOut } from './motion.js';
 import { initEllipsisTooltips } from './tooltip.js';
-import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent } from './editor.js';
-import { rebuildIndex, search as searchNotes } from './search.js';
+import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor } from './editor.js';
+import { rebuildIndex, search as searchNotes, searchWithDetails } from './search.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -28,6 +32,7 @@ const els = {
   updateStatusCurrent: document.getElementById('updateStatusCurrent'),
   btnEditMode: document.getElementById('btnEditMode'),
   navSearch: document.getElementById('navSearch'),
+  searchDropdown: document.getElementById('searchDropdown'),
   searchClear: document.getElementById('searchClear'),
   navTree: document.getElementById('navTree'),
   homeLink: document.getElementById('homeLink'),
@@ -39,6 +44,7 @@ const els = {
   burgerBtn: document.getElementById('burgerBtn'),
   breadcrumb: document.getElementById('breadcrumb'),
   btnTrash: document.getElementById('btnTrash'),
+  trashCount: document.getElementById('trashCount'),
   btnSync: document.getElementById('btnSync'),
   btnBugReport: document.getElementById('btnBugReport'),
   btnAbout: document.getElementById('btnAbout'),
@@ -48,6 +54,17 @@ const els = {
 
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Icon-Wert kann jetzt ZWEIERLEI sein: ein klassisches Emoji-Zeichen (wie
+// bisher, z. B. "📄") ODER eine ID aus der neuen Icon-Bibliothek (Format
+// "kategorie/name", z. B. "os/tux") — bestehende Emoji bleiben dadurch
+// vollständig unverändert funktionsfähig, die Bibliothek ergänzt nur.
+function renderIconHtml(iconValue, fallbackEmoji) {
+  if (iconValue && iconValue.includes('/')) {
+    return `<img class="lib-icon" src="assets/icon-library/${iconValue}.svg" alt="">`;
+  }
+  return escapeHtml(iconValue || fallbackEmoji);
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +86,10 @@ function showWikiLinkModal(prefillDisplay = '') {
       <div class="prompt-modal">
         <div class="prompt-title">Link zu einer Notiz einfügen</div>
         <label class="sync-field-label">Notizname (Ziel)</label>
-        <input type="text" class="prompt-input" id="wikiLinkTarget" autocomplete="off">
+        <div class="wikilink-target-wrap">
+          <input type="text" class="prompt-input" id="wikiLinkTarget" autocomplete="off">
+          <div class="wikilink-suggestions" id="wikiLinkSuggestions" style="display:none;"></div>
+        </div>
         <label class="sync-field-label">Eigener Anzeigetext (optional)</label>
         <input type="text" class="prompt-input" id="wikiLinkDisplay" autocomplete="off">
         <div class="prompt-actions">
@@ -80,8 +100,95 @@ function showWikiLinkModal(prefillDisplay = '') {
     document.body.appendChild(overlay);
     const targetInput = document.getElementById('wikiLinkTarget');
     const displayInput = document.getElementById('wikiLinkDisplay');
+    const suggestionsEl = document.getElementById('wikiLinkSuggestions');
     displayInput.value = prefillDisplay || '';
     targetInput.focus();
+
+    const MIN_CHARS = 2;
+    const MAX_VISIBLE = 8;
+    // "Zuletzt verlinkt" — gleiches Muster wie iconFavorites/iconRecent,
+    // dient nur als Gleichstand-Kriterium beim Ranking (siehe rankNotes unten).
+    let recentTargets = Array.isArray(state.project?.config?.recentWikilinkTargets) ? state.project.config.recentWikilinkTargets : [];
+    let allDocs = [];
+    fs.getSearchDocuments().then(docs => { allDocs = docs.map(d => ({ relPath: d.relPath, title: d.title, category: d.category || '' })); }).catch(() => {});
+
+    let activeIndex = -1;
+    let currentMatches = [];
+    let debounceTimer = null;
+
+    // Rangfolge: exakter Präfix vor Präfix vor Enthält; bei Gleichstand
+    // innerhalb einer Stufe gewinnt die zuletzt verlinkte Notiz.
+    function rankNotes(query) {
+      const q = query.toLowerCase();
+      const scored = allDocs
+        .filter(d => d.title.toLowerCase().includes(q))
+        .map(d => {
+          const t = d.title.toLowerCase();
+          const tier = t === q ? 0 : t.startsWith(q) ? 1 : 2;
+          const recencyIdx = recentTargets.indexOf(d.relPath);
+          return { doc: d, tier, recency: recencyIdx === -1 ? Infinity : recencyIdx };
+        });
+      scored.sort((a, b) => a.tier - b.tier || a.recency - b.recency);
+      return scored.map(s => s.doc);
+    }
+
+    // Titel, die mehrfach vorkommen, bekommen zusätzlich die Kategorie
+    // angezeigt, damit man sie auseinanderhalten kann.
+    function titleCounts(docs) {
+      const counts = new Map();
+      for (const d of docs) counts.set(d.title, (counts.get(d.title) || 0) + 1);
+      return counts;
+    }
+
+    function renderSuggestions() {
+      const query = targetInput.value.trim();
+      activeIndex = -1;
+      if (query.length < MIN_CHARS) { suggestionsEl.style.display = 'none'; currentMatches = []; return; }
+      const ranked = rankNotes(query);
+      currentMatches = ranked.slice(0, MAX_VISIBLE);
+      if (currentMatches.length === 0) {
+        suggestionsEl.innerHTML = `<div class="wikilink-suggestion-empty">Keine Treffer für „${escapeHtml(query)}"</div>`;
+        suggestionsEl.style.display = 'block';
+        return;
+      }
+      const dupCounts = titleCounts(currentMatches);
+      suggestionsEl.innerHTML = currentMatches.map((d, i) => `
+        <button type="button" class="wikilink-suggestion" data-index="${i}">
+          ${escapeHtml(d.title)}${dupCounts.get(d.title) > 1 && d.category ? `<span class="wikilink-suggestion-category">${escapeHtml(d.category)}</span>` : ''}
+        </button>`).join('')
+        + (ranked.length > MAX_VISIBLE ? `<div class="wikilink-suggestion-more">${ranked.length - MAX_VISIBLE} weitere — genauer eingrenzen</div>` : '');
+      suggestionsEl.style.display = 'block';
+    }
+
+    function updateActiveHighlight() {
+      suggestionsEl.querySelectorAll('.wikilink-suggestion').forEach((btn, i) => btn.classList.toggle('active', i === activeIndex));
+    }
+
+    function selectMatch(doc) {
+      targetInput.value = doc.title;
+      if (!displayInput.value.trim()) displayInput.value = doc.title; // nur vorbefüllen, wenn noch leer
+      suggestionsEl.style.display = 'none';
+      currentMatches = [];
+      recentTargets = [doc.relPath, ...recentTargets.filter(r => r !== doc.relPath)].slice(0, 20);
+      fs.setProjectSetting('recentWikilinkTargets', recentTargets).catch(() => {});
+      if (state.project?.config) state.project.config.recentWikilinkTargets = recentTargets;
+    }
+
+    targetInput.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(renderSuggestions, 120);
+    });
+    suggestionsEl.addEventListener('mousedown', (e) => {
+      const btn = e.target.closest('.wikilink-suggestion');
+      if (!btn) return;
+      e.preventDefault(); // verhindert, dass das Eingabefeld den Fokus verliert, bevor der Klick zählt
+      selectMatch(currentMatches[Number(btn.dataset.index)]);
+    });
+    // Klick außerhalb von Eingabefeld+Dropdown schließt nur das Dropdown,
+    // nicht das gesamte Modal (z. B. Klick ins Anzeigetext-Feld).
+    overlay.addEventListener('mousedown', (e) => {
+      if (!e.target.closest('.wikilink-target-wrap')) { suggestionsEl.style.display = 'none'; }
+    });
 
     let done = false;
     function close(result) {
@@ -96,6 +203,29 @@ function showWikiLinkModal(prefillDisplay = '') {
       if (!target) { targetInput.focus(); return; }
       close({ target, display: displayInput.value.trim() });
     }
+    // Tastatur-Navigation NUR im Zielfeld selbst — Anzeigetext-Feld verhält
+    // sich weiterhin normal (Enter dort löst trotzdem "Einfügen" aus, siehe
+    // der allgemeine onKeydown weiter unten).
+    targetInput.addEventListener('keydown', (e) => {
+      const dropdownOpen = suggestionsEl.style.display === 'block' && currentMatches.length > 0;
+      if (!dropdownOpen) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIndex = Math.min(activeIndex + 1, currentMatches.length - 1);
+        updateActiveHighlight();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        updateActiveHighlight();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        selectMatch(currentMatches[activeIndex >= 0 ? activeIndex : 0]);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation(); // verhindert, dass das äußere Escape gleich das ganze Modal schließt
+        suggestionsEl.style.display = 'none';
+      }
+    });
     function onKeydown(e) {
       if (e.key === 'Enter') { e.preventDefault(); submit(); }
       else if (e.key === 'Escape') { e.preventDefault(); close(null); }
@@ -177,7 +307,6 @@ function showSidebarFootMenu(anchorEl) {
   const menu = document.createElement('div');
   menu.className = 'context-menu';
   menu.innerHTML = `
-    <button type="button" data-action="accent">🎨 Akzentfarben ändern</button>
     <button type="button" data-action="edit-mode">✎ Bearbeiten-Modus${state.editMode ? ' (verlassen)' : ''}</button>
   `;
   document.body.appendChild(menu);
@@ -197,8 +326,6 @@ function showSidebarFootMenu(anchorEl) {
       state.editMode = !state.editMode;
       els.sidebar.classList.toggle('edit-mode', state.editMode);
       els.btnEditMode.classList.toggle('active', state.editMode);
-    } else if (btn.dataset.action === 'accent') {
-      showAccentPickerModal();
     }
   });
   setTimeout(() => document.addEventListener('click', function closeOnce() {
@@ -210,28 +337,79 @@ function showSidebarFootMenu(anchorEl) {
 // Akzentfarben nachträglich ändern (bisher nur einmalig im Wizard möglich).
 // Wendet die Wahl sofort live an (wie im Wizard) und speichert sie dauerhaft
 // in der Projekt-Config.
-function showAccentPickerModal() {
+// Übersetzt gängige technische Fehlercodes (Node.js-Dateisystem) in
+// verständliche Sätze — die rohe, technische Meldung bleibt trotzdem über
+// "Details" erreichbar, für alle Fälle, die diese Liste nicht abdeckt.
+function friendlyBackupErrorText(code, message) {
+  const map = {
+    ENOENT: 'Der Zielordner existiert nicht (Pfad nicht gefunden).',
+    EACCES: 'Schreibrechte für den Zielordner fehlen.',
+    EPERM: 'Schreibrechte für den Zielordner fehlen.',
+    ENOSPC: 'Kein Speicherplatz mehr auf dem Ziellaufwerk verfügbar.',
+    EBUSY: 'Eine Datei wird gerade von einem anderen Programm verwendet.',
+    ENOTDIR: 'Der angegebene Backup-Pfad ist kein Ordner.',
+    EROFS: 'Das Ziellaufwerk ist schreibgeschützt (nur lesbar).'
+  };
+  return map[code] || `Unbekannter Fehler${message ? `: ${message}` : '.'}`;
+}
+
+// Erscheint beim X-Klick, sofern noch keine feste Wahl gespeichert ist (siehe
+// main.js handleCloseRequest). Ergebnis geht über resolveCloseDialog zurück
+// an den Hauptprozess, der dann entsprechend minimiert/beendet/nichts tut.
+function showCloseDialog() {
+  document.querySelectorAll('.prompt-overlay').forEach(el => el.remove());
   const overlay = document.createElement('div');
   overlay.className = 'prompt-overlay';
   overlay.innerHTML = `
     <div class="prompt-modal">
-      <div class="prompt-title">🎨 Akzentfarbe wählen<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
-      <div class="color-swatch-row" id="accentPickerRow">${buildAccentSwatchesHtml(state.project?.config?.accentKey)}</div>
+      <div class="prompt-title">Archiv-Wiki schließen?</div>
+      <p class="sync-modal-note">Was soll beim Klick auf das X passieren?</p>
+      <div class="close-dialog-options">
+        <label class="close-dialog-option"><input type="radio" name="closeChoice" value="ask" checked> Immer nachfragen</label>
+        <label class="close-dialog-option"><input type="radio" name="closeChoice" value="tray"> In den System-Tray minimieren (läuft im Hintergrund weiter)</label>
+        <label class="close-dialog-option"><input type="radio" name="closeChoice" value="quit"> Anwendung vollständig beenden</label>
+      </div>
+      <label class="close-dialog-remember"><input type="checkbox" id="closeDialogRemember"> Diese Auswahl merken</label>
+      <div class="prompt-actions">
+        <button type="button" class="btn" data-action="cancel">Abbrechen</button>
+        <button type="button" class="btn primary" data-action="ok">OK</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  function close() { overlay.remove(); }
+  overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => {
+    window.archivAPI.resolveCloseDialog({ choice: 'cancel', remember: false });
+    close();
+  });
+  overlay.querySelector('[data-action="ok"]').addEventListener('click', () => {
+    const choice = overlay.querySelector('input[name="closeChoice"]:checked').value;
+    const remember = overlay.querySelector('#closeDialogRemember').checked;
+    window.archivAPI.resolveCloseDialog({ choice, remember });
+    close();
+  });
+}
+
+function showBackupErrorModal(status) {
+  const overlay = document.createElement('div');
+  overlay.className = 'prompt-overlay';
+  const lastError = status.lastErrorAt ? formatRelativeTime(status.lastErrorAt) : 'unbekannt';
+  overlay.innerHTML = `
+    <div class="prompt-modal">
+      <div class="prompt-title">⚠️ Automatisches Backup fehlgeschlagen<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
+      <p class="sync-modal-note">${status.consecutiveFailures}x in Folge fehlgeschlagen · zuletzt ${escapeHtml(lastError)}</p>
+      <p class="sync-modal-note">${escapeHtml(friendlyBackupErrorText(status.lastErrorCode, status.lastErrorMessage))}</p>
+      <button type="button" class="backup-error-details-toggle" id="backupErrorDetailsToggle">Details anzeigen</button>
+      <pre class="backup-error-details" id="backupErrorDetails" style="display:none;">${escapeHtml(status.lastErrorMessage || 'Keine weiteren Details verfügbar.')}</pre>
     </div>`;
   document.body.appendChild(overlay);
   function close() { overlay.remove(); }
   overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
   overlay.querySelector('[data-action="close-x"]').addEventListener('click', close);
-  overlay.querySelector('#accentPickerRow').addEventListener('click', async (e) => {
-    const btn = e.target.closest('.color-swatch');
-    if (!btn) return;
-    const key = btn.dataset.accent;
-    applyAccentPalette(key);
-    overlay.querySelectorAll('.color-swatch').forEach(b => b.classList.toggle('active', b === btn));
-    if (state.project?.config) state.project.config.accentKey = key;
-    try { await fs.setProjectSetting('accentKey', key); }
-    catch (err) { console.error('[Archiv Wiki] Akzentfarbe konnte nicht gespeichert werden:', err); }
-    setTimeout(close, 150);
+  overlay.querySelector('#backupErrorDetailsToggle').addEventListener('click', (e) => {
+    const details = overlay.querySelector('#backupErrorDetails');
+    const nowShown = details.style.display === 'none';
+    details.style.display = nowShown ? 'block' : 'none';
+    e.target.textContent = nowShown ? 'Details verbergen' : 'Details anzeigen';
   });
 }
 
@@ -300,8 +478,23 @@ async function showBugReportModal() {
 }
 els.btnAbout.addEventListener('click', async () => {
   const version = await window.archivAPI.getVersion();
-  alert(`Archiv Wiki v${version}\nAutor: smashii\nLizenz: MIT\n\nTipp: Taste "?" zeigt alle Tastenkürzel.`);
+  alert(`Archiv Wiki v${version}\nAutor: Smashinger\nLizenz: MIT\n\nTipp: Taste "?" zeigt alle Tastenkürzel.`);
 });
+
+function openSettingsWindow() {
+  showSettingsWindow({
+    projectPath: state.project?.path,
+    onConfigChange: (newConfig) => { if (state.project) state.project.config = newConfig; },
+    onProjectPathChange: (newPath) => { if (state.project) state.project.path = newPath; }
+  });
+}
+document.getElementById('btnSettings').addEventListener('click', openSettingsWindow);
+
+// --- Tray-/Menü-Ereignisse aus dem Hauptprozess ---
+window.archivAPI.onShowCloseDialog(() => showCloseDialog());
+window.archivAPI.onGoHome(() => { location.hash = '#home'; });
+window.archivAPI.onCheckForUpdatesRequested(() => checkForUpdateAndRender());
+window.archivAPI.onOpenSettingsRequested(() => openSettingsWindow());
 
 // ---------------------------------------------------------------------------
 // Sync-Einstellungen — jederzeit über den ☁-Button in der Topbar erreichbar
@@ -336,10 +529,12 @@ async function openSyncSettingsModal() {
       <div class="sync-modal-status" id="syncModalStatus"></div>
       <div class="sync-retry-row" id="syncRetryRow"></div>
       <div class="sync-conflict-list" id="syncConflictList"></div>
+      <button type="button" class="sync-history-toggle" id="syncHistoryToggle">📋 Verlauf anzeigen</button>
+      <div class="sync-history-list" id="syncHistoryList" style="display:none;"></div>
       <div class="prompt-actions sync-modal-actions">
         <button type="button" class="btn sync-action-btn" data-action="test"><span class="sab-icon">🔗</span><span class="sab-label">TESTEN</span></button>
         <button type="button" class="btn sync-action-btn" data-action="upload"><span class="sab-icon">⬆️</span><span class="sab-label">UPLOAD</span></button>
-        <button type="button" class="btn primary sync-action-btn" data-action="syncall"><span class="sab-icon">🔄</span><span class="sab-label">ABGLEICH</span></button>
+        <button type="button" class="btn primary sync-action-btn" data-action="syncall"><span class="sab-icon">🔄</span><span class="sab-label">JETZT SYNCHRONISIEREN</span></button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -354,6 +549,29 @@ async function openSyncSettingsModal() {
   const intervalSelect = document.getElementById('syncModalInterval');
   const statusEl = document.getElementById('syncModalStatus');
   const conflictListEl = document.getElementById('syncConflictList');
+
+  document.getElementById('syncHistoryToggle').addEventListener('click', async (e) => {
+    const listEl = document.getElementById('syncHistoryList');
+    const isHidden = listEl.style.display === 'none';
+    if (isHidden) {
+      const history = await window.archivAPI.syncApi.getHistory();
+      listEl.innerHTML = history.length === 0
+        ? '<p class="sync-history-empty">Noch kein Abgleich durchgeführt.</p>'
+        : history.map(h => {
+            const when = formatRelativeTime(h.timestamp);
+            const duration = h.durationMs != null ? `${(h.durationMs / 1000).toFixed(1)}s` : '–';
+            if (!h.success) {
+              return `<div class="sync-history-row sync-history-error"><span class="shr-icon">⚠️</span><span class="shr-main">Fehlgeschlagen · ${escapeHtml(when)}</span><span class="shr-detail">${escapeHtml(h.error || 'Unbekannter Fehler')}</span></div>`;
+            }
+            return `<div class="sync-history-row"><span class="shr-icon">✓</span><span class="shr-main">${h.filesCount} Datei${h.filesCount === 1 ? '' : 'en'} · ${escapeHtml(when)}</span><span class="shr-detail">${duration}${h.warnings ? ` · ${h.warnings} Warnung${h.warnings === 1 ? '' : 'en'}` : ''}</span></div>`;
+          }).join('');
+      listEl.style.display = 'block';
+      e.target.textContent = '📋 Verlauf ausblenden';
+    } else {
+      listEl.style.display = 'none';
+      e.target.textContent = '📋 Verlauf anzeigen';
+    }
+  });
   urlInput.value = settings.url || '';
   userInput.value = settings.username || '';
   urlInput.focus();
@@ -424,9 +642,9 @@ async function openSyncSettingsModal() {
         <div class="sync-conflict-path">${escapeHtml(c.relPath)}</div>
         <div class="sync-conflict-reason">${escapeHtml(c.reason)}</div>
         <div class="sync-conflict-actions">
-          <button type="button" data-resolve="keep-local">Lokal behalten</button>
-          <button type="button" data-resolve="keep-remote">Remote übernehmen</button>
-          ${c.localExists && c.remoteExists ? '<button type="button" data-resolve="keep-both">Beide behalten</button>' : ''}
+          <button type="button" data-resolve="keep-local">Meine Version behalten</button>
+          <button type="button" data-resolve="keep-remote">Cloud-Version übernehmen</button>
+          ${c.localExists && c.remoteExists ? '<button type="button" data-resolve="keep-both">Beide Versionen speichern</button>' : ''}
         </div>
       </div>`).join('');
 
@@ -562,6 +780,27 @@ async function refreshAll() {
   renderNavTree();
   render(); // aktuelle Route neu zeichnen (Baum kann sich geändert haben)
   rebuildIndex().catch(err => console.error('[Archiv Wiki] Such-Index konnte nicht aktualisiert werden', err));
+  updateTrashBadge();
+}
+
+// Dezente Anzahl-Anzeige am Papierkorb-Symbol — nutzt dasselbe Badge-Muster
+// wie die Notiz-Anzahl neben den Kategorien in der Sidebar (.g-count).
+// Bewusst nur sichtbar, wenn wirklich etwas im Papierkorb liegt.
+async function updateTrashBadge() {
+  try {
+    const items = await fs.getTrash();
+    if (items.length > 0) {
+      els.trashCount.textContent = items.length;
+      els.trashCount.style.display = '';
+    } else {
+      els.trashCount.style.display = 'none';
+    }
+  } catch (err) {
+    // Rein informativ, sollte nie den Rest der App blockieren — aber
+    // trotzdem protokollieren statt still zu verschlucken, sonst bleibt ein
+    // echtes Problem hier unsichtbar.
+    console.error('[Archiv Wiki] Papierkorb-Anzahl konnte nicht ermittelt werden:', err);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -598,7 +837,7 @@ function renderGroup(group, depth) {
       ${handle}
       <button type="button" class="group-header" data-toggle="${escapeHtml(group.relPath)}">
         <svg class="g-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
-        <span class="g-icon">${group.icon || '📁'}</span>
+        <span class="g-icon">${renderIconHtml(group.icon, '📁')}</span>
         <span class="g-label">${escapeHtml(group.name)}</span>
         <span class="g-count">${notesCount}</span>
       </button>
@@ -628,7 +867,7 @@ function renderNoteItem(note) {
   li.innerHTML = `
     <span class="row-handle" draggable="true" title="Ziehen zum Verschieben/Umsortieren">⠿</span>
     <a class="nav-link" data-route="note" data-relpath="${escapeHtml(note.relPath)}">
-      <span class="nl-icon">${note.icon || '📄'}</span><span class="nl-title">${escapeHtml(title)}</span>
+      <span class="nl-icon">${renderIconHtml(note.icon, '📄')}</span><span class="nl-title">${escapeHtml(title)}</span>
     </a>
     <button type="button" class="nav-icon-btn" data-context="${escapeHtml(note.relPath)}" title="Optionen">⋮</button>
   `;
@@ -1025,8 +1264,8 @@ function showContextMenu(relPath, anchorEl, type = 'note') {
     }
     if (btn.dataset.action === 'icon') {
       menu.remove();
-      showEmojiPicker(anchorEl, async (emoji) => {
-        await fs.setCategoryIcon(relPath, emoji);
+      showIconPicker(anchorEl, async (icon) => {
+        await fs.setCategoryIcon(relPath, icon);
         await refreshAll();
       });
       return;
@@ -1246,25 +1485,126 @@ els.searchClear.addEventListener('click', () => {
   els.navSearch.focus();
 });
 
-function filterGroup(group, matched) {
-  const filtering = matched !== null;
-  let anyVisible = false;
-  group.querySelectorAll(':scope > .group-list > li').forEach(li => {
-    const nestedGroup = li.classList.contains('nav-group');
-    if (nestedGroup) {
-      const childVisible = filterGroup(li, matched);
-      li.classList.toggle('nav-hidden', filtering && !childVisible);
-      if (childVisible || !filtering) anyVisible = true;
-      return;
-    }
-    const isMatch = !filtering || matched.has(li.dataset.relpath);
-    li.classList.toggle('nav-hidden', filtering && !isMatch);
-    if (isMatch) anyVisible = true;
-  });
-  group.classList.toggle('nav-hidden', filtering && !anyVisible);
-  if (filtering && anyVisible) { group.classList.remove('collapsed'); state.collapsedGroups.delete(group.dataset.relpath); }
-  return anyVisible;
+// Header-Suche: eigenständiges Ergebnis-Dropdown mit Titel/Kategorie/Tags/
+// Ausschnitt — ersetzt den bisherigen reinen Baum-Filter (siehe Absprache:
+// zwei parallele Mechanismen für dieselbe Aufgabe wären weniger übersichtlich,
+// nicht mehr). Bewusst GETRENNT von der Editor-internen Suche (CodeMirror
+// @codemirror/search, siehe build/editor-entry.js) — die Header-Suche
+// durchsucht das GESAMTE Wiki, die Editor-Suche nur die gerade offene Notiz.
+let searchDropdownIndex = -1;
+let currentSearchResults = [];
+
+function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+function highlightTerm(text, query) {
+  const escapedText = escapeHtml(text);
+  if (!query) return escapedText;
+  const re = new RegExp(`(${escapeRegExp(escapeHtml(query))})`, 'ig');
+  return escapedText.replace(re, '<mark>$1</mark>');
 }
+
+let searchDropdownOpen = false;
+
+function renderSearchDropdown(query) {
+  currentSearchResults = searchWithDetails(query);
+  searchDropdownIndex = -1;
+  if (currentSearchResults.length === 0) {
+    els.searchDropdown.innerHTML = `<div class="search-dropdown-empty">Keine Treffer für „${escapeHtml(query)}"</div>`;
+  } else {
+    els.searchDropdown.innerHTML = currentSearchResults.map((r, i) => `
+      <button type="button" class="search-result" data-index="${i}">
+        <div class="search-result-head">
+          <span class="search-result-title">📄 ${highlightTerm(r.title, query)}</span>
+          ${r.category ? `<span class="search-result-category">${escapeHtml(r.category)}</span>` : ''}
+        </div>
+        ${r.tags.length ? `<div class="search-result-tags">${r.tags.map(t => `<span class="search-result-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+        ${r.snippet ? `<div class="search-result-snippet">${highlightTerm(r.snippet, query)}</div>` : ''}
+      </button>
+    `).join('');
+  }
+  els.searchDropdown.style.display = 'block';
+  if (!searchDropdownOpen) {
+    searchDropdownOpen = true;
+    animateIn(els.searchDropdown);
+  } else {
+    // War schon offen (z. B. beim Tippen des nächsten Zeichens) — sicherstellen,
+    // dass eine evtl. noch laufende Ausblend-Animation (siehe closeSearchDropdown)
+    // nicht in einem halbtransparenten Zwischenzustand hängen bleibt.
+    els.searchDropdown.style.opacity = '1';
+    els.searchDropdown.style.transform = 'translateY(0)';
+  }
+}
+
+function closeSearchDropdown() {
+  if (!searchDropdownOpen) return;
+  searchDropdownOpen = false;
+  animateOut(els.searchDropdown, () => {
+    els.searchDropdown.style.display = 'none';
+    els.searchDropdown.innerHTML = '';
+  });
+  searchDropdownIndex = -1;
+}
+
+function updateSearchDropdownActive() {
+  els.searchDropdown.querySelectorAll('.search-result').forEach((btn, i) => btn.classList.toggle('active', i === searchDropdownIndex));
+}
+
+// Wartet kurz darauf, dass die Ziel-Notiz tatsächlich offen ist (Navigation
+// über location.hash ist asynchron), bevor zur Fundstelle gesprungen wird.
+async function waitForNoteOpen(relPath, timeoutMs = 2000) {
+  const start = Date.now();
+  while (getOpenRelPath() !== relPath && Date.now() - start < timeoutMs) {
+    await new Promise(r => setTimeout(r, 30));
+  }
+}
+
+async function openSearchResult(result, query) {
+  closeSearchDropdown();
+  els.navSearch.value = '';
+  els.navSearch.parentElement.classList.remove('has-value');
+  location.hash = '#note/' + encodeURIComponent(result.relPath);
+  await waitForNoteOpen(result.relPath);
+  jumpToMatchInEditor(query);
+}
+
+els.navSearch.addEventListener('input', () => {
+  const q = els.navSearch.value.trim();
+  els.navSearch.parentElement.classList.toggle('has-value', els.navSearch.value.length > 0);
+  if (!q) { closeSearchDropdown(); return; }
+  renderSearchDropdown(q);
+});
+
+els.navSearch.addEventListener('keydown', (e) => {
+  if (els.searchDropdown.style.display === 'none' || currentSearchResults.length === 0) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    searchDropdownIndex = Math.min(searchDropdownIndex + 1, currentSearchResults.length - 1);
+    updateSearchDropdownActive();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    searchDropdownIndex = Math.max(searchDropdownIndex - 1, 0);
+    updateSearchDropdownActive();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const target = currentSearchResults[searchDropdownIndex >= 0 ? searchDropdownIndex : 0];
+    if (target) openSearchResult(target, els.navSearch.value.trim());
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeSearchDropdown();
+  }
+});
+
+els.searchDropdown.addEventListener('mousedown', (e) => {
+  const btn = e.target.closest('.search-result');
+  if (!btn) return;
+  e.preventDefault(); // Fokus/Blur der Sucheingabe soll den Klick nicht durchkreuzen
+  const result = currentSearchResults[Number(btn.dataset.index)];
+  if (result) openSearchResult(result, els.navSearch.value.trim());
+});
+
+document.addEventListener('click', (e) => {
+  if (!els.navSearch.parentElement.contains(e.target) && !els.searchDropdown.contains(e.target)) closeSearchDropdown();
+});
 
 document.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
@@ -1279,13 +1619,32 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-const SHORTCUTS = [
-  { keys: 'Strg/Cmd + K', desc: 'Suche fokussieren' },
-  { keys: 'Strg/Cmd + S', desc: 'Notiz speichern' },
-  { keys: 'Strg/Cmd + B', desc: 'Ansicht wechseln (Editor/Split/Vorschau)' },
-  { keys: 'Alt + ← / →', desc: 'Zur vorherigen/nächsten Notiz springen' },
-  { keys: '?', desc: 'Diesen Spickzettel anzeigen' },
-  { keys: 'Esc', desc: 'Offenes Fenster/Menü schließen' },
+const SHORTCUT_SECTIONS = [
+  {
+    title: 'Allgemein',
+    items: [
+      { keys: 'Strg/Cmd + K', desc: 'Suche fokussieren' },
+      { keys: '?', desc: 'Diesen Spickzettel anzeigen' },
+      { keys: 'Esc', desc: 'Offenes Fenster/Menü/Dropdown schließen' },
+    ]
+  },
+  {
+    title: 'Notiz & Editor',
+    items: [
+      { keys: 'Strg/Cmd + S', desc: 'Notiz speichern' },
+      { keys: 'Strg/Cmd + B', desc: 'Ansicht wechseln (Editor/Split/Vorschau)' },
+      { keys: 'Alt + ← / →', desc: 'Zur vorherigen/nächsten Notiz springen' },
+      { keys: 'F3', desc: 'Nächster Suchtreffer in der offenen Notiz' },
+      { keys: 'Umschalt + F3', desc: 'Vorheriger Suchtreffer in der offenen Notiz' },
+    ]
+  },
+  {
+    title: 'In der Suche',
+    items: [
+      { keys: '↑ / ↓', desc: 'Durch die Suchergebnisse navigieren' },
+      { keys: 'Enter', desc: 'Markiertes Suchergebnis öffnen' },
+    ]
+  }
 ];
 
 function showShortcutsCheatsheet() {
@@ -1296,7 +1655,10 @@ function showShortcutsCheatsheet() {
     <div class="prompt-modal">
       <div class="prompt-title">⌨️ Tastenkürzel<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
       <div class="shortcuts-list">
-        ${SHORTCUTS.map(s => `<div class="shortcut-row"><kbd>${escapeHtml(s.keys)}</kbd><span>${escapeHtml(s.desc)}</span></div>`).join('')}
+        ${SHORTCUT_SECTIONS.map(section => `
+          <div class="shortcut-section-label">${escapeHtml(section.title)}</div>
+          ${section.items.map(s => `<div class="shortcut-row"><kbd>${escapeHtml(s.keys)}</kbd><span>${escapeHtml(s.desc)}</span></div>`).join('')}
+        `).join('')}
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -1417,7 +1779,7 @@ function buildDashboardRow(note, excerpt, dateLabel, isRecent) {
   const row = document.createElement('div');
   row.className = 'dashboard-row' + (isRecent ? ' recent-row' : '');
   row.innerHTML = `
-    <span class="dr-icon">${note.icon || '📄'}</span>
+    <span class="dr-icon">${renderIconHtml(note.icon, '📄')}</span>
     <span class="dr-title">${escapeHtml(title)}</span>
     <span class="dr-excerpt">${escapeHtml(excerpt)}</span>
     <span class="dr-tag">${escapeHtml(tagLabel)}</span>
@@ -1524,6 +1886,14 @@ async function renderHome() {
     bodyByRelPath = new Map(docs.map(d => [d.relPath, d.body]));
   } catch { /* Startseite funktioniert auch ohne Ausschnitte, falls das mal fehlschlägt */ }
 
+  // Bugfix (Absturz per Konsole gemeldet): Während des obigen await kann der
+  // Nutzer bereits zu einer anderen Ansicht gewechselt haben (z. B. Papierkorb,
+  // während schnell hintereinander mehrere Notizen gelöscht werden — jede
+  // löst ein refreshAll() → render() aus). #recentList existiert dann nicht
+  // mehr, weiter unten würde .appendChild auf null krachen. Hier sauber
+  // abbrechen statt gegen eine nicht mehr vorhandene Ansicht zu rendern.
+  if (!document.getElementById('recentList')) return;
+
   function excerptFor(note) {
     return stripMarkdownSyntax(bodyByRelPath.get(note.relPath)).slice(0, 60);
   }
@@ -1535,7 +1905,7 @@ async function renderHome() {
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'pinned-chip';
-      chip.innerHTML = `<span class="pinned-chip-icon">${note.icon || '★'}</span><span class="pinned-chip-title">${escapeHtml(title)}</span>`;
+      chip.innerHTML = `<span class="pinned-chip-icon">${renderIconHtml(note.icon, '★')}</span><span class="pinned-chip-title">${escapeHtml(title)}</span>`;
       chip.title = title;
       chip.addEventListener('click', () => { location.hash = '#note/' + encodeURIComponent(note.relPath); });
       strip.appendChild(chip);
@@ -1616,6 +1986,13 @@ async function renderNote(relPath) {
         <button type="button" data-mode="split">Split</button>
         <button type="button" data-mode="preview">Vorschau</button>
       </div>
+      <select class="font-size-select" id="editorFontSizeSelect" title="Editor-Schriftgröße" aria-label="Editor-Schriftgröße">
+        <option value="12">12px</option>
+        <option value="13">13px</option>
+        <option value="14">14px</option>
+        <option value="16">16px</option>
+        <option value="18">18px</option>
+      </select>
       <button type="button" class="icon-btn" id="btnEmoji" title="Icon/Emoji einfügen" aria-label="Icon/Emoji einfügen">😀</button>
       <div class="format-toolbar" id="formatToolbar">
         <button type="button" data-fmt="bold" title="Fett (**Text**)"><strong>F</strong></button>
@@ -1656,8 +2033,17 @@ async function renderNote(relPath) {
     applyViewMode();
   });
 
+  const fontSizeSelect = document.getElementById('editorFontSizeSelect');
+  const storedFontSize = Number(state.project?.config?.editorFontSize) || EDITOR_FONT_SIZE_DEFAULT;
+  fontSizeSelect.value = String(storedFontSize);
+  fontSizeSelect.addEventListener('change', async () => {
+    const px = applyEditorFontSize(Number(fontSizeSelect.value));
+    if (state.project?.config) state.project.config.editorFontSize = px;
+    try { await fs.setProjectSetting('editorFontSize', px); }
+    catch (err) { console.error('[Archiv Wiki] Editor-Schriftgröße konnte nicht gespeichert werden:', err); }
+  });
+
   wireEditorContextMenus();
-  wireImageDrop();
   wireImageDrop();
 
   // Split-Ansicht per Ziehen in der Breite verstellbar. Reset auf 50/50 bei
@@ -1727,7 +2113,7 @@ async function renderNote(relPath) {
 
   document.getElementById('btnEmoji').addEventListener('click', (e) => {
     e.stopPropagation();
-    showEmojiPicker(document.getElementById('btnEmoji'));
+    showIconPicker(document.getElementById('btnEmoji'));
   });
 
   // Formatierungs-Buttons: nur echte Markdown-Syntax (kein Schriftfarbe/
@@ -2294,10 +2680,15 @@ function buildEditorMenuItems() {
 // sollten sie wirken?), ebenso wenig Ausschneiden/Einfügen. Nur Kopieren und
 // Alles auswählen sind hier tatsächlich sinnvoll.
 function buildPreviewMenuItems(previewEl) {
+  // Bugfix (per Nutzer-Meldung: "Kopieren" tat nichts, nur Strg+C ging):
+  // Die Auswahl MUSS jetzt, beim Rechtsklick selbst, gesichert werden — nicht
+  // erst im späteren Klick auf den Menüpunkt. Ein Klick auf irgendein Element
+  // (auch auf den Menüpunkt selbst) löscht standardmäßig eine bestehende
+  // Textauswahl im Browser, noch bevor die eigentliche Aktion läuft.
+  const selectedText = window.getSelection().toString();
   return [
-    { label: 'Kopieren', disabled: !window.getSelection().toString(), action: async () => {
-        const text = window.getSelection().toString();
-        if (text) await navigator.clipboard.writeText(text);
+    { label: 'Kopieren', disabled: !selectedText, action: async () => {
+        if (selectedText) await navigator.clipboard.writeText(selectedText);
       } },
     { label: 'Alles auswählen', action: () => {
         const range = document.createRange();
@@ -2433,6 +2824,7 @@ function wireEditorContextMenus() {
 // Auflösung in der Vorschau unabhängig von der Verzeichnistiefe der Notiz
 // (siehe renderPreview in build/editor-entry.js).
 function wireImageDrop() {
+  const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB — großzügig für normale Fotos/Screenshots, verhindert aber das Einlesen von Riesendateien in den Speicher
   const editorEl = document.getElementById('editorContainer');
   if (!editorEl) return;
   editorEl.addEventListener('dragover', (e) => {
@@ -2443,6 +2835,10 @@ function wireImageDrop() {
     if (files.length === 0) return; // kein Bild dabei — normales Text-Drop (Umsortieren etc.) unangetastet lassen
     e.preventDefault();
     for (const file of files) {
+      if (file.size > MAX_IMAGE_BYTES) {
+        alert(`"${file.name}" ist zu groß (${(file.size / 1024 / 1024).toFixed(1)} MB) — maximal 20 MB pro Bild.`);
+        continue; // erst NACH der Prüfung wird überhaupt gelesen — vorher landete jede Dateigröße ungeprüft komplett im Speicher
+      }
       try {
         const buffer = await file.arrayBuffer();
         const { fileName } = await fs.saveAttachment(file.name, buffer);
@@ -2455,12 +2851,53 @@ function wireImageDrop() {
   });
 }
 
-function showEmojiPicker(anchorEl, onSelect) {
-  document.querySelectorAll('.emoji-picker').forEach(m => m.remove());
-  const picker = document.createElement('div');
-  picker.className = 'emoji-picker';
+// Neues, erweitertes Icon-Auswahlfenster für Kategorien/Notizen — ergänzt
+// die bestehende Emoji-Auswahl um die kuratierte Icon-Bibliothek (Suche mit
+// Synonymen, Kategorien, Favoriten, Zuletzt verwendet, Vorschau beim
+// Überfahren). Bestehende Emoji-Zeichen bleiben über den "Emoji"-Reiter
+// unverändert erreichbar — nichts wird ersetzt, nur ergänzt.
+function showIconPicker(anchorEl, onSelect) {
+  document.querySelectorAll('.icon-picker, .emoji-picker').forEach(m => m.remove());
+  const projectConfig = state.project?.config || {};
+  let favorites = Array.isArray(projectConfig.iconFavorites) ? projectConfig.iconFavorites : [];
+  let recent = Array.isArray(projectConfig.iconRecent) ? projectConfig.iconRecent : [];
+  let activeTab = 'library';
 
-  function groupedHtml() {
+  const picker = document.createElement('div');
+  picker.className = 'icon-picker';
+
+  function iconBtnHtml(entry) {
+    const isFav = favorites.includes(entry.id);
+    return `<button type="button" class="icon-lib-btn" data-icon-id="${entry.id}" data-label="${escapeHtml(entry.label)}" title="${escapeHtml(entry.label)}">
+      <img src="assets/icon-library/${entry.id}.svg" class="lib-icon" alt="">
+      <span class="icon-fav-star ${isFav ? 'active' : ''}" data-fav-toggle="${entry.id}">${isFav ? '★' : '☆'}</span>
+    </button>`;
+  }
+
+  function libraryDefaultHtml() {
+    let html = '';
+    if (favorites.length) {
+      const favEntries = favorites.map(id => ICON_LIBRARY.find(i => i.id === id)).filter(Boolean);
+      html += `<div class="icon-picker-section-label">★ Favoriten</div><div class="icon-picker-grid">${favEntries.map(iconBtnHtml).join('')}</div>`;
+    }
+    if (recent.length) {
+      const recentEntries = recent.map(id => ICON_LIBRARY.find(i => i.id === id)).filter(Boolean);
+      html += `<div class="icon-picker-section-label">🕐 Zuletzt verwendet</div><div class="icon-picker-grid">${recentEntries.map(iconBtnHtml).join('')}</div>`;
+    }
+    for (const [catKey, catLabel] of Object.entries(ICON_CATEGORIES)) {
+      const entries = ICON_LIBRARY.filter(i => i.category === catKey);
+      html += `<div class="icon-picker-section-label">${escapeHtml(catLabel)}</div><div class="icon-picker-grid">${entries.map(iconBtnHtml).join('')}</div>`;
+    }
+    return html;
+  }
+
+  function librarySearchHtml(query) {
+    const matches = searchIconLibrary(query);
+    if (matches.length === 0) return `<div class="emoji-empty">Keine Treffer für „${escapeHtml(query)}"</div>`;
+    return `<div class="icon-picker-grid">${matches.map(iconBtnHtml).join('')}</div>`;
+  }
+
+  function emojiGroupedHtml() {
     return Object.entries(EMOJI_GROUPS).map(([group, items]) => `
       <div class="emoji-group-label">${escapeHtml(group)}</div>
       <div class="emoji-grid">
@@ -2469,48 +2906,125 @@ function showEmojiPicker(anchorEl, onSelect) {
     `).join('');
   }
 
-  function filteredHtml(query) {
+  function emojiFilteredHtml(query) {
     const q = query.toLowerCase().trim();
     const matches = EMOJI_FLAT.filter(([, name]) => name.includes(q));
     if (matches.length === 0) return `<div class="emoji-empty">Keine Treffer für „${escapeHtml(query)}"</div>`;
     return `<div class="emoji-grid">${matches.map(([char, name]) => `<button type="button" class="emoji-btn" data-emoji="${char}" title="${escapeHtml(name)}">${char}</button>`).join('')}</div>`;
   }
 
+  function renderResults() {
+    const query = picker.querySelector('.icon-picker-search').value.trim();
+    const resultsEl = picker.querySelector('.icon-picker-results');
+    if (activeTab === 'library') {
+      resultsEl.innerHTML = query ? librarySearchHtml(query) : libraryDefaultHtml();
+    } else {
+      resultsEl.innerHTML = query ? emojiFilteredHtml(query) : emojiGroupedHtml();
+    }
+  }
+
   picker.innerHTML = `
-    <input type="text" class="emoji-search" id="emojiSearch" placeholder="Icon suchen (z. B. 'herz', 'pfeil', 'ordner') …" autocomplete="off">
-    <div class="emoji-results" id="emojiResults">${groupedHtml()}</div>
+    <div class="icon-picker-tabs">
+      <button type="button" class="active" data-tab="library">Bibliothek</button>
+      <button type="button" data-tab="emoji">Emoji</button>
+    </div>
+    <input type="text" class="icon-picker-search" placeholder="Suchen (z. B. 'linux', 'terminal', 'herz') …" autocomplete="off">
+    <div class="icon-picker-results"></div>
   `;
   document.body.appendChild(picker);
+  renderResults();
+
   const rect = anchorEl.getBoundingClientRect();
   const pickerRect = picker.getBoundingClientRect();
-  // Bugfix: vorher wurde nur die horizontale Position begrenzt — bei
-  // Kategorien weit unten in der Sidebar rutschte das Fenster dadurch unten
-  // aus dem sichtbaren Bereich. Jetzt wie beim Tabellen-/Hinweisblock-Picker:
-  // bleibt am Klickpunkt, weicht nur nach oben aus, wenn unten kein Platz ist.
   const top = Math.min(rect.bottom + 6, window.innerHeight - pickerRect.height - 8);
   picker.style.top = Math.max(4, top) + 'px';
-  picker.style.left = Math.min(rect.left, window.innerWidth - 320) + 'px';
+  picker.style.left = Math.min(rect.left, window.innerWidth - pickerRect.width - 8) + 'px';
+  animateIn(picker);
 
-  const searchInput = picker.querySelector('#emojiSearch');
-  const resultsEl = picker.querySelector('#emojiResults');
-  searchInput.addEventListener('input', () => {
-    resultsEl.innerHTML = searchInput.value.trim() ? filteredHtml(searchInput.value) : groupedHtml();
-  });
+  const searchInput = picker.querySelector('.icon-picker-search');
+  searchInput.addEventListener('input', renderResults);
   searchInput.focus();
 
-  // onSelect optional: ohne Angabe (z. B. Editor-Toolbar) wird wie bisher
-  // direkt in den Editor eingefügt. Mit Angabe (z. B. Kategorie-Icon-Wahl)
-  // wird stattdessen der Callback aufgerufen — derselbe Picker, zwei Zwecke.
-  picker.addEventListener('click', (e) => {
-    const btn = e.target.closest('.emoji-btn');
+  picker.querySelector('.icon-picker-tabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-tab]');
     if (!btn) return;
-    if (onSelect) { onSelect(btn.dataset.emoji); picker.remove(); }
-    else insertAtCursor(btn.dataset.emoji); // Picker bleibt bewusst offen — mehrere Emojis nacheinander einfügen
+    activeTab = btn.dataset.tab;
+    picker.querySelectorAll('.icon-picker-tabs button').forEach(b => b.classList.toggle('active', b === btn));
+    searchInput.value = '';
+    searchInput.placeholder = activeTab === 'library' ? "Suchen (z. B. 'linux', 'terminal') …" : "Suchen (z. B. 'herz', 'pfeil') …";
+    renderResults();
   });
+
+  // Hover-Vorschau: eigenes, verzögertes Fenster (kein Standard-Tooltip),
+  // zeigt das Icon größer + Namen — gleiches Muster wie der bestehende
+  // Ellipsis-Tooltip an anderer Stelle im Programm.
+  let hoverTimer = null;
+  let previewEl = null;
+  picker.addEventListener('mouseover', (e) => {
+    const btn = e.target.closest('.icon-lib-btn');
+    if (!btn || btn === hoverTimer?.btn) return;
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => {
+      if (previewEl) previewEl.remove();
+      previewEl = document.createElement('div');
+      previewEl.className = 'icon-hover-preview';
+      const img = btn.querySelector('img').cloneNode(true);
+      img.classList.add('icon-hover-preview-img');
+      previewEl.appendChild(img);
+      const label = document.createElement('span');
+      label.textContent = btn.dataset.label;
+      previewEl.appendChild(label);
+      document.body.appendChild(previewEl);
+      const btnRect = btn.getBoundingClientRect();
+      previewEl.style.left = Math.min(btnRect.left, window.innerWidth - previewEl.offsetWidth - 8) + 'px';
+      previewEl.style.top = (btnRect.top - previewEl.offsetHeight - 6) + 'px';
+    }, 350);
+  });
+  picker.addEventListener('mouseout', (e) => {
+    if (!e.target.closest('.icon-lib-btn')) return;
+    clearTimeout(hoverTimer);
+    if (previewEl) { previewEl.remove(); previewEl = null; }
+  });
+
+  async function persistFavAndRecent() {
+    if (state.project?.config) { state.project.config.iconFavorites = favorites; state.project.config.iconRecent = recent; }
+    try {
+      await fs.setProjectSetting('iconFavorites', favorites);
+      await fs.setProjectSetting('iconRecent', recent);
+    } catch (err) { console.error('[Archiv Wiki] Icon-Favoriten/Verlauf konnten nicht gespeichert werden:', err); }
+  }
+
+  picker.addEventListener('click', (e) => {
+    const favStar = e.target.closest('.icon-fav-star');
+    if (favStar) {
+      const id = favStar.dataset.favToggle;
+      favorites = favorites.includes(id) ? favorites.filter(f => f !== id) : [...favorites, id];
+      persistFavAndRecent();
+      renderResults();
+      return;
+    }
+    const libBtn = e.target.closest('.icon-lib-btn');
+    if (libBtn) {
+      const id = libBtn.dataset.iconId;
+      recent = [id, ...recent.filter(r => r !== id)].slice(0, 12);
+      persistFavAndRecent();
+      if (onSelect) { onSelect(id); animateOut(picker, () => picker.remove()); if (previewEl) previewEl.remove(); }
+      else insertAtCursor(`![${libBtn.dataset.label}](icon:${id})`); // Picker bleibt offen, wie bei Emoji auch
+      return;
+    }
+    const emojiBtn = e.target.closest('.emoji-btn');
+    if (emojiBtn) {
+      if (onSelect) { onSelect(emojiBtn.dataset.emoji); animateOut(picker, () => picker.remove()); }
+      else insertAtCursor(emojiBtn.dataset.emoji);
+    }
+  });
+
   setTimeout(() => document.addEventListener('click', function closeOnce(e) {
-    if (picker.contains(e.target)) return; // Mehrere Emojis nacheinander einfügen, ohne dass es sofort zuklappt
-    picker.remove(); document.removeEventListener('click', closeOnce);
-  }, { once: false }), 0);
+    if (picker.contains(e.target)) return;
+    animateOut(picker, () => picker.remove());
+    if (previewEl) previewEl.remove();
+    document.removeEventListener('click', closeOnce);
+  }), 0);
 }
 
 function applyViewMode() {
@@ -2674,6 +3188,7 @@ async function renderTrash() {
     if (!confirm('Papierkorb wirklich endgültig leeren? Das kann nicht rückgängig gemacht werden.')) return;
     await fs.emptyTrash();
     renderTrash();
+    updateTrashBadge();
   });
 }
 
@@ -2705,35 +3220,12 @@ window.addEventListener('beforeunload', (e) => {
 // GitHub-Releases-API), stehen nirgends fest im Code.
 async function checkForUpdateAndRender() {
   els.updateStatusCurrent.textContent = '';
-  try {
-    const { currentVersion, latestVersion, updateAvailable, releaseUrl } = await window.archivAPI.checkForUpdate();
-    els.updateStatusCurrent.textContent = `v${currentVersion}`;
-
-    if (!latestVersion) {
-      // Kein Netz/GitHub nicht erreichbar — lieber still "aktuell" zeigen als
-      // eine verwirrende Fehlermeldung im Sidebar-Footer.
-      els.updateDot.className = 'update-dot dot-neutral';
-      els.updateStatusLabel.className = 'update-status-label label-neutral';
-      els.updateStatusLabel.textContent = 'Auf dem neuesten Stand';
-      return;
-    }
-
-    if (updateAvailable) {
-      els.updateDot.className = 'update-dot dot-available';
-      els.updateStatusLabel.className = 'update-status-label label-available';
-      els.updateStatusLabel.textContent = `Neue Version verfügbar ${latestVersion}`;
-      els.updateStatusTop.classList.add('clickable');
-      els.updateStatusTop.addEventListener('click', () => window.open(releaseUrl, '_blank'));
-    } else {
-      els.updateDot.className = 'update-dot dot-neutral';
-      els.updateStatusLabel.className = 'update-status-label label-neutral';
-      els.updateStatusLabel.textContent = 'Auf dem neuesten Stand';
-    }
-  } catch {
-    els.updateStatusCurrent.textContent = '';
-    els.updateDot.className = 'update-dot dot-neutral';
-    els.updateStatusLabel.className = 'update-status-label label-neutral';
-    els.updateStatusLabel.textContent = 'Auf dem neuesten Stand';
+  const status = await fetchUpdateStatus();
+  if (status.currentVersion) els.updateStatusCurrent.textContent = `v${status.currentVersion}`;
+  renderUpdateStatus(els.updateDot, els.updateStatusLabel, status, 'update-status-label');
+  if (status.updateAvailable && status.latestVersion) {
+    els.updateStatusTop.classList.add('clickable');
+    els.updateStatusTop.addEventListener('click', () => window.open(status.releaseUrl, '_blank'));
   }
 }
 
@@ -2771,7 +3263,9 @@ function waitForUnlock() {
 
   checkForUpdateAndRender();
 
-  applyAccentPalette(state.project?.config?.accentKey);
+  applyAccentPalette(state.project?.config?.accentKey, state.project?.config?.customAccentColor);
+  applySidebarDensity(state.project?.config?.sidebarDensity);
+  applyEditorFontSize(state.project?.config?.editorFontSize);
   initEllipsisTooltips();
 
   // Backup-Warnung: Symbol bleibt standardmäßig versteckt, erscheint nur ab
@@ -2784,7 +3278,7 @@ function waitForUnlock() {
       btn.style.display = 'flex';
       const lastError = backupStatus.lastErrorAt ? formatRelativeTime(backupStatus.lastErrorAt) : 'unbekannt';
       btn.title = `${backupStatus.consecutiveFailures}x automatisches Backup in Folge fehlgeschlagen (zuletzt: ${lastError})`;
-      btn.addEventListener('click', () => alert(btn.title));
+      btn.addEventListener('click', () => showBackupErrorModal(backupStatus));
     }
   } catch { /* Backup-Status ist rein informativ, App funktioniert auch ohne diese Prüfung */ }
 

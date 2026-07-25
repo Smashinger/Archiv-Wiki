@@ -123,6 +123,13 @@ export function getOpenRelPath() {
   return currentRelPath;
 }
 
+// Brücke von der Header-Suche zum Editor: springt zur ersten Fundstelle der
+// übergebenen Suchanfrage, über dieselbe CodeMirror-Suchmechanik wie die
+// manuelle Editor-Suche (kein zweites, separates Hervorhebungssystem).
+export function jumpToMatchInEditor(query) {
+  currentEditor?.jumpToMatch(query);
+}
+
 export function closeEditor() {
   clearTimeout(autosaveTimer);
   if (currentEditor) currentEditor.destroy();

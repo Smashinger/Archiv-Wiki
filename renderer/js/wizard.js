@@ -4,6 +4,7 @@
 
 import { buildSyncIntervalOptionsHtml } from './sync-shared.js';
 import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml } from './theme.js';
+import { fetchUpdateStatus, renderUpdateStatus } from './update-check.js';
 
 const state = {
   step: 1,
@@ -46,39 +47,26 @@ const TOTAL_STEPS = 3;
 // informieren, nichts automatisch herunterladen/austauschen). Nutzt denselben
 // bestehenden app:checkForUpdate-Kanal — keine zweite Prüf-Logik nötig.
 // Zeigt IMMER einen Status (genau wie der Sidebar-Footer der fertigen App):
-// grau "Auf dem neuesten Stand" ODER grün "Update verfügbar" — vorher stand
-// "Update verfügbar" + der grüne Punkt fest im HTML, wurde nie auf den
-// Kein-Update-Fall umgeschaltet (Bug, per Screenshot gemeldet).
-window.archivAPI.checkForUpdate().then(({ latestVersion, updateAvailable, releaseUrl }) => {
+// grau "Auf dem neuesten Stand" ODER grün "Neue Version verfügbar" — kein
+// separater Button mehr, die Status-Zeile selbst ist der Link (identisches
+// Muster wie #updateStatusTop im Sidebar-Footer, siehe app.js).
+// Sofort (synchron, JS-seitig — kein Inline-Style im HTML, das wäre CSP-
+// blockiert) verstecken, BEVOR der asynchrone Update-Check überhaupt startet.
+const wizardUpdateHintEl = document.getElementById('wizardUpdateHint');
+wizardUpdateHintEl.style.display = 'none';
+
+fetchUpdateStatus().then((status) => {
   const hint = document.getElementById('wizardUpdateHint');
+  const hintText = document.getElementById('wizardUpdateHintText');
   const dot = document.getElementById('wizardUpdateDot');
   const label = document.getElementById('wizardUpdateLabel');
-  const btn = document.getElementById('btnWizardUpdate');
-
-  if (!latestVersion) {
-    // Kein Netz/GitHub nicht erreichbar — lieber still "aktuell" zeigen als
-    // eine verwirrende Fehlermeldung (konsistent zum Sidebar-Footer der Haupt-App).
-    hint.style.display = 'block';
-    dot.className = 'update-dot dot-neutral';
-    label.className = 'label-neutral';
-    label.textContent = 'Auf dem neuesten Stand';
-    return;
-  }
-
   hint.style.display = 'block';
-  if (updateAvailable) {
-    dot.className = 'update-dot dot-available';
-    label.className = 'label-available';
-    label.textContent = `Neue Version verfügbar ${latestVersion}`;
-    btn.style.display = '';
-    btn.addEventListener('click', () => window.open(releaseUrl, '_blank'));
-  } else {
-    dot.className = 'update-dot dot-neutral';
-    label.className = 'label-neutral';
-    label.textContent = 'Auf dem neuesten Stand';
-    btn.style.display = 'none';
+  renderUpdateStatus(dot, label, status);
+  if (status.updateAvailable && status.latestVersion) {
+    hintText.classList.add('clickable');
+    hintText.addEventListener('click', () => window.open(status.releaseUrl, '_blank'));
   }
-}).catch(() => { /* kein Netz/GitHub nicht erreichbar — Einrichtung läuft ganz normal ohne Hinweis weiter */ });
+});
 
 // Sync-Intervall-Dropdown mit den GLEICHEN Optionen wie im späteren
 // In-App-Sync-Fenster befüllen (siehe renderer/js/sync-shared.js — Problem 2:
