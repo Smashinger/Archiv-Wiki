@@ -119,6 +119,13 @@ async function renderGeneralSection(el, config, updateSetting, context) {
     { value: 'tray', label: 'Immer in den System-Tray minimieren' },
     { value: 'quit', label: 'Immer vollständig beenden' }
   ];
+  const categoryStartupOptions = [
+    { value: 'closed', label: 'Alles geschlossen (Standard)' },
+    { value: 'restore', label: 'Letzten Zustand wiederherstellen' },
+    { value: 'topLevelOpen', label: 'Hauptkategorien geöffnet' },
+    { value: 'allOpen', label: 'Alles geöffnet' }
+  ];
+  const categoryStartupBehavior = config.categoryStartupBehavior || 'closed';
   el.innerHTML = `
     <h3>Allgemein</h3>
     <label class="settings-field">
@@ -130,6 +137,13 @@ async function renderGeneralSection(el, config, updateSetting, context) {
       <div class="settings-readonly-value" id="stProjectPath">${escapeAttr(context.projectPath || '')}</div>
       <button type="button" class="btn ghost settings-inline-btn" id="stMoveProjectFolder">Ändern…</button>
       <p class="settings-hint" id="stMoveHint">Kopiert alles an den neuen Ort — der alte Ordner bleibt zur Sicherheit zusätzlich bestehen, du kannst ihn danach selbst löschen. Der neue Ordner muss leer sein.</p>
+    </div>
+    <div class="settings-field">
+      <span>Kategorien beim Start</span>
+      <div class="close-dialog-options" id="stCategoryStartupOptions">
+        ${categoryStartupOptions.map(o => `<label class="close-dialog-option"><input type="radio" name="stCategoryStartup" value="${o.value}" ${categoryStartupBehavior === o.value ? 'checked' : ''}> ${escapeAttr(o.label)}</label>`).join('')}
+      </div>
+      <p class="settings-hint">Bestimmt nur den Zustand beim Programmstart — während der Nutzung lässt sich jede Kategorie weiterhin ganz normal einzeln auf- und zuklappen, und das Öffnen einer Notiz klappt bei Bedarf automatisch die passende Kategorie auf.</p>
     </div>
     <div class="settings-field">
       <span>Verhalten beim Schließen (X-Button)</span>
@@ -148,6 +162,10 @@ async function renderGeneralSection(el, config, updateSetting, context) {
       if (name) { brandText.textContent = `Wiki von ${name}`; brand.style.display = ''; }
       else { brand.style.display = 'none'; }
     }
+  });
+  el.querySelector('#stCategoryStartupOptions').addEventListener('change', async (e) => {
+    if (e.target.name !== 'stCategoryStartup') return;
+    await updateSetting({ categoryStartupBehavior: e.target.value });
   });
   el.querySelector('#stCloseBehaviorOptions').addEventListener('change', async (e) => {
     if (e.target.name !== 'stCloseBehavior') return;

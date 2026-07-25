@@ -1,7 +1,7 @@
 {
   "name": "archiv-wiki",
   "productName": "Archiv-Wiki",
-  "version": "1.8.2",
+  "version": "1.8.0",
   "description": "Persönliches Markdown-Wiki für den Desktop – Notizen, Setups und Checklisten, 100% lokal.",
   "main": "main.js",
   "author": {

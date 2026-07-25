@@ -775,8 +775,61 @@ els.homeLink.addEventListener('click', () => { location.hash = '#home'; });
 // ---------------------------------------------------------------------------
 // Baum laden + Sidebar/Stats/Home neu rendern
 // ---------------------------------------------------------------------------
+// Kategorien beim Start (Nutzer-Einstellung, Einstellungsfenster → Allgemein):
+// NUR der allererste refreshAll()-Aufruf (also der eigentliche Programmstart)
+// wendet die gewählte Start-Option an — spätere Aktualisierungen während der
+// laufenden Sitzung (z. B. nach dem Anlegen einer Notiz) lassen den vom
+// Nutzer manuell gewählten Auf-/Zuklapp-Zustand unangetastet.
+let isInitialLoad = true;
+
+function collectAllGroupRelPaths(nodes, out = []) {
+  for (const n of nodes) {
+    if (n.type === 'folder') {
+      out.push(n.relPath);
+      collectAllGroupRelPaths(n.children, out);
+    }
+  }
+  return out;
+}
+
+// Für "Hauptkategorien geöffnet": nur Unterkategorien (depth >= 2) sammeln,
+// Hauptkategorien (depth 1) bleiben dadurch offen.
+function collectSubGroupRelPaths(nodes, depth = 1, out = []) {
+  for (const n of nodes) {
+    if (n.type === 'folder') {
+      if (depth >= 2) out.push(n.relPath);
+      collectSubGroupRelPaths(n.children, depth + 1, out);
+    }
+  }
+  return out;
+}
+
+// Bestimmt den Start-Zustand gemäß der gewählten Einstellung. 'closed' ist
+// sowohl der Standardwert der Einstellung selbst als auch der Rückfallwert,
+// falls "Letzten Zustand wiederherstellen" gewählt ist, aber noch nie ein
+// Zustand gespeichert wurde.
+function initialCollapsedGroups(tree, behavior, savedCollapsedGroups) {
+  switch (behavior) {
+    case 'allOpen': return new Set();
+    case 'topLevelOpen': return new Set(collectSubGroupRelPaths(tree));
+    case 'restore': return new Set(Array.isArray(savedCollapsedGroups) && savedCollapsedGroups.length
+      ? savedCollapsedGroups
+      : collectAllGroupRelPaths(tree));
+    case 'closed':
+    default: return new Set(collectAllGroupRelPaths(tree));
+  }
+}
+
 async function refreshAll() {
   state.tree = await fs.getTree();
+  if (isInitialLoad) {
+    // WICHTIG: passiert VOR renderNavTree() weiter unten, damit der Baum
+    // gleich beim allerersten Rendern im korrekten Zustand erscheint — kein
+    // kurzes Aufklappen-und-wieder-Schließen sichtbar.
+    const behavior = state.project?.config?.categoryStartupBehavior || 'closed';
+    state.collapsedGroups = initialCollapsedGroups(state.tree, behavior, state.project?.config?.savedCollapsedGroups);
+    isInitialLoad = false;
+  }
   renderNavTree();
   render(); // aktuelle Route neu zeichnen (Baum kann sich geändert haben)
   rebuildIndex().catch(err => console.error('[Archiv Wiki] Such-Index konnte nicht aktualisiert werden', err));
@@ -882,6 +935,14 @@ function wireNavInteractions() {
       if (state.collapsedGroups.has(relPath)) state.collapsedGroups.delete(relPath);
       else state.collapsedGroups.add(relPath);
       group.classList.toggle('collapsed');
+      // Nur speichern, wenn "Letzten Zustand wiederherstellen" gewählt ist —
+      // bei den anderen drei Optionen bestimmt ohnehin die Einstellung selbst
+      // den Start-Zustand, ein Mitschreiben wäre unnötiger Schreibaufwand.
+      if (state.project?.config?.categoryStartupBehavior === 'restore') {
+        const saved = [...state.collapsedGroups];
+        fs.setProjectSetting('savedCollapsedGroups', saved).catch(() => {});
+        if (state.project?.config) state.project.config.savedCollapsedGroups = saved;
+      }
     });
   });
 
@@ -1703,7 +1764,25 @@ async function render() {
 }
 
 function setBreadcrumb(text) { els.breadcrumb.textContent = text; }
+// Klappt alle übergeordneten Kategorien einer Notiz auf, falls sie gerade
+// eingeklappt sind — unabhängig von der "Kategorien beim Start"-Einstellung,
+// die nur den Zustand beim Programmstart bestimmt, nicht das Verhalten beim
+// Navigieren zu einer Notiz währenddessen (Nutzer-Anforderung).
+function expandAncestorGroups(relPath) {
+  if (!relPath) return false;
+  const parts = relPath.split('/');
+  parts.pop(); // letztes Segment ist die Notiz-Datei selbst, keine Kategorie
+  let changed = false;
+  let cumulative = '';
+  for (const part of parts) {
+    cumulative = cumulative ? `${cumulative}/${part}` : part;
+    if (state.collapsedGroups.delete(cumulative)) changed = true;
+  }
+  return changed;
+}
+
 function setActiveNav(relPath) {
+  if (expandAncestorGroups(relPath)) renderNavTree();
   els.homeLink.classList.toggle('active', !relPath);
   els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.toggle('active', a.dataset.relpath === relPath));
 }
@@ -3292,6 +3371,10 @@ function waitForUnlock() {
     document.getElementById('sidebarBrand').style.display = 'none';
   }
 
-  await refreshAll();
-  render();
+  await refreshAll(); // ruft render() bereits selbst auf (Zeile 781) — ein
+  // zweiter, direkter render()-Aufruf hier war überflüssig und hat beim
+  // ersten Start zu doppelt angezeigten angepinnten Notizen geführt: beide
+  // renderHome()-Aufrufe liefen überlappend (beide hängen mitten in ihrer
+  // Ausführung bei "await getSearchDocuments"), und beide schrieben ihre
+  // Favoriten-Kacheln am Ende in denselben, zuletzt erzeugten DOM-Container.
 })();
