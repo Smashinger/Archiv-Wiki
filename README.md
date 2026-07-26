@@ -1,19 +1,13 @@
-# Archiv Wiki
+# Mein Projekt
 
-Ein persönliches Markdown-Wiki für den Desktop. Es organisiert Notizen in Haupt- und Unterkategorien mit einem Markdown-Editor, der direkt neben einer Live-Vorschau sitzt. Die App bietet Funktionen wie:
+Willkommen bei meinem Projekt! Hier findest du alle Informationen, die du benötigst.
 
-- Editor mit Split-Ansicht
-- Callouts
-- Checklisten
-- Interne Verlinkung
-- Code-Blöcke
-- Icon-Bibliothek
-- Rechtsklick-Menü
-- Zweigeteilte Suche
-- Startseite/Dashboard
-- Zentrales Einstellungsfenster
-- Personalisierung
-- Cloud-Sync
-- Automatisches lokales Backup
+## Installation
 
-Es ist 100 % lokal und erfordert keine Cloud-Pflicht, Telemetrie oder Account.
+Führe die folgenden Schritte aus, um das Projekt zu installieren:
+
+1. Klone das Repository.
+2. Installiere die Abhängigkeiten mit `npm install`.
+3. Starte das Projekt mit `npm start`.
+
+Vielen Dank für dein Interesse!
