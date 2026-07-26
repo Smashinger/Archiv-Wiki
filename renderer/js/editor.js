@@ -28,6 +28,7 @@ export async function openNoteInEditor({
   onChange,
   onCursorActivity,
   onSaved,
+  onSaveError,
   getNoteIndex,
   projectPath,
   onSlashCommand
@@ -53,10 +54,10 @@ export async function openNoteInEditor({
       updatePreview(text);
       dirty = true;
       onChange?.(true, text);
-      scheduleAutosave(autoSaveSeconds, onSaved);
+      scheduleAutosave(autoSaveSeconds, onSaved, onSaveError);
     },
     onCursorActivity,
-    onSave: () => saveNow(onSaved),
+    onSave: () => saveNow(onSaved, onSaveError),
     onSlashCommand,
     // Scroll-Verhältnis (0-1) 1:1 auf die Vorschau übertragen — nicht
     // Pixel-für-Pixel, da beide Seiten unterschiedlich hoch sind (siehe
@@ -71,21 +72,37 @@ export async function openNoteInEditor({
   return { frontmatter: note.frontmatter, body: note.body };
 }
 
-function scheduleAutosave(autoSaveSeconds, onSaved) {
+function scheduleAutosave(autoSaveSeconds, onSaved, onSaveError) {
   clearTimeout(autosaveTimer);
   if (!autoSaveSeconds) return; // 0 = "Aus" (siehe Wizard-Konfiguration, Schritt 2)
-  autosaveTimer = setTimeout(() => saveNow(onSaved), autoSaveSeconds * 1000);
+  autosaveTimer = setTimeout(() => saveNow(onSaved, onSaveError), autoSaveSeconds * 1000);
 }
 
 // Manuelles Speichern (Ctrl/Cmd+S oder Auto-Save-Timer). Tut nichts, wenn
 // gerade kein Editor offen ist oder es nichts Ungespeichertes gibt.
-export async function saveNow(onSaved) {
+// Bugfix (Audit-Punkt 1, KRITISCH): schlug das eigentliche Schreiben fehl
+// (z. B. voller Datenträger, Berechtigung entzogen, Netzlaufwerk getrennt —
+// siehe main/notes-fs.js writeNoteRaw, reines fs.writeFileSync), gab es dafür
+// bisher KEINERLEI Rückmeldung — weder beim Auto-Save noch bei Strg+S, nur
+// eine unbehandelte Ausnahme in der Konsole. dirty blieb dabei unverändert
+// (Zeile stand hinter dem fehlgeschlagenen Aufruf), was zufällig richtig war,
+// aber ungewollt. Jetzt: try/catch, onSaveError informiert sichtbar die
+// Oberfläche. dirty bleibt bei Fehlschlag bewusst weiterhin true, damit der
+// NÄCHSTE Auto-Save-Durchlauf bzw. ein erneutes Strg+S es automatisch wieder
+// versucht, statt den ungespeicherten Stand für immer als "erledigt" zu markieren.
+export async function saveNow(onSaved, onSaveError) {
   if (!currentEditor || !currentRelPath || !dirty) return null;
   const content = currentEditor.getContent();
-  const result = await saveNote(currentRelPath, content);
-  dirty = false;
-  onSaved?.(result);
-  return result;
+  try {
+    const result = await saveNote(currentRelPath, content);
+    dirty = false;
+    onSaved?.(result);
+    return result;
+  } catch (err) {
+    console.error('[Archiv Wiki] Speichern fehlgeschlagen:', err.message);
+    onSaveError?.(err);
+    return null;
+  }
 }
 
 export function isDirty() {

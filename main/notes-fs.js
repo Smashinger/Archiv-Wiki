@@ -83,6 +83,14 @@ function writeNoteRaw(fullPath, frontmatter, body) {
 // ---------------------------------------------------------------------------
 function getSearchDocuments(projectPath) {
   const docs = [];
+  // Hinweis (Audit-Punkt 10): entry.isDirectory()/isFile() liefern für
+  // Symlinks beide false (Node prüft den Dirent-Typ selbst, folgt dem Link
+  // dabei nicht) — Symlinks werden hier deshalb bewusst still übersprungen,
+  // weder als Ordner noch als Datei behandelt. Kein Absturz, keine
+  // Endlosschleife bei zirkulären Links, aber verlinkte Notizen/Ordner
+  // erscheinen dadurch nirgends in Suche oder Baum. Absichtlich so gelöst statt
+  // Symlinks aufzulösen, um deren Sonderfälle (kaputte/zirkuläre Verweise)
+  // gar nicht erst behandeln zu müssen.
   function walk(dirPath, relPath) {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true }).filter(e => !isHidden(e.name));
     for (const entry of entries) {
@@ -109,6 +117,9 @@ function getSearchDocuments(projectPath) {
 }
 
 function listProjectTree(projectPath) {
+  // Hinweis (Audit-Punkt 10): siehe gleichlautender Kommentar in
+  // getSearchDocuments() oben — Symlinks werden hier aus demselben Grund
+  // ebenso still übersprungen.
   function walk(dirPath, relPath) {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true })
       .filter(e => !isHidden(e.name))
@@ -251,6 +262,23 @@ function writeNote(projectPath, relPath, body, frontmatterPatch) {
 // Umbenennen (Notiz oder Kategorie) — bei Notizen synchronisiert der
 // Frontmatter-Titel mit, wie in der Spec gefordert.
 // ---------------------------------------------------------------------------
+// Verschiebt/benennt fullPath zu newPath um. Bugfix (Audit-Punkt 11):
+// fs.renameSync wirft EXDEV, wenn Quelle und Ziel auf unterschiedlichen
+// Dateisystemen liegen (seltener Sonderfall, z. B. bei ungewöhnlichen
+// Mount-Konstellationen innerhalb des Projektordners) — vorher wäre das als
+// roher, für den Nutzer unverständlicher Node-Fehler durchgereicht worden.
+// Fällt in diesem einen Fall auf Kopieren+Löschen zurück, sonst identisches
+// Ergebnis wie ein echtes Rename.
+function renameOrMove(fullPath, newPath) {
+  try {
+    fs.renameSync(fullPath, newPath);
+  } catch (err) {
+    if (err.code !== 'EXDEV') throw err;
+    fs.cpSync(fullPath, newPath, { recursive: true });
+    fs.rmSync(fullPath, { recursive: true, force: true });
+  }
+}
+
 function renameEntry(projectPath, relPath, newName) {
   const fullPath = resolveSafe(projectPath, relPath);
   const stat = fs.statSync(fullPath);
@@ -260,7 +288,7 @@ function renameEntry(projectPath, relPath, newName) {
   const baseName = sanitizeName(newName);
 
   const newPath = uniquePath(parentDir, baseName, ext, fullPath);
-  fs.renameSync(fullPath, newPath);
+  renameOrMove(fullPath, newPath);
 
   if (!isDir) {
     const { frontmatter, body } = readNoteRaw(newPath);
@@ -305,7 +333,7 @@ function moveEntry(projectPath, relPath, targetRelPath) {
   const baseName = isDir ? path.basename(fullPath) : path.basename(fullPath, ext);
 
   const destPath = uniquePath(targetDir, baseName, ext);
-  fs.renameSync(fullPath, destPath);
+  renameOrMove(fullPath, destPath);
 
   if (!isDir) {
     const { frontmatter, body } = readNoteRaw(destPath);
@@ -357,7 +385,7 @@ function deleteEntry(projectPath, relPath) {
   const baseName = isDir ? path.basename(fullPath) : path.basename(fullPath, ext);
 
   const destInTrash = uniquePath(trashDir, baseName, ext);
-  fs.renameSync(fullPath, destInTrash);
+  renameOrMove(fullPath, destInTrash);
 
   const trashName = path.basename(destInTrash);
   const index = readTrashIndex(trashDir);

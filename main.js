@@ -19,7 +19,7 @@ const { registerFilesystemIpc } = require('./main/filesystem-ipc');
 const { registerExportIpc, exportProjectZip } = require('./main/export-ipc');
 const { registerSyncIpc, isSyncInProgress } = require('./main/sync-ipc');
 const { registerSettingsIpc } = require('./main/settings-ipc');
-const { maybeRunAutoBackup, nextScheduledBackup, backupFileNameFor, isBackupInProgress } = require('./main/backup');
+const { maybeRunAutoBackup, nextScheduledBackup, isBackupInProgress } = require('./main/backup');
 
 const isDev = process.argv.includes('--dev');
 
@@ -184,10 +184,28 @@ function createMainWindow() {
 
   if (isDev) mainWindow.webContents.openDevTools({ mode: 'detach' });
 
-  // Externe Links immer im System-Browser öffnen, nie im App-Fenster
+  // Externe Links immer im System-Browser öffnen, nie im App-Fenster.
+  // setWindowOpenHandler fängt nur window.open()/target="_blank" ab — ein
+  // normaler Markdown-Link (<a href="...">, genau wie marked.js sie ohne
+  // target="_blank" erzeugt) löst stattdessen eine direkte Navigation DES
+  // AKTUELLEN Fensters aus (will-navigate), nicht window.open(). Ohne diesen
+  // zweiten Handler würde das Hauptfenster beim Klick auf einen externen
+  // Link tatsächlich zu der fremden Seite wechseln, statt sie im
+  // System-Browser zu öffnen.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    // WICHTIG: nur nach Protokoll unterscheiden, NICHT nach exaktem URL-
+    // Vergleich — die komplette interne Navigation dieser App läuft über
+    // location.hash-Wechsel (z. B. beim Öffnen einer Notiz), was ebenfalls
+    // will-navigate auslöst. file: (die eigene, per loadFile geladene Seite,
+    // Hash-Wechsel eingeschlossen) bleibt erlaubt, alles andere (http/https/
+    // mailto/...) wird abgefangen und im System-Browser geöffnet.
+    if (url.startsWith('file:')) return;
+    event.preventDefault();
+    shell.openExternal(url);
   });
 
   // Zentrale Schließen-Logik: liest die gespeicherte Einstellung
@@ -356,15 +374,13 @@ function registerCoreIpc() {
   });
 
   // "Backup jetzt erstellen"-Button im neuen Einstellungsfenster — erzwingt
-  // ein Backup unabhängig vom Intervall (löscht dafür einfach die heutige
-  // Datei, falls schon vorhanden, maybeRunAutoBackup erledigt den Rest).
+  // ein Backup unabhängig vom Intervall. Bugfix (Audit-Punkt 3): löschte
+  // vorher das heutige Backup per fs.unlinkSync, BEVOR das neue überhaupt
+  // erfolgreich war — bei vollem Datenträger war dadurch auch das alte,
+  // funktionierende Backup weg. maybeRunAutoBackup(..., force: true) schreibt
+  // jetzt selbst erst in eine temporäre Datei und ersetzt nur bei Erfolg.
   ipcMain.handle('app:runBackupNow', async () => {
-    const backupPath = currentProject?.config?.backupPath;
-    if (backupPath) {
-      const todayFile = path.join(backupPath, backupFileNameFor(new Date()));
-      try { fs.unlinkSync(todayFile); } catch { /* existiert nicht, kein Problem */ }
-    }
-    await maybeRunAutoBackup({ getCurrentProject: () => currentProject });
+    await maybeRunAutoBackup({ getCurrentProject: () => currentProject }, true);
     return readAppState();
   });
 
@@ -402,7 +418,11 @@ function registerCoreIpc() {
     }
 
     try {
-      fs.cpSync(oldPath, newPath, { recursive: true });
+      // Bugfix (Audit-Punkt 7): fs.cpSync ist synchron/blockierend — bei
+      // einem großen Wiki (viele Notizen/Anhänge) würde das die KOMPLETTE
+      // App für die Dauer des Kopiervorgangs einfrieren, nicht nur diesen
+      // Dialog. fs.promises.cp erledigt dieselbe rekursive Kopie asynchron.
+      await fs.promises.cp(oldPath, newPath, { recursive: true });
       currentProject = { path: newPath, config: currentProject.config };
       writeAppState({ lastProjectPath: newPath });
       console.log(`[Archiv Wiki] Speicherort verschoben: ${oldPath} → ${newPath}`);
@@ -602,11 +622,7 @@ function createTray() {
     { label: 'Nach Updates suchen', click: () => { showAndFocus(); mainWindow?.webContents.send('menu:check-for-updates'); } },
     {
       label: 'Backup jetzt erstellen',
-      click: async () => {
-        const backupPath = currentProject?.config?.backupPath;
-        if (backupPath) { try { fs.unlinkSync(path.join(backupPath, backupFileNameFor(new Date()))); } catch { /* existiert nicht */ } }
-        await maybeRunAutoBackup({ getCurrentProject: () => currentProject });
-      }
+      click: async () => { await maybeRunAutoBackup({ getCurrentProject: () => currentProject }, true); }
     },
     { type: 'separator' },
     { label: 'Einstellungen…', click: () => { showAndFocus(); mainWindow?.webContents.send('menu:open-settings'); } },
@@ -621,20 +637,32 @@ function createTray() {
 app.whenReady().then(() => {
   buildMenu();
   createTray();
-  registerCoreIpc();
 
   // Jede IPC-Registrierung einzeln absichern: schlägt eine fehl (z. B. ein
   // fehlerhaftes Drittanbieter-Modul), sollen die ANDEREN trotzdem laufen und
   // das Fenster trotzdem öffnen, statt dass die ganze Startsequenz still
   // abbricht. Der Fehler wird klar im Terminal sichtbar statt zu verschwinden.
+  // Bugfix (Audit-Punkt 5): registerCoreIpc() lief bisher UNGESCHÜTZT direkt,
+  // inkonsistent zu den anderen Modulen darunter — ein Fehler darin hätte die
+  // komplette Startsequenz gestoppt, kein Fenster wäre je erschienen. Jetzt
+  // genauso abgesichert wie alle anderen.
   function safeRegister(label, fn) {
     try { fn(); }
     catch (err) { console.error(`[Archiv Wiki] Registrierung fehlgeschlagen: ${label}`, err); }
   }
+  safeRegister('registerCoreIpc', () => registerCoreIpc());
   safeRegister('registerFilesystemIpc', () => registerFilesystemIpc({ getCurrentProject: () => currentProject }));
   safeRegister('registerExportIpc', () => registerExportIpc({ getCurrentProject: () => currentProject, getMainWindow: () => mainWindow }));
   safeRegister('registerSyncIpc', () => registerSyncIpc({ getCurrentProject: () => currentProject, getMainWindow: () => mainWindow }));
   safeRegister('registerSettingsIpc', () => registerSettingsIpc({ getCurrentProject: () => currentProject, getMainWindow: () => mainWindow }));
+  // Bugfix (Audit-Punkt 6): vorher nur im "kein Projekt bekannt"-Zweig weiter
+  // unten registriert — wurde der Wizard stattdessen später über
+  // app.on('activate') geöffnet (z. B. falls currentProject.path zwischen-
+  // zeitlich wieder leer wäre), hatte er dadurch NIE funktionierende IPC-
+  // Kanäle (wizard:finish usw.). Jetzt einmalig und bedingungslos beim Start,
+  // unabhängig davon, ob der Wizard sofort oder erst später gezeigt wird —
+  // mehrfaches Registrieren wäre ohnehin sinnlos, einmalig reicht.
+  safeRegister('registerWizardIpc', () => registerWizardIpc({ getWizardWindow: () => wizardWindow, onProjectReady: handleProjectReady }));
 
   // Automatisches Backup: einmal am Tag ein ZIP-Snapshot in den beim
   // Einrichten gewählten backupPath (siehe main/backup.js — vorher wurde
@@ -654,7 +682,6 @@ app.whenReady().then(() => {
   } else {
     // Kein (gültiges) Projekt bekannt → Setup-Wizard zeigen.
     console.log('[Archiv Wiki] Kein Projekt bekannt — starte Setup-Wizard.');
-    registerWizardIpc({ getWizardWindow: () => wizardWindow, onProjectReady: handleProjectReady });
     createWizardWindow();
   }
 

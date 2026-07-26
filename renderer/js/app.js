@@ -1671,7 +1671,7 @@ document.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); els.navSearch.focus(); els.navSearch.select(); }
   else if (mod && e.key.toLowerCase() === 'b' && getOpenRelPath()) { e.preventDefault(); cycleViewMode(); }
-  else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(currentOnSaved); }
+  else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(currentOnSaved, currentOnSaveError); }
   else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && getOpenRelPath()) {
     e.preventDefault(); jumpToAdjacentNote(e.key === 'ArrowRight' ? 1 : -1);
   }
@@ -1759,6 +1759,7 @@ function jumpToAdjacentNote(dir) {
 }
 
 let currentOnSaved = () => {};
+let currentOnSaveError = () => {};
 
 // ---------------------------------------------------------------------------
 // Routing
@@ -2156,6 +2157,60 @@ async function renderIncomingLinks(relPath, currentTitle) {
   });
 }
 
+// Split-Ansicht per Ziehen in der Breite verstellbar (Editor/Vorschau).
+// Bugfix (Audit-Punkt 8, echtes Event-Listener-Leck): mousemove/mouseup auf
+// document liefen vorher INNERHALB von renderNote() bei jedem Notiz-Wechsel
+// erneut rein, ohne die vorherigen je zu entfernen — document besteht über
+// die ganze Sitzung hinweg, im Gegensatz zum Notiz-Inhalt selbst (der bei
+// jeder Navigation per innerHTML neu aufgebaut wird). Bei häufigem
+// Notiz-Wechsel sammelten sich dadurch beliebig viele verwaiste Listener an.
+// Jetzt: geteilter Zustand statt einer bei jedem Aufruf neu erzeugten
+// Closure-Variable — wireSplitResizer() aktualisiert bei jedem Notiz-Wechsel
+// nur die Elementverweise + hängt mousedown an den (ohnehin neu erzeugten)
+// aktuellen Trenner — mousemove/mouseup laufen dagegen nur EIN EINZIGES MAL,
+// gleich beim Laden dieses Moduls.
+const splitResizerState = { resizer: null, split: null, editorPane: null, previewPane: null, dragging: false };
+
+function wireSplitResizer() {
+  const resizer = document.getElementById('splitResizer');
+  const split = document.getElementById('noteSplit');
+  const editorPane = document.getElementById('editorContainer');
+  const previewPane = document.getElementById('previewContainer');
+  if (!resizer || !split) return;
+  splitResizerState.resizer = resizer;
+  splitResizerState.split = split;
+  splitResizerState.editorPane = editorPane;
+  splitResizerState.previewPane = previewPane;
+  splitResizerState.dragging = false;
+  resizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    splitResizerState.dragging = true;
+    resizer.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+  });
+}
+
+// Nur EINMALIG beim Laden des Moduls registriert (siehe Kommentar oben) —
+// liest bei jedem Aufruf die AKTUELLE Elementreferenz aus splitResizerState,
+// die wireSplitResizer() bei jedem Notiz-Wechsel frisch setzt.
+document.addEventListener('mousemove', (e) => {
+  const s = splitResizerState;
+  if (!s.dragging) return;
+  const rect = s.split.getBoundingClientRect();
+  const minWidth = 120;
+  let editorWidth = e.clientX - rect.left;
+  editorWidth = Math.max(minWidth, Math.min(editorWidth, rect.width - s.resizer.offsetWidth - minWidth));
+  s.editorPane.style.flex = `0 0 ${editorWidth}px`;
+  s.previewPane.style.flex = '1 1 0';
+});
+document.addEventListener('mouseup', () => {
+  const s = splitResizerState;
+  if (!s.dragging) return;
+  s.dragging = false;
+  s.resizer.classList.remove('dragging');
+  document.body.style.cursor = '';
+});
+
 async function renderNote(relPath) {
   const node = fs.findNode(state.tree, relPath);
   if (!node) { location.hash = '#home'; return; }
@@ -2261,35 +2316,15 @@ async function renderNote(relPath) {
   // Split-Ansicht per Ziehen in der Breite verstellbar. Reset auf 50/50 bei
   // jedem erneuten Öffnen einer Notiz (kein Persistieren über Notizen hinweg
   // nötig — der Container wird bei jeder Navigation ohnehin neu aufgebaut).
-  (function wireSplitResizer() {
-    const resizer = document.getElementById('splitResizer');
-    const split = document.getElementById('noteSplit');
-    const editorPane = document.getElementById('editorContainer');
-    const previewPane = document.getElementById('previewContainer');
-    if (!resizer || !split) return;
-    let dragging = false;
-    resizer.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      dragging = true;
-      resizer.classList.add('dragging');
-      document.body.style.cursor = 'col-resize';
-    });
-    document.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      const rect = split.getBoundingClientRect();
-      const minWidth = 120;
-      let editorWidth = e.clientX - rect.left;
-      editorWidth = Math.max(minWidth, Math.min(editorWidth, rect.width - resizer.offsetWidth - minWidth));
-      editorPane.style.flex = `0 0 ${editorWidth}px`;
-      previewPane.style.flex = '1 1 0';
-    });
-    document.addEventListener('mouseup', () => {
-      if (!dragging) return;
-      dragging = false;
-      resizer.classList.remove('dragging');
-      document.body.style.cursor = '';
-    });
-  })();
+  // Bugfix (Audit-Punkt 8, echtes Event-Listener-Leck): mousemove/mouseup auf
+  // document liefen vorher bei JEDEM Notiz-Wechsel erneut rein, ohne die
+  // vorherigen je zu entfernen — bei häufigem Wechsel sammelten sich beliebig
+  // viele verwaiste Listener an. Jetzt: nur noch das (leichtgewichtige)
+  // mousedown auf den jeweils aktuellen Trenner selbst wird pro Notiz neu
+  // gesetzt (der Trenner wird ohnehin komplett neu erzeugt, das ist
+  // unproblematisch) — mousemove/mouseup laufen einmalig auf Modulebene
+  // (siehe splitResizerState/wireSplitResizerGlobalListenersOnce weiter unten).
+  wireSplitResizer();
 
   const tagsInput = document.getElementById('noteTagsInput');
   const titleInput = document.getElementById('noteTitleInput');
@@ -2313,7 +2348,7 @@ async function renderNote(relPath) {
 
   // Bug-Fix: Der Speichern-Button hatte bislang KEINEN Klick-Handler — nur
   // das Ctrl+S-Tastenkürzel (im globalen keydown-Listener) hat je gespeichert.
-  document.getElementById('btnSave').addEventListener('click', () => saveNow(currentOnSaved));
+  document.getElementById('btnSave').addEventListener('click', () => saveNow(currentOnSaved, currentOnSaveError));
 
   document.getElementById('btnDeleteNote').addEventListener('click', async () => {
     if (!confirm('Notiz in den Papierkorb verschieben?')) return;
@@ -2419,7 +2454,7 @@ async function renderNote(relPath) {
 
   function onSaved(result) {
     dirtyLabel.textContent = '✓ gespeichert';
-    dirtyLabel.classList.remove('is-dirty');
+    dirtyLabel.classList.remove('is-dirty', 'has-error');
     statSaved.textContent = 'gespeichert ' + formatTime(new Date());
     if (result?.frontmatter) {
       categoryBadge.textContent = result.frontmatter.category || result.frontmatter.mainCategory || '';
@@ -2430,6 +2465,17 @@ async function renderNote(relPath) {
     fs.getTree().then(t => { state.tree = t; renderNavTree(); });
   }
   currentOnSaved = onSaved;
+
+  // Bugfix (Audit-Punkt 1, KRITISCH): sichtbare Fehlermeldung statt lautloser
+  // unbehandelter Ausnahme, falls das Speichern fehlschlägt (z. B. voller
+  // Datenträger). Bleibt stehen, bis der NÄCHSTE Speicherversuch (automatisch
+  // oder Strg+S) erfolgreich ist — onSaved() setzt has-error dann korrekt zurück.
+  function onSaveError(err) {
+    dirtyLabel.textContent = '⚠ Speichern fehlgeschlagen';
+    dirtyLabel.classList.add('has-error');
+    dirtyLabel.title = err?.message || 'Unbekannter Fehler beim Speichern.';
+  }
+  currentOnSaveError = onSaveError;
 
   const { frontmatter, body } = await openNoteInEditor({
     relPath,
@@ -2449,6 +2495,7 @@ async function renderNote(relPath) {
     },
     onCursorActivity: (pos) => { statCursor.textContent = `Zeile ${pos.line}, Spalte ${pos.column}`; },
     onSaved,
+    onSaveError,
     // Slash-Befehl "/table" (Nutzer-Feature) — öffnet denselben Tabellen-
     // Picker wie Werkzeugleiste/Rechtsklick-Menü, keine doppelte Logik.
     onSlashCommand: (command, pos) => { if (command === 'table') showTablePicker(pos); }

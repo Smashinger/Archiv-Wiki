@@ -275,9 +275,16 @@ async function performSyncAll({ projectPath, url, username, password }) {
         conflicts.push({ relPath, reason: decision.reason, localExists: Boolean(local), remoteExists: Boolean(remote) });
         break;
     }
+    // Bugfix (Audit-Punkt 2): Manifest nach JEDER Datei sichern, nicht erst
+    // ganz am Ende der Schleife — bricht der Abgleich mittendrin ab
+    // (Netzwerk weg, Absturz, Programm wird beendet), bleiben bereits
+    // erfolgreich übertragene Dateien dadurch korrekt in der Nachverfolgung
+    // stehen, statt beim nächsten Abgleich fälschlich als "neu"/"Konflikt"
+    // eingestuft zu werden. Etwas mehr Schreibaufwand, aber unkritisch für
+    // die Dateigröße eines Sync-Manifests.
+    saveManifest(projectPath, manifest);
   }
 
-  saveManifest(projectPath, manifest);
   return { success: true, uploaded, downloaded, skipped, deletedLocal, deletedRemote, conflicts };
 }
 

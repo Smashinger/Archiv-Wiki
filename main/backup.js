@@ -71,31 +71,46 @@ function latestBackupDate(backupPath) {
 let backupInProgress = false;
 function isBackupInProgress() { return backupInProgress; }
 
-async function maybeRunAutoBackup({ getCurrentProject }) {
+// force: für den "Backup jetzt erstellen"-Knopf (Einstellungen/Tray) — erzwingt
+// ein Backup unabhängig vom Intervall, OHNE das ggf. schon vorhandene
+// heutige Backup vorher zu löschen (Bugfix Audit-Punkt 3: vorher wurde die
+// bestehende Datei per fs.unlinkSync VOR dem neuen Versuch entfernt — schlug
+// das Schreiben danach fehl, z. B. voller Datenträger, war auch das alte,
+// funktionierende Backup weg). Jetzt: erst in eine temporäre Datei schreiben,
+// nur bei Erfolg per renameSync (atomar, gleiches Dateisystem) ersetzen.
+async function maybeRunAutoBackup({ getCurrentProject }, force = false) {
   const project = getCurrentProject();
   const projectPath = project?.path;
   const backupPath = project?.config?.backupPath;
   const intervalDays = project?.config?.backupIntervalDays ?? 1;
   if (!projectPath || !backupPath) return;
-  if (intervalDays <= 0) return; // per Einstellung deaktiviert
+  if (!force && intervalDays <= 0) return; // per Einstellung deaktiviert
 
-  const lastDate = latestBackupDate(backupPath);
-  if (lastDate) {
-    const daysSinceLast = (Date.now() - lastDate.getTime()) / 86400000;
-    if (daysSinceLast < intervalDays) return; // laut Intervall noch nicht fällig
+  if (!force) {
+    const lastDate = latestBackupDate(backupPath);
+    if (lastDate) {
+      const daysSinceLast = (Date.now() - lastDate.getTime()) / 86400000;
+      if (daysSinceLast < intervalDays) return; // laut Intervall noch nicht fällig
+    }
   }
 
   const destPath = path.join(backupPath, backupFileNameFor(new Date()));
-  if (fs.existsSync(destPath)) return; // heute schon gesichert (z. B. mehrere Programmstarts am selben Tag)
+  if (!force && fs.existsSync(destPath)) return; // heute schon gesichert (z. B. mehrere Programmstarts am selben Tag)
+  const tempPath = `${destPath}.tmp-${process.pid}`;
 
   backupInProgress = true;
   try {
     fs.mkdirSync(backupPath, { recursive: true });
-    await zipProjectTo(projectPath, destPath);
+    await zipProjectTo(projectPath, tempPath);
+    // Erst JETZT, nach erfolgreichem Schreiben, das eigentliche Ziel ersetzen —
+    // renameSync auf demselben Dateisystem ist atomar, das alte Backup ist
+    // bis zu diesem Moment durchgehend unangetastet vorhanden.
+    fs.renameSync(tempPath, destPath);
     pruneOldBackups(backupPath);
     writeAppState({ backupConsecutiveFailures: 0, backupLastSuccessAt: new Date().toISOString() });
     console.log(`[Archiv Wiki] Automatisches Backup erstellt: ${destPath}`);
   } catch (err) {
+    try { fs.unlinkSync(tempPath); } catch { /* Temp-Datei existiert evtl. gar nicht erst */ }
     // Ein fehlgeschlagenes Hintergrund-Backup soll die App nicht stören —
     // nur loggen, beim nächsten Timer-Tick (oder morgen) erneut versuchen.
     // ZUSÄTZLICH aber zählen (Backup-Warnung-Feature): mehrere Fehlschläge

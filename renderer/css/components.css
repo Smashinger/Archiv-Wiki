@@ -460,6 +460,7 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .view-toggle button.active{ background: var(--bg-elev); color: var(--accent-color); }
 .dirty-label{ font-family: var(--mono); font-size:11.5px; color: var(--text-faint); }
 .dirty-label.is-dirty{ color: var(--accent-color); }
+.dirty-label.has-error{ color: var(--red); cursor: help; }
 .btn{ font-family: var(--mono); font-size:12px; font-weight:600; border-radius: var(--radius-sm); padding:8px 14px; cursor:pointer; border:1px solid var(--border); background: var(--bg-elev-2); color: var(--text-muted); }
 .btn:hover{ color: var(--text-main); border-color: var(--accent-dim); }
 .btn.primary{ background: var(--accent-color); color:#ffffff; border-color: var(--accent-color); }

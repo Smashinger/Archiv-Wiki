@@ -47,8 +47,15 @@ function defaultBackupPath() {
   return path.join(app.getPath('home'), '.local', 'share', 'archiv-wiki', 'backups');
 }
 
+// Bugfix (Audit-Punkt 4): vorher wurde nur geprüft, ob die Datei EXISTIERT
+// (hasExistingConfig), nicht ob sie gültiges JSON enthält. Bei einer
+// beschädigten .wiki-config.json startete die App dadurch trotzdem direkt
+// ins Hauptfenster, allerdings mit config: null — alle Einstellungen fielen
+// dadurch lautlos auf Standardwerte zurück, ohne dass der Nutzer je erfuhr,
+// dass seine Konfigurationsdatei kaputt war. Jetzt: tatsächlicher Parse-
+// Versuch, nicht nur Existenzprüfung.
 function isValidProject(projectPath) {
-  return Boolean(projectPath) && fs.existsSync(projectPath) && hasExistingConfig(projectPath);
+  return Boolean(projectPath) && fs.existsSync(projectPath) && readProjectConfig(projectPath) !== null;
 }
 
 module.exports = {

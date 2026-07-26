@@ -87,11 +87,11 @@
   padding: 8px 12px;
   margin-bottom: 10px;
   border: 1px solid transparent;
+  display: none;
 }
 .banner.info{ color: var(--blue); background: rgba(91,157,217,.08); border-color: rgba(91,157,217,.25); }
 .banner.error{ color: var(--red); background: rgba(226,88,90,.08); border-color: rgba(226,88,90,.25); }
 .banner.success{ color: var(--green); background: rgba(110,201,123,.08); border-color: rgba(110,201,123,.25); }
-.banner{ display: none; }
 .banner.show{ display: block; }
 
 /* --- Formular (Schritt 2) --- */

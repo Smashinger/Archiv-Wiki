@@ -131,7 +131,8 @@ input{ font: inherit; }
   color: var(--text-faint); font-style: italic;
 }
 .preview-pane table{ width: 100%; border-collapse: collapse; margin: 6px 0 16px; font-size: 13px; }
-.preview-pane th, .preview-pane td{ text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border-soft); }
+.preview-pane th:not([align]), .preview-pane td:not([align]){ text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border-soft); }
+.preview-pane th[align], .preview-pane td[align]{ padding: 7px 10px; border-bottom: 1px solid var(--border-soft); }
 .preview-pane th{ font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; color: var(--text-faint); }
 /* Bild-Größe per Prozent-Auswahl (Nutzer-Feature, ersetzt das vorherige
    Ziehen — resize direkt auf <img> war unzuverlässig UND die laufenden
