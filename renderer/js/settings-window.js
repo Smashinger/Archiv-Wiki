@@ -10,7 +10,7 @@
 // neben jedem Feld) UND sofort über den Settings-Service (settings:update)
 // gespeichert — kein Neustart nötig, kein separater "Speichern"-Button.
 
-import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize } from './theme.js';
+import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, setFocusMode } from './theme.js';
 import { fetchUpdateStatus, renderUpdateStatus } from './update-check.js';
 import { animateIn, animateOut } from './motion.js';
 
@@ -212,6 +212,18 @@ function renderAppearanceSection(el, config, updateSetting) {
         ).join('')}
       </div>
     </div>
+    <div class="settings-field">
+      <span>Focus-Modus</span>
+      <label class="settings-checkbox-row">
+        <input type="checkbox" id="stFocusModeEnabled" ${document.body.classList.contains('focus-mode') ? 'checked' : ''}>
+        <span>Focus-Modus aktivieren</span>
+      </label>
+      <div class="density-option-row" id="stFocusIntensityRow">
+        ${[{ v: 'light', l: 'Leicht' }, { v: 'medium', l: 'Mittel' }, { v: 'strong', l: 'Stark' }, { v: 'stronger', l: 'Sehr stark' }].map(o =>
+          `<button type="button" class="density-option ${(config.focusModeIntensity || 'medium') === o.v ? 'active' : ''}" data-intensity="${o.v}">${o.l}</button>`
+        ).join('')}
+      </div>
+    </div>
   `;
   const customSwatch = el.querySelector('.color-swatch-custom');
   const customColorInput = el.querySelector('#stCustomColorInput');
@@ -250,6 +262,22 @@ function renderAppearanceSection(el, config, updateSetting) {
     applySidebarDensity(btn.dataset.density);
     await updateSetting({ sidebarDensity: btn.dataset.density });
     el.querySelectorAll('#stDensityRow button').forEach(b => b.classList.toggle('active', b === btn));
+  });
+  // Focus-Modus: die Checkbox schaltet direkt live um (Einstellungsfenster
+  // läuft im selben Dokument wie die Hauptansicht, kein separates
+  // BrowserWindow — siehe setFocusMode in theme.js). Die Intensität ist eine
+  // Stil-Vorliebe und wird gespeichert; ist der Modus gerade aktiv, wirkt sie
+  // sofort sichtbar.
+  el.querySelector('#stFocusModeEnabled').addEventListener('change', (e) => {
+    setFocusMode(e.target.checked, config.focusModeIntensity);
+  });
+  el.querySelector('#stFocusIntensityRow').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-intensity]');
+    if (!btn) return;
+    await updateSetting({ focusModeIntensity: btn.dataset.intensity });
+    config.focusModeIntensity = btn.dataset.intensity;
+    if (document.body.classList.contains('focus-mode')) setFocusMode(true, btn.dataset.intensity);
+    el.querySelectorAll('#stFocusIntensityRow button').forEach(b => b.classList.toggle('active', b === btn));
   });
 }
 

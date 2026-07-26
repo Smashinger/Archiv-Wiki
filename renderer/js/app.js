@@ -4,13 +4,13 @@
 
 import * as fs from './filesystem.js';
 import { buildSyncIntervalOptionsHtml } from './sync-shared.js';
-import { applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, EDITOR_FONT_SIZE_DEFAULT } from './theme.js';
+import { applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, EDITOR_FONT_SIZE_DEFAULT, setFocusMode } from './theme.js';
 import { ICON_LIBRARY, ICON_CATEGORIES, searchIconLibrary } from './icon-library.js';
 import { fetchUpdateStatus, renderUpdateStatus } from './update-check.js';
 import { showSettingsWindow } from './settings-window.js';
 import { animateIn, animateOut } from './motion.js';
 import { initEllipsisTooltips } from './tooltip.js';
-import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor } from './editor.js';
+import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor, setSyncScrollEnabled } from './editor.js';
 import { rebuildIndex, search as searchNotes, searchWithDetails } from './search.js';
 
 // ---------------------------------------------------------------------------
@@ -1678,7 +1678,21 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === '?' && !mod && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName) && !document.activeElement?.closest('.cm-editor')) {
     e.preventDefault(); showShortcutsCheatsheet();
   }
+  else if (mod && e.shiftKey && e.key.toLowerCase() === 'f' && getOpenRelPath()) { e.preventDefault(); toggleFocusMode(); }
+  else if (e.key === 'Escape' && document.body.classList.contains('focus-mode')) { e.preventDefault(); toggleFocusMode(); }
 });
+
+// Focus-/Cocoon-Modus (überarbeitet aus dem bisherigen Zen-Modus, siehe CSS
+// body.focus-mode-Regeln in layout.css): Sidebar/Kopfzeile/Werkzeugleiste/
+// Statuszeile bleiben jetzt vollständig sichtbar UND bedienbar, treten nur
+// optisch zurück (Deckkraft reduziert) statt komplett zu verschwinden — man
+// verliert dadurch nicht mehr die Orientierung in der App. Ein/Aus-Zustand
+// bewusst NICHT gespeichert (jeder Programmstart beginnt wieder normal), die
+// INTENSITÄT dagegen schon (Stil-Vorliebe, kein Sitzungs-Zustand, siehe
+// Einstellungen → Darstellung → Focus-Modus).
+function toggleFocusMode() {
+  setFocusMode(!document.body.classList.contains('focus-mode'), state.project?.config?.focusModeIntensity);
+}
 
 const SHORTCUT_SECTIONS = [
   {
@@ -1697,6 +1711,7 @@ const SHORTCUT_SECTIONS = [
       { keys: 'Alt + ← / →', desc: 'Zur vorherigen/nächsten Notiz springen' },
       { keys: 'F3', desc: 'Nächster Suchtreffer in der offenen Notiz' },
       { keys: 'Umschalt + F3', desc: 'Vorheriger Suchtreffer in der offenen Notiz' },
+      { keys: 'Strg/Cmd + Umschalt + F', desc: 'Focus-Modus umschalten' },
     ]
   },
   {
@@ -1799,8 +1814,107 @@ function setNthCheckboxInMarkdown(text, targetIndex, checked) {
   });
 }
 
+// Bild-Größenanpassung per Ziehen: setzt/aktualisiert die Breite am Nten Bild
+// in der Markdown-Quelle (Zählung in Dokumentreihenfolge, muss exakt zum
+// data-img-index aus der Vorschau passen, siehe renderPreview in
+// build/editor-entry.js). Erkennt sowohl reine ![alt](src)-Syntax (wird beim
+// ersten Ziehen zu einem <img>-Tag mit Breite) als auch bereits vorhandene
+// <img>-Tags (Breite wird dort nur aktualisiert statt neu gewrappt).
+// Bild-Größe per Prozent-Auswahl: setzt/aktualisiert die Breite am Nten Bild
+// in der Markdown-Quelle (Zählung in Dokumentreihenfolge, muss exakt zum
+// data-img-index aus der Vorschau passen, siehe renderPreview in
+// build/editor-entry.js). Nutzt CSS style="width:X%" statt des HTML-width-
+// Attributs — Letzteres unterstützt laut Spezifikation zuverlässig nur
+// Pixelwerte, keine Prozentangaben. Erkennt sowohl reine ![alt](src)-Syntax
+// (wird bei der ersten Auswahl zu einem <img>-Tag mit Breite) als auch
+// bereits vorhandene <img>-Tags (Breite wird dort nur aktualisiert).
+function setNthImageWidthInMarkdown(text, targetIndex, widthPercent) {
+  let count = -1;
+  return text.replace(/!\[([^\]]*)\]\(([^)]+)\)|<img\b([^>]*)>/g, (match, mdAlt, mdSrc, imgAttrs) => {
+    count++;
+    if (count !== targetIndex) return match;
+    if (imgAttrs !== undefined) {
+      const hasStyle = /\bstyle\s*=\s*"[^"]*"/.test(imgAttrs);
+      const newAttrs = hasStyle
+        ? imgAttrs.replace(/\bstyle\s*=\s*"([^"]*)"/, (m, existing) => {
+            const withoutWidth = existing.replace(/width\s*:\s*[^;]+;?/, '').trim();
+            return `style="width:${widthPercent}%;${withoutWidth ? ' ' + withoutWidth : ''}"`;
+          })
+        : `${imgAttrs} style="width:${widthPercent}%"`;
+      return `<img${newAttrs}>`;
+    }
+    return `<img src="${mdSrc}" alt="${mdAlt}" style="width:${widthPercent}%">`;
+  });
+}
+
 // Entfernt gängige Markdown-Syntax grob (für den Karten-Ausschnitt auf der
 // Startseite — muss nicht perfekt sein, nur lesbar als Klartext-Vorschau).
+// --- Eigenes Tabellen-Bearbeitungsfenster (Nutzer-Feature) ---
+// Zerlegt eine einzelne "| a | b |"-Zeile in ihre Zellen (führendes/
+// abschließendes Pipe optional, wie im Markdown-Standard üblich).
+function splitTableRow(line) {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+}
+
+// Findet JEDE Markdown-Tabelle im Text (Kopfzeile + Ausrichtungs-Zeile +
+// Datenzeilen, direkt aufeinanderfolgend) und liefert sie mit ihrer genauen
+// Zeilen-Position — die Reihenfolge in diesem Array MUSS exakt zum
+// data-table-index in der Vorschau passen (siehe renderPreview in
+// build/editor-entry.js), da darüber die Zuordnung beim Bearbeiten läuft.
+function parseMarkdownTables(text) {
+  const lines = text.split('\n');
+  const tables = [];
+  const sepPattern = /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/;
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (!lines[i].includes('|') || !sepPattern.test(lines[i + 1].trim())) continue;
+    const headers = splitTableRow(lines[i]);
+    const alignCells = splitTableRow(lines[i + 1]);
+    const alignments = alignCells.map(c => {
+      const left = c.startsWith(':'), right = c.endsWith(':');
+      return left && right ? 'center' : right ? 'right' : left ? 'left' : '';
+    });
+    let end = i + 1;
+    const rows = [];
+    while (end + 1 < lines.length && lines[end + 1].includes('|') && lines[end + 1].trim()) {
+      rows.push(splitTableRow(lines[end + 1]));
+      end++;
+    }
+    tables.push({ startLine: i, endLine: end, headers, alignments, rows });
+    i = end; // Suche hinter dieser Tabelle fortsetzen, nicht mitten in ihr
+  }
+  return tables;
+}
+
+// Baut aus der Datenstruktur wieder ordentlich ausgerichteten Markdown-Text —
+// jede Spalte auf die Breite ihres längsten Inhalts gepolstert, wie es
+// von Hand geschriebene Markdown-Tabellen üblicherweise auch sind.
+function serializeMarkdownTable({ headers, alignments, rows }) {
+  const widths = headers.map((h, c) => Math.max(3, h.length, ...rows.map(r => (r[c] || '').length)));
+  const padCell = (text, w, align) => {
+    const t = text || '';
+    if (align === 'right') return t.padStart(w);
+    if (align === 'center') { const total = w - t.length; const l = Math.floor(total / 2); return ' '.repeat(Math.max(0, l)) + t + ' '.repeat(Math.max(0, total - l)); }
+    return t.padEnd(w);
+  };
+  const sepCell = (w, align) => align === 'center' ? `:${'-'.repeat(Math.max(1, w - 2))}:` : align === 'right' ? `${'-'.repeat(Math.max(1, w - 1))}:` : align === 'left' ? `:${'-'.repeat(Math.max(1, w - 1))}` : '-'.repeat(w);
+  const headerLine = `| ${headers.map((h, c) => padCell(h, widths[c], alignments[c])).join(' | ')} |`;
+  const sepLine = `| ${widths.map((w, c) => sepCell(w, alignments[c])).join(' | ')} |`;
+  const rowLines = rows.map(r => `| ${widths.map((w, c) => padCell(r[c], w, alignments[c])).join(' | ')} |`);
+  return [headerLine, sepLine, ...rowLines].join('\n');
+}
+
+// Ersetzt genau die Zeilen der Nten Tabelle im Text durch neu erzeugten
+// Markdown-Text — Zählung/Position kommt aus derselben parseMarkdownTables().
+function replaceNthTableInMarkdown(text, targetIndex, newTableStruct) {
+  const tables = parseMarkdownTables(text);
+  const table = tables[targetIndex];
+  if (!table) return text;
+  const lines = text.split('\n');
+  const before = lines.slice(0, table.startLine);
+  const after = lines.slice(table.endLine + 1);
+  return [...before, serializeMarkdownTable(newTableStruct), ...after].join('\n');
+}
+
 function stripMarkdownSyntax(text) {
   return String(text || '')
     .replace(/```[\s\S]*?```/g, ' ')
@@ -2065,6 +2179,8 @@ async function renderNote(relPath) {
         <button type="button" data-mode="split">Split</button>
         <button type="button" data-mode="preview">Vorschau</button>
       </div>
+      <button type="button" class="icon-btn sync-scroll-toggle" id="btnSyncScroll" title="Sync-Scroll: Vorschau folgt beim Scrollen im Editor" aria-label="Sync-Scroll umschalten">🔗</button>
+      <button type="button" class="icon-btn" id="btnFocusMode" title="Focus-Modus (Strg+Umschalt+F)" aria-label="Focus-Modus umschalten">◎</button>
       <select class="font-size-select" id="editorFontSizeSelect" title="Editor-Schriftgröße" aria-label="Editor-Schriftgröße">
         <option value="12">12px</option>
         <option value="13">13px</option>
@@ -2077,6 +2193,7 @@ async function renderNote(relPath) {
         <button type="button" data-fmt="bold" title="Fett (**Text**)"><strong>F</strong></button>
         <button type="button" data-fmt="italic" title="Kursiv (*Text*)"><em>K</em></button>
         <button type="button" data-fmt="strike" title="Durchgestrichen (~~Text~~)"><s>D</s></button>
+        <button type="button" data-fmt="underline" title="Unterstrichen (&lt;u&gt;Text&lt;/u&gt;)"><u>U</u></button>
         <button type="button" data-fmt="link" title="Link ([Text](URL))">🔗</button>
         <button type="button" data-fmt="code" title="Code-Block (dreifache Backticks)">{ }</button>
         <button type="button" data-fmt="ul" title="Aufzählung (- Punkt)">•</button>
@@ -2111,6 +2228,22 @@ async function renderNote(relPath) {
     state.viewMode = btn.dataset.mode;
     applyViewMode();
   });
+
+  // Sync-Scroll: Standard an, außer der Nutzer hat es zuvor bewusst
+  // ausgeschaltet (fs.setProjectSetting, gleiches Muster wie iconFavorites).
+  const btnSyncScroll = document.getElementById('btnSyncScroll');
+  let syncScrollOn = state.project?.config?.syncScrollEnabled !== false;
+  setSyncScrollEnabled(syncScrollOn);
+  btnSyncScroll.classList.toggle('active', syncScrollOn);
+  btnSyncScroll.addEventListener('click', () => {
+    syncScrollOn = !syncScrollOn;
+    setSyncScrollEnabled(syncScrollOn);
+    btnSyncScroll.classList.toggle('active', syncScrollOn);
+    fs.setProjectSetting('syncScrollEnabled', syncScrollOn).catch(() => {});
+    if (state.project?.config) state.project.config.syncScrollEnabled = syncScrollOn;
+  });
+
+  document.getElementById('btnFocusMode').addEventListener('click', toggleFocusMode);
 
   const fontSizeSelect = document.getElementById('editorFontSizeSelect');
   const storedFontSize = Number(state.project?.config?.editorFontSize) || EDITOR_FONT_SIZE_DEFAULT;
@@ -2195,8 +2328,12 @@ async function renderNote(relPath) {
     showIconPicker(document.getElementById('btnEmoji'));
   });
 
-  // Formatierungs-Buttons: nur echte Markdown-Syntax (kein Schriftfarbe/
+  // Formatierungs-Buttons: möglichst echte Markdown-Syntax (kein Schriftfarbe/
   // -größe/-art — das gibt es in Standard-Markdown nicht, siehe Absprache).
+  // Ausnahme: Unterstreichen hat KEIN eigenes Markdown-Zeichen (anders als
+  // Fett/Kursiv/Durchgestrichen) — <u>...</u> ist die im Markdown-Umfeld
+  // übliche Lösung dafür (GitHub, Obsidian usw. rendern das genauso), wird
+  // von unserem GFM-Renderer bereits unverändert durchgereicht.
   document.getElementById('formatToolbar').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-fmt]');
     if (!btn) return;
@@ -2204,6 +2341,7 @@ async function renderNote(relPath) {
     if (fmt === 'bold') wrapSelection('**', '**', 'Fetter Text');
     else if (fmt === 'italic') wrapSelection('*', '*', 'Kursiver Text');
     else if (fmt === 'strike') wrapSelection('~~', '~~', 'Durchgestrichener Text');
+    else if (fmt === 'underline') wrapSelection('<u>', '</u>', 'Unterstrichener Text');
     else if (fmt === 'link') {
       const url = await showPromptModal({ title: 'Link-URL', defaultValue: 'https://' });
       if (url) wrapSelection('[', `](${url})`, 'Linktext');
@@ -2272,7 +2410,11 @@ async function renderNote(relPath) {
     const lines = text.length ? text.split('\n').length : 0;
     const words = text.trim().length ? text.trim().split(/\s+/).length : 0;
     statLines.textContent = `${lines} Zeile${lines === 1 ? '' : 'n'}`;
-    statWords.textContent = `${words} Wort${words === 1 ? '' : 'e'}`;
+    // Lesezeit grob nach 200 Wörtern/Minute (üblicher Richtwert), aufgerundet
+    // auf volle Minuten — unter einer Minute wird "< 1 Min." gezeigt statt "0 Min.".
+    const readMinutes = Math.ceil(words / 200);
+    const readLabel = words === 0 ? '' : ` · ${readMinutes} Min. Lesezeit`;
+    statWords.textContent = `${words} Wort${words === 1 ? '' : 'e'}${readLabel}`;
   }
 
   function onSaved(result) {
@@ -2306,7 +2448,10 @@ async function renderNote(relPath) {
       if (typeof text === 'string') updateCounts(text);
     },
     onCursorActivity: (pos) => { statCursor.textContent = `Zeile ${pos.line}, Spalte ${pos.column}`; },
-    onSaved
+    onSaved,
+    // Slash-Befehl "/table" (Nutzer-Feature) — öffnet denselben Tabellen-
+    // Picker wie Werkzeugleiste/Rechtsklick-Menü, keine doppelte Logik.
+    onSlashCommand: (command, pos) => { if (command === 'table') showTablePicker(pos); }
   });
 
   await renderIncomingLinks(relPath, title);
@@ -2331,12 +2476,24 @@ async function renderNote(relPath) {
       setEditorContent(updated); // löst automatisch Re-Render + Speichern-Pipeline aus (siehe editor.js onChange)
       return;
     }
+    // Bild-Größe per Prozent-Knopf (ersetzt das vorherige Ziehen) — gleiches,
+    // bewährtes Muster wie beim Checkbox-Umschalten: einfache, delegierte
+    // Klick-Erkennung, keine laufenden Beobachter nötig.
+    const pctBtn = e.target.closest('.img-size-buttons button[data-img-pct]');
+    if (pctBtn) {
+      const wrap = pctBtn.closest('.img-size-wrap');
+      const idx = Number(wrap?.dataset.imgIndex);
+      if (Number.isNaN(idx)) return;
+      const updated = setNthImageWidthInMarkdown(getEditorContent(), idx, pctBtn.dataset.imgPct);
+      setEditorContent(updated);
+      return;
+    }
     const copyBtn = e.target.closest('.copy-btn');
     if (copyBtn) {
       const code = copyBtn.closest('.code-block')?.querySelector('code');
       if (!code) return;
       try {
-        await navigator.clipboard.writeText(code.textContent);
+        await window.archivAPI.clipboard.writeText(code.textContent);
         copyBtn.textContent = 'Kopiert ✓';
         copyBtn.classList.add('copied');
         setTimeout(() => { copyBtn.textContent = 'Kopieren'; copyBtn.classList.remove('copied'); }, 1500);
@@ -2359,6 +2516,15 @@ async function renderNote(relPath) {
       await refreshAll();
       location.hash = '#note/' + encodeURIComponent(created.relPath);
     }
+  });
+
+  // Doppelklick auf eine Tabelle öffnet das eigene Bearbeitungsfenster
+  // (Nutzer-Entscheidung: Option C statt echtem WYSIWYG oder reinen
+  // Editor-Schreibhilfen).
+  previewEl.addEventListener('dblclick', (e) => {
+    const table = e.target.closest('table[data-table-index]');
+    if (!table) return;
+    showTableEditorModal(Number(table.dataset.tableIndex));
   });
 
   updateCounts(body || '');
@@ -2577,14 +2743,19 @@ const CALLOUT_PICKER_TYPES = [
   { type: 'info', icon: 'ℹ️', label: 'Info' }
 ];
 
-// Feste 2 Zeilen (Kopfzeile + 1 Datenzeile) als kompakter Standard — lässt
-// sich in der Notiz danach einfach per weiterer "| Zelle | Zelle |"-Zeile
-// erweitern. Spaltenzahl ist die eigentlich gewünschte Wahlmöglichkeit.
-function buildMarkdownTable(columns) {
+// Nutzer-Feature: Spalten- UND Zeilenzahl frei wählbar (vorher war die
+// Zeilenzahl fest auf 1 Datenzeile gesetzt). rows zählt NUR die Datenzeilen,
+// die Kopfzeile kommt automatisch immer zusätzlich dazu.
+function buildMarkdownTable(columns, rows = 1) {
   const headerCells = Array.from({ length: columns }, (_, i) => `Spalte ${i + 1}`);
   const sepCells = Array.from({ length: columns }, () => '---');
-  const dataCells = Array.from({ length: columns }, () => 'Zelle');
-  return `\n| ${headerCells.join(' | ')} |\n| ${sepCells.join(' | ')} |\n| ${dataCells.join(' | ')} |\n`;
+  const dataRow = Array.from({ length: columns }, () => 'Zelle').join(' | ');
+  const dataRows = Array.from({ length: rows }, () => `| ${dataRow} |`).join('\n');
+  // Bugfix: GFM verlangt zwingend eine LEERZEILE vor einer Tabelle, sonst wird
+  // sie (besonders direkt nach einer Überschrift, ohne Leerzeile dazwischen)
+  // vom Markdown-Renderer gar nicht erst als Tabelle erkannt — deshalb hier
+  // zwei Zeilenumbrüche am Anfang, nicht nur einer.
+  return `\n\n| ${headerCells.join(' | ')} |\n| ${sepCells.join(' | ')} |\n${dataRows}\n`;
 }
 
 function showTablePicker(anchorOrPos) {
@@ -2592,10 +2763,16 @@ function showTablePicker(anchorOrPos) {
   const picker = document.createElement('div');
   picker.className = 'table-picker emoji-picker';
   picker.innerHTML = `
-    <div class="emoji-group-label">Tabelle einfügen — Spaltenzahl</div>
-    <div class="table-picker-list">
-      ${[2, 3, 4, 5, 6].map(n => `<button type="button" class="table-picker-btn" data-cols="${n}">${n} Spalten</button>`).join('')}
-    </div>
+    <div class="emoji-group-label">Tabelle einfügen</div>
+    <label class="table-picker-field">
+      <span>Spalten</span>
+      <select id="tablePickerCols">${[2, 3, 4, 5, 6].map(n => `<option value="${n}">${n}</option>`).join('')}</select>
+    </label>
+    <label class="table-picker-field">
+      <span>Datenzeilen</span>
+      <select id="tablePickerRows">${[1, 2, 3, 4, 5, 6, 8, 10].map(n => `<option value="${n}">${n}</option>`).join('')}</select>
+    </label>
+    <button type="button" class="btn primary table-picker-confirm">Einfügen</button>
   `;
   document.body.appendChild(picker);
 
@@ -2612,16 +2789,126 @@ function showTablePicker(anchorOrPos) {
   picker.style.left = Math.max(4, left) + 'px';
   picker.style.top = Math.max(4, top) + 'px';
 
-  picker.addEventListener('click', (e) => {
-    const btn = e.target.closest('.table-picker-btn');
-    if (!btn) return;
-    insertAtCursor(buildMarkdownTable(Number(btn.dataset.cols)));
+  picker.querySelector('.table-picker-confirm').addEventListener('click', () => {
+    const cols = Number(picker.querySelector('#tablePickerCols').value);
+    const rows = Number(picker.querySelector('#tablePickerRows').value);
+    insertAtCursor(buildMarkdownTable(cols, rows));
     picker.remove();
   });
   setTimeout(() => document.addEventListener('click', function closeOnce(e) {
     if (picker.contains(e.target)) return;
     picker.remove(); document.removeEventListener('click', closeOnce);
   }, { once: false }), 0);
+}
+
+// Eigenes Tabellen-Bearbeitungsfenster (Option C, Nutzer-Entscheidung):
+// echtes Raster zum Anklicken/Tippen, Zeilen/Spalten per Knopf hinzufügen/
+// entfernen, Ausrichtung pro Spalte wählbar. Erst bei "Übernehmen" wird die
+// komplette Tabelle auf einmal in die Markdown-Quelle zurückgeschrieben —
+// keine laufende Zwei-Wege-Synchronisation während des Tippens nötig.
+function showTableEditorModal(tableIndex) {
+  const tables = parseMarkdownTables(getEditorContent());
+  const original = tables[tableIndex];
+  if (!original) return;
+  // Arbeitskopie — erst bei "Übernehmen" fließt das zurück in den Text.
+  const data = { headers: [...original.headers], alignments: [...original.alignments], rows: original.rows.map(r => [...r]) };
+
+  document.querySelectorAll('.table-editor-overlay').forEach(el => el.remove());
+  const overlay = document.createElement('div');
+  overlay.className = 'table-editor-overlay';
+  overlay.innerHTML = `
+    <div class="table-editor-modal">
+      <div class="settings-modal-header">
+        <span>Tabelle bearbeiten</span>
+        <button type="button" class="modal-close-x" data-action="cancel">✕</button>
+      </div>
+      <div class="table-editor-grid-wrap"><table class="table-editor-grid"></table></div>
+      <div class="table-editor-actions">
+        <button type="button" class="btn ghost" data-action="add-row">+ Zeile</button>
+        <button type="button" class="btn ghost" data-action="add-col">+ Spalte</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-action="cancel">Abbrechen</button>
+        <button type="button" class="btn primary" data-action="apply">Übernehmen</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const grid = overlay.querySelector('.table-editor-grid');
+  const ALIGN_LABELS = [{ v: '', l: 'Links' }, { v: 'center', l: 'Zentriert' }, { v: 'right', l: 'Rechts' }];
+
+  function renderGrid() {
+    const alignOptions = (current) => ALIGN_LABELS.map(a => `<option value="${a.v}" ${a.v === current ? 'selected' : ''}>${a.l}</option>`).join('');
+    grid.innerHTML = `
+      <thead><tr>
+        ${data.headers.map((h, c) => `
+          <th>
+            <input type="text" class="te-header-input" data-col="${c}" value="${escapeHtml(h)}">
+            <select class="te-align-select" data-col="${c}">${alignOptions(data.alignments[c])}</select>
+            ${data.headers.length > 1 ? `<button type="button" class="te-del-col" data-col="${c}" title="Spalte löschen">✕</button>` : ''}
+          </th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${data.rows.map((row, r) => `
+          <tr>
+            ${row.map((cell, c) => `<td><input type="text" class="te-cell-input" data-row="${r}" data-col="${c}" value="${escapeHtml(cell)}"></td>`).join('')}
+            <td class="te-row-actions">${data.rows.length > 0 ? `<button type="button" class="te-del-row" data-row="${r}" title="Zeile löschen">✕</button>` : ''}</td>
+          </tr>`).join('')}
+      </tbody>`;
+  }
+  renderGrid();
+
+  // Zellen-/Kopfzeilen-Eingaben: nur die Arbeitskopie aktualisieren, KEIN
+  // Neu-Rendern des Rasters (sonst würde der Cursor bei jedem Tastenanschlag
+  // aus dem Eingabefeld springen) — nur Struktur-Änderungen (Zeile/Spalte
+  // hinzufügen/entfernen) bauen das Raster neu auf.
+  grid.addEventListener('input', (e) => {
+    if (e.target.classList.contains('te-cell-input')) {
+      data.rows[Number(e.target.dataset.row)][Number(e.target.dataset.col)] = e.target.value;
+    } else if (e.target.classList.contains('te-header-input')) {
+      data.headers[Number(e.target.dataset.col)] = e.target.value;
+    }
+  });
+  grid.addEventListener('change', (e) => {
+    if (e.target.classList.contains('te-align-select')) {
+      data.alignments[Number(e.target.dataset.col)] = e.target.value;
+    }
+  });
+  grid.addEventListener('click', (e) => {
+    const delCol = e.target.closest('.te-del-col');
+    if (delCol) {
+      const c = Number(delCol.dataset.col);
+      data.headers.splice(c, 1);
+      data.alignments.splice(c, 1);
+      data.rows.forEach(r => r.splice(c, 1));
+      renderGrid();
+      return;
+    }
+    const delRow = e.target.closest('.te-del-row');
+    if (delRow) {
+      data.rows.splice(Number(delRow.dataset.row), 1);
+      renderGrid();
+    }
+  });
+
+  overlay.querySelector('[data-action="add-row"]').addEventListener('click', () => {
+    data.rows.push(data.headers.map(() => ''));
+    renderGrid();
+  });
+  overlay.querySelector('[data-action="add-col"]').addEventListener('click', () => {
+    data.headers.push(`Spalte ${data.headers.length + 1}`);
+    data.alignments.push('');
+    data.rows.forEach(r => r.push(''));
+    renderGrid();
+  });
+  overlay.querySelector('[data-action="apply"]').addEventListener('click', () => {
+    const updated = replaceNthTableInMarkdown(getEditorContent(), tableIndex, data);
+    setEditorContent(updated);
+    overlay.remove();
+  });
+  overlay.querySelectorAll('[data-action="cancel"]').forEach(btn => btn.addEventListener('click', () => overlay.remove()));
+  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) overlay.remove(); });
+  document.addEventListener('keydown', function onEsc(e) {
+    if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); }
+  });
 }
 
 function showCalloutPicker(anchorOrPos) {
@@ -2703,6 +2990,7 @@ function buildEditorMenuItems() {
         { label: 'Fett', action: () => wrapSelection('**', '**', 'Fetter Text') },
         { label: 'Kursiv', action: () => wrapSelection('*', '*', 'Kursiver Text') },
         { label: 'Durchgestrichen', action: () => wrapSelection('~~', '~~', 'Durchgestrichener Text') },
+        { label: 'Unterstrichen', action: () => wrapSelection('<u>', '</u>', 'Unterstrichener Text') },
         { label: 'Quelltext', action: () => wrapSelection('`', '`', 'code') },
         { separator: true },
         { label: 'Formatierung entfernen', disabled: !editorHasSelection(), action: () => {
@@ -2726,7 +3014,7 @@ function buildEditorMenuItems() {
         { separator: true },
         { label: 'Zitat', action: () => transformCurrentLine((t) => '> ' + t.replace(/^>\s?/, '')) }
       ] },
-    { label: 'Einfügen', submenu: [
+    { label: 'Elemente', submenu: [
         { label: 'Tabelle', action: (pos) => showTablePicker(pos) },
         { label: 'Hinweisblock', action: (anchorEl) => showCalloutPicker(anchorEl) },
         { label: 'Horizontale Linie', action: () => insertAtCursor('\n---\n') },
@@ -2738,17 +3026,17 @@ function buildEditorMenuItems() {
     { label: 'Ausschneiden', disabled: !editorHasSelection(), action: async () => {
         const text = getEditorSelectionText();
         if (!text) return;
-        await navigator.clipboard.writeText(text);
+        await window.archivAPI.clipboard.writeText(text);
         deleteEditorSelection();
       } },
     { label: 'Kopieren', disabled: !editorHasSelection(), action: async () => {
         const text = getEditorSelectionText();
         if (!text) return;
-        await navigator.clipboard.writeText(text);
+        await window.archivAPI.clipboard.writeText(text);
       } },
     { label: 'Einfügen', action: async () => {
-        try { const text = await navigator.clipboard.readText(); if (text) insertAtCursor(text); }
-        catch { /* Zwischenablage evtl. leer oder Zugriff verweigert — dann einfach nichts tun */ }
+        const text = await window.archivAPI.clipboard.readText();
+        if (text) insertAtCursor(text);
       } },
     { label: 'Alles auswählen', action: () => selectAllInEditor() }
   ];
@@ -2767,7 +3055,7 @@ function buildPreviewMenuItems(previewEl) {
   const selectedText = window.getSelection().toString();
   return [
     { label: 'Kopieren', disabled: !selectedText, action: async () => {
-        if (selectedText) await navigator.clipboard.writeText(selectedText);
+        if (selectedText) await window.archivAPI.clipboard.writeText(selectedText);
       } },
     { label: 'Alles auswählen', action: () => {
         const range = document.createRange();

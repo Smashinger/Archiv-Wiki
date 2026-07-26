@@ -12,6 +12,9 @@ let currentRelPath = null;
 let currentProjectPath = null;
 let autosaveTimer = null;
 let dirty = false;
+// Sync-Scroll (Nutzer-Feature): ein/ausschaltbar, Standardwert an.
+let syncScrollEnabled = true;
+export function setSyncScrollEnabled(enabled) { syncScrollEnabled = enabled; }
 
 // Öffnet eine Notiz im Editor. Räumt einen evtl. vorher offenen Editor sauber
 // auf (destroy), damit nie zwei CodeMirror-Instanzen um denselben Container
@@ -26,7 +29,8 @@ export async function openNoteInEditor({
   onCursorActivity,
   onSaved,
   getNoteIndex,
-  projectPath
+  projectPath,
+  onSlashCommand
 }) {
   closeEditor();
   currentProjectPath = projectPath || null;
@@ -52,7 +56,16 @@ export async function openNoteInEditor({
       scheduleAutosave(autoSaveSeconds, onSaved);
     },
     onCursorActivity,
-    onSave: () => saveNow(onSaved)
+    onSave: () => saveNow(onSaved),
+    onSlashCommand,
+    // Scroll-Verhältnis (0-1) 1:1 auf die Vorschau übertragen — nicht
+    // Pixel-für-Pixel, da beide Seiten unterschiedlich hoch sind (siehe
+    // Kommentar in editor-entry.js).
+    onScroll: (ratio) => {
+      if (!syncScrollEnabled || !previewContainer) return;
+      const maxScroll = previewContainer.scrollHeight - previewContainer.clientHeight;
+      if (maxScroll > 0) previewContainer.scrollTop = ratio * maxScroll;
+    }
   });
 
   return { frontmatter: note.frontmatter, body: note.body };

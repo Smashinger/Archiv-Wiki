@@ -7,7 +7,7 @@
 
 'use strict';
 
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell, Tray } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, Tray, clipboard } = require('electron');
 const https = require('https');
 const path = require('path');
 const fs = require('fs');
@@ -190,16 +190,22 @@ function createMainWindow() {
     return { action: 'deny' };
   });
 
-  // Zentrale Schließen-Logik (löst das vorherige feste "immer minimieren"
-  // ab): liest die gespeicherte Einstellung (main/close-behavior.js) und
-  // entscheidet, ob gefragt, minimiert oder wirklich beendet wird. isQuitting
-  // bleibt die Ausnahme für "wirklich beenden" (Tray-Menü, Strg+Q, usw.).
-  // Vorläufig (Nutzer-Anforderung nach dem Tray-Icon-Absturz): normales
-  // Schließen statt Nachfragen/Minimieren — bis das Tray-Symbol nachweislich
-  // zuverlässig lädt, sonst könnte ein Fenster ohne jede Möglichkeit zum
-  // Wiederherstellen im Hintergrund verschwinden. handleCloseRequest() bleibt
-  // vollständig erhalten (siehe unten) — Reaktivierung ist nur diese eine
-  // Zeile: `if (isQuitting) return; e.preventDefault(); handleCloseRequest();`
+  // Zentrale Schließen-Logik: liest die gespeicherte Einstellung
+  // (main/close-behavior.js) und entscheidet, ob gefragt, minimiert oder
+  // wirklich beendet wird. isQuitting bleibt die Ausnahme für "wirklich
+  // beenden" (Tray-Menü, Strg+Q, usw.).
+  // Reaktiviert (war vorübergehend deaktiviert, bis das Tray-Icon-Problem aus
+  // 1.8.0 nachweislich behoben war — inzwischen per echtem Build-Test
+  // bestätigt, siehe createTray()): ohne diesen Handler griff Electrons
+  // Standardverhalten beim X-Klick (Fenster wird tatsächlich zerstört,
+  // window-all-closed beendet danach den kompletten Prozess) — die
+  // "Auf System-Tray minimieren"-Einstellung wurde dadurch nie gelesen.
+  mainWindow.on('close', (e) => {
+    if (isQuitting) return;
+    e.preventDefault();
+    handleCloseRequest();
+  });
+
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
@@ -410,6 +416,19 @@ function registerCoreIpc() {
   // das betrifft die App als Ganzes, nicht den Wiki-Inhalt. Wird trotzdem im
   // selben "Allgemein"-Tab des Einstellungsfensters angezeigt.
   ipcMain.handle('app:getCloseBehavior', () => readAppState().closeBehavior || 'ask');
+
+  // Bugfix (Nutzer-Meldung: "Einfügen" im Rechtsklick-Menü funktioniert nicht,
+  // besonders aus anderen Programmen): Electrons clipboard-Modul ist in einem
+  // sandbox:true-Preload-Skript NICHT verfügbar (real mit der hier
+  // verwendeten Electron-Version 28.3.3 getestet: clipboard ist dort
+  // schlicht undefined) — deshalb hier im Hauptprozess, wo es unabhängig von
+  // der Sandbox-Einstellung des Renderers IMMER verfügbar ist, und per IPC
+  // an den Renderer weitergereicht. Normales Kopieren/Einfügen per
+  // Tastenkürzel funktionierte davon unabhängig schon immer, da Chromium das
+  // für editierbare Bereiche selbst nativ regelt — nur die eigene
+  // Rechtsklick-Menü-Funktion war betroffen.
+  ipcMain.handle('clipboard:writeText', (_e, text) => clipboard.writeText(text));
+  ipcMain.handle('clipboard:readText', () => clipboard.readText());
   ipcMain.handle('app:setCloseBehavior', (_e, value) => {
     writeAppState({ closeBehavior: value });
   });

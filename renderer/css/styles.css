@@ -133,6 +133,23 @@ input{ font: inherit; }
 .preview-pane table{ width: 100%; border-collapse: collapse; margin: 6px 0 16px; font-size: 13px; }
 .preview-pane th, .preview-pane td{ text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border-soft); }
 .preview-pane th{ font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; color: var(--text-faint); }
+/* Bild-Größe per Prozent-Auswahl (Nutzer-Feature, ersetzt das vorherige
+   Ziehen — resize direkt auf <img> war unzuverlässig UND die laufenden
+   Beobachter störten den Editor bei jedem Tastenanschlag). Jetzt bewusst
+   einfach: ein Hover-Wrapper zeigt vier Knöpfe (25/50/75/100%), keine
+   Beobachter, keine dynamische Größenmessung. */
+.preview-pane .img-size-wrap{ position: relative; display: inline-block; max-width: 100%; vertical-align: top; }
+.preview-pane .img-size-wrap img{ display: block; max-width: 100%; border-radius: var(--radius-sm); }
+.preview-pane .img-size-buttons{
+  position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
+  opacity: 0; pointer-events: none; transition: opacity .12s ease;
+}
+.preview-pane .img-size-wrap:hover .img-size-buttons{ opacity: 1; pointer-events: auto; }
+.preview-pane .img-size-buttons button{
+  background: rgba(10,13,18,.82); border: 1px solid var(--border); color: var(--text-muted);
+  font-family: var(--mono); font-size: 10.5px; padding: 3px 7px; border-radius: var(--radius-sm); cursor: pointer;
+}
+.preview-pane .img-size-buttons button:hover{ color: var(--accent-color); border-color: var(--accent-dim); }
 .preview-pane .code-block{ position: relative; margin: 4px 0 16px; }
 .preview-pane .code-block .lang{
   display: block; font-family: var(--mono); font-size: 10px; text-transform: uppercase;

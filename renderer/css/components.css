@@ -305,6 +305,8 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 }
 .pin-btn:hover{ color: var(--text-muted); }
 .pin-btn.active{ color: var(--accent-color); }
+.sync-scroll-toggle.active{ color: var(--accent-color); border-color: var(--accent-dim); }
+#btnFocusMode.active{ color: var(--accent-color); border-color: var(--accent-dim); }
 
 .backup-warning-btn{ color: var(--red); }
 .backup-warning-btn:hover{ color: var(--red); filter: brightness(1.2); }
@@ -339,6 +341,11 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 
 .color-swatch-row{ display:flex; gap:8px; flex-wrap:wrap; }
 .density-option-row{ display:flex; gap:8px; }
+.settings-checkbox-row{
+  display:flex; align-items:center; gap:8px; margin-bottom:8px; cursor:pointer;
+  font-family: var(--mono); font-size:12.5px; color: var(--text-muted);
+}
+.settings-checkbox-row input[type="checkbox"]{ accent-color: var(--accent-color); width:14px; height:14px; cursor:pointer; }
 .density-option{
   flex:1; font-family: var(--mono); font-size:12.5px; color: var(--text-muted);
   background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-sm);
@@ -446,7 +453,7 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 }
 .backlink-add:hover{ color: var(--accent-color); border-color: var(--accent-dim); }
 
-.note-toolbar{ display:flex; align-items:center; gap:10px; margin-bottom: 10px; }
+.note-toolbar{ display:flex; align-items:center; flex-wrap: wrap; gap:10px; margin-bottom: 10px; }
 .note-toolbar .spacer{ flex:1; }
 .view-toggle{ display:flex; background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-sm); padding:2px; }
 .view-toggle button{ background:transparent; border:none; color: var(--text-faint); font-family: var(--mono); font-size:11.5px; padding: 5px 11px; border-radius: var(--radius-sm); cursor:pointer; }
@@ -549,10 +556,23 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 
 /* --- Icon-/Emoji-Picker (Editor-Toolbar) ---
    Bausteine (Grid/Button/Gruppen-Label/Leer-Meldung) bleiben — werden vom
-   neuen showIconPicker im Emoji-Reiter weiterhin genutzt. Der alte Container
-   (.emoji-picker) und das alte Suchfeld (.emoji-search) sind entfernt, da
-   showEmojiPicker komplett durch showIconPicker (.icon-picker/
-   .icon-picker-search) ersetzt wurde. */
+   neuen showIconPicker im Emoji-Reiter weiterhin genutzt.
+   WICHTIGER BUGFIX (Nutzer-Meldung: Tabelle- UND Callout-Einfügen
+   funktionierten beide nicht): .emoji-picker selbst war beim Umbau auf die
+   Icon-Bibliothek versehentlich komplett entfernt worden (nur der Kommentar
+   dazu blieb stehen) — showTablePicker() und showCalloutPicker() setzen
+   diese Klasse aber bis heute als Basis-Container (position/Hintergrund/
+   Ebene). Ohne sie hatten beide Popups GAR KEINE Positionierungs-Eigenschaft
+   mehr und landeten unsichtbar im normalen Dokumentfluss statt als
+   schwebendes Fenster — das war die gemeinsame Ursache für beide gemeldeten
+   Probleme. Hier bewusst wiederhergestellt statt die beiden Aufrufer auf
+   .icon-picker umzustellen, da deren feste Breite (340px) für diese
+   kleineren Listen-Popups nicht passt. */
+.emoji-picker{
+  position: fixed; z-index: 65; background: var(--bg-elev-2); border:1px solid var(--border);
+  border-radius: var(--radius-md); padding:10px; min-width: 200px; max-height: 440px; overflow-y:auto;
+  box-shadow: 0 12px 32px rgba(0,0,0,.45);
+}
 .emoji-empty{ font-size:12px; color: var(--text-faint); text-align:center; padding:16px 0; }
 .emoji-group-label{ font-family: var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color: var(--text-faint); margin: 8px 2px 4px; }
 .emoji-group-label:first-child{ margin-top:2px; }
@@ -605,7 +625,7 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .preview-lib-icon{ width:1.2em; height:1.2em; vertical-align:-0.2em; display:inline-block; }
 
 /* --- Formatierungs-Toolbar (Fett/Kursiv/Durchgestrichen/Link/Code/Listen/Callout) --- */
-.format-toolbar{ display:flex; gap:2px; align-items:center; padding-left:4px; border-left:1px solid var(--border-soft); margin-left:2px; }
+.format-toolbar{ display:flex; gap:2px; align-items:center; flex-wrap: wrap; padding-left:4px; border-left:1px solid var(--border-soft); margin-left:2px; }
 .format-toolbar button{
   width:28px; height:28px; display:flex; align-items:center; justify-content:center;
   background:transparent; border:1px solid transparent; border-radius: var(--radius-sm);
@@ -621,13 +641,50 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 }
 .callout-picker-btn:hover{ background: var(--bg-elev); color: var(--text-main); }
 
-.table-picker-list{ display:flex; flex-direction:column; gap:2px; }
-.table-picker-btn{
-  display:block; width:100%; text-align:left;
-  background:transparent; border:none; border-radius: var(--radius-sm);
-  color: var(--text-muted); font-family: var(--mono); font-size:12.5px; padding:7px 8px; cursor:pointer;
+.table-picker-field{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  font-family: var(--mono); font-size:12px; color: var(--text-muted); padding:4px 2px; margin-bottom:4px;
 }
-.table-picker-btn:hover{ background: var(--bg-elev); color: var(--text-main); }
+.table-picker-field select{
+  background: var(--bg-elev); border:1px solid var(--border); color: var(--text-main);
+  font-family: var(--mono); font-size:12px; padding:4px 8px; border-radius: var(--radius-sm);
+}
+.table-picker-confirm{ width:100%; margin-top:6px; justify-content:center; }
+
+/* --- Tabellen-Bearbeitungsfenster (Doppelklick auf eine Tabelle) --- */
+.table-editor-overlay{
+  position: fixed; inset: 0; z-index: 75; background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center;
+}
+.table-editor-modal{
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  width: 720px; max-width: calc(100vw - 40px); max-height: calc(100vh - 80px);
+  box-shadow: 0 20px 60px rgba(0,0,0,.5); display: flex; flex-direction: column; overflow: hidden;
+}
+.table-editor-grid-wrap{ padding:14px 16px; overflow:auto; }
+.table-editor-grid{ border-collapse: collapse; width:100%; }
+.table-editor-grid th, .table-editor-grid td{ padding:3px; vertical-align:top; }
+.table-editor-grid th{ text-align:left; }
+.te-header-input, .te-cell-input{
+  width:100%; box-sizing:border-box; background: var(--bg-elev-2); border:1px solid var(--border);
+  color: var(--text-main); font-family: var(--mono); font-size:12.5px; padding:6px 8px; border-radius: var(--radius-sm);
+}
+.te-header-input{ font-weight:600; margin-bottom:4px; }
+.te-align-select{
+  width:100%; box-sizing:border-box; background: var(--bg-elev-2); border:1px solid var(--border);
+  color: var(--text-faint); font-family: var(--mono); font-size:10.5px; padding:3px 6px; border-radius: var(--radius-sm); margin-bottom:4px;
+}
+.te-del-col, .te-del-row{
+  background:transparent; border:none; color: var(--text-faint); cursor:pointer; font-size:12px; padding:2px 4px;
+}
+.te-del-col:hover, .te-del-row:hover{ color: var(--red); }
+.te-row-actions{ width:28px; text-align:center; }
+.table-editor-actions{ display:flex; align-items:center; gap:8px; padding:12px 16px; border-top:1px solid var(--border); flex-shrink:0; }
+.table-editor-actions .spacer{ flex:1; }
+
+/* Hinweis in der Vorschau: Tabellen sind doppelklickbar zum Bearbeiten. */
+.preview-pane table[data-table-index]{ cursor: pointer; }
+.preview-pane table[data-table-index]:hover{ outline: 1px dashed var(--border); outline-offset: 2px; }
 
 .template-picker-list{ display:flex; flex-direction:column; gap:2px; margin-bottom:12px; }
 .template-picker-btn{

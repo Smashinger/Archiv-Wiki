@@ -156,7 +156,10 @@ export function wikiLinkCompletionSource(getNoteIndex) {
 // ---------------------------------------------------------------------------
 // Editor-Factory
 // ---------------------------------------------------------------------------
-export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, onSave, onCursorActivity, getNoteIndex }) {
+export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, onSave, onCursorActivity, getNoteIndex, onScroll, onSlashCommand }) {
+  let view; // wird weiter unten zugewiesen — der updateListener (Teil von state,
+  // das VOR view erstellt wird) greift per Funktionsabschluss später darauf zu,
+  // erst wenn tatsächlich getippt wird, also lange nachdem view existiert.
   const saveKeymap = keymap.of([
     { key: 'Mod-s', preventDefault: true, run: () => { onSave?.(); return true; } },
     // Zusätzlich zu den Standard-Suchkürzeln (Strg+F öffnet, Strg+G/Umschalt+Strg+G
@@ -191,12 +194,45 @@ export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, 
       EditorView.updateListener.of((update) => {
         if (update.docChanged) onChange?.(update.state.doc.toString());
         if (update.docChanged || update.selectionSet) reportCursor(update.state);
+        // Slash-Befehl (Nutzer-Feature, neben Werkzeugleiste + Rechtsklick-Menü
+        // zum Tabelle-Einfügen): tippt man "/table" unmittelbar vor dem Cursor,
+        // wird der Befehlstext entfernt und der Aufruf nach außen gemeldet —
+        // app.js öffnet daraufhin denselben Tabellen-Picker wie die anderen
+        // beiden Wege (keine doppelte Logik).
+        if (update.docChanged && onSlashCommand) {
+          const pos = update.state.selection.main.head;
+          const textBefore = update.state.doc.sliceString(Math.max(0, pos - 6), pos);
+          if (textBefore === '/table') {
+            view.dispatch({ changes: { from: pos - 6, to: pos, insert: '' } });
+            const coords = view.coordsAtPos(pos - 6) || { left: 20, bottom: 20 };
+            onSlashCommand('table', { left: coords.left, top: coords.bottom + 6 });
+          }
+        }
       })
     ]
   });
 
-  const view = new EditorView({ state, parent });
+  view = new EditorView({ state, parent });
   reportCursor(state);
+
+  // Sync-Scroll mit der Vorschau (Nutzer-Feature): meldet das Scroll-
+  // VERHÄLTNIS (0 bis 1), nicht die Pixel-Position — Editor und Vorschau sind
+  // unterschiedlich hoch, ein reiner Pixel-Abgleich würde nicht zusammenpassen.
+  // rAF-gedrosselt, damit schnelles Scrollen nicht ruckelt (kein Debounce mit
+  // Wartezeit, da Sync-Scroll ja gerade sofort mitlaufen soll).
+  if (onScroll) {
+    let scrollScheduled = false;
+    view.scrollDOM.addEventListener('scroll', () => {
+      if (scrollScheduled) return;
+      scrollScheduled = true;
+      requestAnimationFrame(() => {
+        scrollScheduled = false;
+        const { scrollTop, scrollHeight, clientHeight } = view.scrollDOM;
+        const maxScroll = scrollHeight - clientHeight;
+        onScroll(maxScroll > 0 ? scrollTop / maxScroll : 0);
+      });
+    });
+  }
 
   return {
     getContent: () => view.state.doc.toString(),
@@ -467,6 +503,31 @@ export function renderPreview(markdownText, options = {}) {
   // wie bei attachment:, nur zeigt es auf die mit der App mitgelieferte
   // Icon-Bibliothek statt auf projekteigene Anhänge.
   html = html.replace(/src="icon:([^"]+)"/g, (_, id) => `src="assets/icon-library/${id}.svg" class="preview-lib-icon"`);
+
+  // Tabellen-Bearbeitungsfenster (Nutzer-Feature): jede Tabelle bekommt einen
+  // fortlaufenden Index in Dokumentreihenfolge — Doppelklick öffnet darüber
+  // das eigene Bearbeitungsfenster (app.js: showTableEditorModal), das über
+  // dieselbe Zählweise (parseMarkdownTables) die passende Stelle in der
+  // rohen Markdown-Quelle wiederfindet.
+  let tableIndex = 0;
+  html = html.replace(/<table(\s[^>]*)?>/g, (match, attrs) => `<table${attrs || ''} data-table-index="${tableIndex++}" title="Doppelklick zum Bearbeiten">`);
+
+  // Bild-Größe per Prozent-Auswahl (Nutzer-Feature, ersetzt das vorherige
+  // Ziehen — das verursachte unzuverlässige Darstellung und störte den
+  // Editor, da bei JEDEM Tastenanschlag die komplette Vorschau samt aller
+  // Bild-Beobachter neu aufgebaut wurde). Jetzt bewusst einfach: ein
+  // schlichter Hover-Wrapper mit vier Knöpfen (25/50/75/100%), keine
+  // laufenden Beobachter mehr. Der Wrapper bekommt den fortlaufenden Index
+  // in Dokumentreihenfolge, über den app.js beim Klick die passende Stelle
+  // in der rohen Markdown-Quelle wiederfindet. Icon-Bibliothek-Symbole
+  // (erkennbar an class="preview-lib-icon") bekommen bewusst KEINE Knöpfe.
+  let imgIndex = 0;
+  html = html.replace(/<img\b([^>]*)>/g, (match, attrs) => {
+    if (/\bclass="[^"]*preview-lib-icon/.test(attrs)) return match; // unverändert
+    const idx = imgIndex++;
+    const buttons = [25, 50, 75, 100].map(p => `<button type="button" data-img-pct="${p}">${p}%</button>`).join('');
+    return `<span class="img-size-wrap" data-img-index="${idx}"><img${attrs}><span class="img-size-buttons">${buttons}</span></span>`;
+  });
 
   return html;
 }

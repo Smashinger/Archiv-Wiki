@@ -93,6 +93,19 @@ contextBridge.exposeInMainWorld('archivAPI', {
   },
 
   getCloseBehavior: () => ipcRenderer.invoke('app:getCloseBehavior'),
+
+  // Zentrale Zwischenablage-API (Nutzer-Meldung: Kopieren/Ausschneiden/
+  // Einfügen über das Rechtsklick-Menü unzuverlässig, besonders Einfügen aus
+  // anderen Programmen) — WICHTIGER BUGFIX: Electrons clipboard-Modul direkt
+  // hier im Preload-Skript zu verwenden (frühere Fassung) funktioniert unter
+  // sandbox:true NICHT (real mit Electron 28.3.3 getestet: clipboard ist im
+  // sandboxten Preload schlicht undefined) — deshalb jetzt per IPC an den
+  // Hauptprozess weitergereicht, wo das Modul unabhängig von der Sandbox-
+  // Einstellung immer verfügbar ist (siehe main.js).
+  clipboard: {
+    writeText: (text) => ipcRenderer.invoke('clipboard:writeText', text),
+    readText: () => ipcRenderer.invoke('clipboard:readText')
+  },
   setCloseBehavior: (value) => ipcRenderer.invoke('app:setCloseBehavior', value),
   resolveCloseDialog: (result) => ipcRenderer.invoke('app:resolveCloseDialog', result),
 

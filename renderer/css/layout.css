@@ -100,3 +100,54 @@
   .topbar .burger{ display: flex; }
   .content-scroll{ padding: 24px 18px 70px; }
 }
+
+/* --- Focus-/Cocoon-Modus (überarbeitet aus dem bisherigen Zen-Modus) ---
+   Vorheriges Verhalten (Sidebar/Kopfzeile/Werkzeugleiste komplett ausblenden)
+   ist bewusst NICHT mehr das Ziel — man verliert dabei zu leicht die
+   Orientierung. Neu: die restliche Oberfläche bleibt vollständig sichtbar
+   UND bedienbar (keine Klick-Sperre über pointer-events, keine display:none-
+   Regel mehr),
+   tritt nur optisch zurück (reduzierte Deckkraft + leichte Entsättigung).
+   Der Editor-Bereich bekommt stattdessen einen dezenten Hervorhebungs-Effekt
+   (etwas hellerer Hintergrund + weicher Schatten) — bewusst NEUTRAL, ohne
+   Akzentfarbe, damit es mit jeder gewählten Akzentfarbe gleich gut aussieht.
+   Kein echter Fullscreen (Fensterrahmen bleiben unangetastet). Zustand
+   (an/aus) bewusst NICHT gespeichert — Intensität dagegen schon (siehe
+   Einstellungen → Darstellung → Focus-Modus), das ist eine Stil-Vorliebe,
+   kein Sitzungs-Zustand. */
+body.focus-mode{ --focus-dim-opacity: 0.55; } /* Standard = Mittel */
+body.focus-mode[data-focus-intensity="light"]{ --focus-dim-opacity: 0.78; }
+body.focus-mode[data-focus-intensity="strong"]{ --focus-dim-opacity: 0.35; }
+body.focus-mode[data-focus-intensity="stronger"]{ --focus-dim-opacity: 0.18; }
+
+body.focus-mode .sidebar,
+body.focus-mode .topbar,
+body.focus-mode .note-toolbar,
+body.focus-mode .note-bottombar{
+  opacity: var(--focus-dim-opacity);
+  filter: saturate(0.85);
+  transition: opacity .18s ease, filter .18s ease;
+}
+/* Bleibt trotz Abdunkelung vollständig bedienbar (keine Klick-Sperre über
+   pointer-events) — beim Hovern/Fokussieren tritt der jeweilige Bereich kurz
+   wieder klar hervor, für spürbares, direktes Feedback bei der Bedienung. */
+body.focus-mode .sidebar:hover,
+body.focus-mode .sidebar:focus-within,
+body.focus-mode .topbar:hover,
+body.focus-mode .topbar:focus-within,
+body.focus-mode .note-toolbar:hover,
+body.focus-mode .note-bottombar:hover{
+  opacity: 1;
+  filter: none;
+}
+
+/* Editor-Bereich dezent hervorgehoben — etwas hellerer Hintergrund + weicher
+   Schatten, bewusst neutral (kein Akzentton), leichte Kontrastanhebung durch
+   den Helligkeitssprung selbst. Keine Breiten-/Größenänderung (siehe
+   Nutzer-Wunsch weiter oben in diesem Gespräch: volle Breite behalten). */
+body.focus-mode .note-split{
+  background: var(--bg-elev);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 28px rgba(0,0,0,.28);
+  transition: box-shadow .18s ease;
+}

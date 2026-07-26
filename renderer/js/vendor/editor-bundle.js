@@ -47887,7 +47887,8 @@ function wikiLinkCompletionSource(getNoteIndex) {
     return { from: match.from + 2, options, validFor: /^[^\]\n]*$/ };
   };
 }
-function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, onChange, onSave, onCursorActivity, getNoteIndex }) {
+function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, onChange, onSave, onCursorActivity, getNoteIndex, onScroll, onSlashCommand }) {
+  let view;
   const saveKeymap = keymap.of([
     { key: "Mod-s", preventDefault: true, run: () => {
       onSave?.();
@@ -47923,11 +47924,33 @@ function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, onChange, o
       EditorView.updateListener.of((update) => {
         if (update.docChanged) onChange?.(update.state.doc.toString());
         if (update.docChanged || update.selectionSet) reportCursor(update.state);
+        if (update.docChanged && onSlashCommand) {
+          const pos = update.state.selection.main.head;
+          const textBefore = update.state.doc.sliceString(Math.max(0, pos - 6), pos);
+          if (textBefore === "/table") {
+            view.dispatch({ changes: { from: pos - 6, to: pos, insert: "" } });
+            const coords = view.coordsAtPos(pos - 6) || { left: 20, bottom: 20 };
+            onSlashCommand("table", { left: coords.left, top: coords.bottom + 6 });
+          }
+        }
       })
     ]
   });
-  const view = new EditorView({ state, parent });
+  view = new EditorView({ state, parent });
   reportCursor(state);
+  if (onScroll) {
+    let scrollScheduled = false;
+    view.scrollDOM.addEventListener("scroll", () => {
+      if (scrollScheduled) return;
+      scrollScheduled = true;
+      requestAnimationFrame(() => {
+        scrollScheduled = false;
+        const { scrollTop, scrollHeight, clientHeight } = view.scrollDOM;
+        const maxScroll = scrollHeight - clientHeight;
+        onScroll(maxScroll > 0 ? scrollTop / maxScroll : 0);
+      });
+    });
+  }
   return {
     getContent: () => view.state.doc.toString(),
     setContent: (text2) => {
@@ -48144,6 +48167,15 @@ function renderPreview(markdownText, options = {}) {
     html2 = html2.replace(/src="attachment:([^"]+)"/g, (_2, name2) => `src="${base2}${encodeURIComponent(name2)}"`);
   }
   html2 = html2.replace(/src="icon:([^"]+)"/g, (_2, id2) => `src="assets/icon-library/${id2}.svg" class="preview-lib-icon"`);
+  let tableIndex = 0;
+  html2 = html2.replace(/<table(\s[^>]*)?>/g, (match, attrs) => `<table${attrs || ""} data-table-index="${tableIndex++}" title="Doppelklick zum Bearbeiten">`);
+  let imgIndex = 0;
+  html2 = html2.replace(/<img\b([^>]*)>/g, (match, attrs) => {
+    if (/\bclass="[^"]*preview-lib-icon/.test(attrs)) return match;
+    const idx = imgIndex++;
+    const buttons = [25, 50, 75, 100].map((p) => `<button type="button" data-img-pct="${p}">${p}%</button>`).join("");
+    return `<span class="img-size-wrap" data-img-index="${idx}"><img${attrs}><span class="img-size-buttons">${buttons}</span></span>`;
+  });
   return html2;
 }
 export {

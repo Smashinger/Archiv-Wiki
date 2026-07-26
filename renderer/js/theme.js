@@ -139,3 +139,14 @@ export function applyEditorFontSize(px) {
   document.documentElement.style.setProperty('--editor-font-size', `${clamped}px`);
   return clamped;
 }
+
+// Focus-/Cocoon-Modus: hier zentral, damit sowohl app.js (Werkzeugleisten-
+// Knopf/Tastenkürzel) als auch settings-window.js (Checkbox) dieselbe Logik
+// nutzen, ohne dass die beiden sich gegenseitig importieren müssten (app.js
+// importiert bereits AUS settings-window.js, ein Import in der Gegenrichtung
+// wäre ein zirkulärer Import).
+export function setFocusMode(active, intensity) {
+  document.body.classList.toggle('focus-mode', active);
+  if (active) document.body.dataset.focusIntensity = intensity || 'medium';
+  document.getElementById('btnFocusMode')?.classList.toggle('active', active);
+}
