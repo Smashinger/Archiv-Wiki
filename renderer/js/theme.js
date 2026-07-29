@@ -150,3 +150,19 @@ export function setFocusMode(active, intensity) {
   if (active) document.body.dataset.focusIntensity = intensity || 'medium';
   document.getElementById('btnFocusMode')?.classList.toggle('active', active);
 }
+
+// Lesemodus mit fester Textbreite (Nutzer-Feature): begrenzt die Vorschau auf
+// eine angenehme Lesebreite, Fließtext bleibt dabei mittig. Nur Werte hier
+// gepflegt (statt drei einzelner CSS-Regeln je Breite) — die eigentliche
+// Begrenzung in components.css referenziert ausschließlich --read-width.
+export const READING_WIDTH_PRESETS = {
+  schmal: { label: 'Schmal', width: '620px' },
+  standard: { label: 'Standard', width: '760px' },
+  breit: { label: 'Breit', width: '920px' }
+};
+
+export function applyReadingWidth(enabled, key) {
+  const preset = READING_WIDTH_PRESETS[key] || READING_WIDTH_PRESETS.standard;
+  document.documentElement.style.setProperty('--read-width', preset.width);
+  document.body.classList.toggle('reading-width', Boolean(enabled));
+}

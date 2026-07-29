@@ -1,14 +1,14 @@
 {
   "name": "archiv-wiki",
   "productName": "Archiv-Wiki",
-  "version": "1.11.0",
+  "version": "1.8.0",
   "description": "Persönliches Markdown-Wiki für den Desktop – Notizen, Setups und Checklisten, 100% lokal.",
   "main": "main.js",
   "author": {
     "name": "Smashinger",
     "email": "smashii@example.com"
   },
-  "homepage": "https://github.com/Smashinger/archiv-wiki",
+  "homepage": "https://github.com/Smashinger/Archiv-Wiki",
   "license": "MIT",
   "private": true,
   "engines": {
@@ -42,7 +42,8 @@
   "dependencies": {
     "gray-matter": "^4.0.3",
     "archiver": "^8.0.0",
-    "webdav": "^5.10.0"
+    "webdav": "^5.10.0",
+    "electron-updater": "^6.3.0"
   },
   "build": {
     "appId": "de.smashii.archivwiki",
@@ -65,7 +66,7 @@
     "publish": {
       "provider": "github",
       "owner": "Smashinger",
-      "repo": "archiv-wiki",
+      "repo": "Archiv-Wiki",
       "releaseType": "draft"
     },
     "linux": {

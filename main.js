@@ -8,7 +8,6 @@
 'use strict';
 
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell, Tray, clipboard } = require('electron');
-const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -20,6 +19,29 @@ const { registerExportIpc, exportProjectZip } = require('./main/export-ipc');
 const { registerSyncIpc, isSyncInProgress } = require('./main/sync-ipc');
 const { registerSettingsIpc } = require('./main/settings-ipc');
 const { maybeRunAutoBackup, nextScheduledBackup, isBackupInProgress } = require('./main/backup');
+// Auf Modul-Ebene (wie alle require-Aufrufe hier oben), NICHT innerhalb einer
+// einzelnen Funktion — autoUpdater wird sowohl in registerCoreIpc() (IPC-
+// Handler, Ereignis-Verdrahtung) als auch im automatischen Programmstart-
+// Check innerhalb app.whenReady() gebraucht. Das sind zwei GETRENNTE
+// Funktionen; eine Deklaration innerhalb der einen wäre in der anderen nicht
+// sichtbar gewesen — genau das hatte den ursprünglichen ReferenceError
+// verursacht ("autoUpdater is not defined" beim automatischen Start-Check).
+//
+// Der require-Aufruf selbst ist bewusst abgesichert: das Update-System darf
+// den Start der App unter keinen Umständen verhindern. Ein require-Fehler
+// auf Modul-Ebene (z. B. bei kaputter/fehlender Installation des Pakets)
+// wäre OHNE dieses try/catch nicht abfangbar gewesen — er würde schon beim
+// Laden von main.js selbst auftreten, bevor überhaupt irgendein anderer Code
+// in dieser Datei läuft, und die komplette App am Start hindern. Jede Stelle,
+// die autoUpdater danach verwendet, prüft deshalb konsequent, ob es
+// tatsächlich verfügbar ist (siehe registerCoreIpc() und den
+// Programmstart-Check weiter unten).
+let autoUpdater = null;
+try {
+  ({ autoUpdater } = require('electron-updater'));
+} catch (err) {
+  console.error('[Archiv Wiki] electron-updater konnte nicht geladen werden — automatische Updates sind in dieser Sitzung deaktiviert:', err.message);
+}
 
 const isDev = process.argv.includes('--dev');
 
@@ -208,6 +230,25 @@ function createMainWindow() {
     shell.openExternal(url);
   });
 
+  // Rechtschreibprüfung (Nutzer-Feature): nutzt Electrons EINGEBAUTES,
+  // natives Spellcheck (dieselben Chromium-Wörterbücher wie in jedem
+  // Chrome/Edge) statt einer eigenen Bibliothek. webPreferences.spellcheck:
+  // true (oben) sorgt für die roten Wellenlinien unter falsch geschriebenen
+  // Wörtern, ganz ohne eigenen Code — das läuft automatisch in JEDEM
+  // editierbaren Bereich, inklusive CodeMirrors Editor-Fläche (siehe auch
+  // die contentAttributes-Erweiterung in build/editor-entry.js, ohne die
+  // CodeMirror die Prüfung für sein eigenes Textfeld selbst deaktiviert
+  // hätte). Standardsprache Deutsch, später um weitere Sprachen erweiterbar
+  // (siehe session.availableSpellCheckerLanguages).
+  // Rückbau: Korrekturvorschläge im eigenen Rechtsklick-Menü (über Electrons
+  // context-menu-Ereignis) wieder entfernt — ließ sich nicht zuverlässig zum
+  // Laufen bringen. Nur die Wellenlinien selbst bleiben, unverändert.
+  mainWindow.webContents.session.setSpellCheckerLanguages(['de']);
+  // Anfänglichen Zustand aus der Projekt-Konfiguration übernehmen, falls
+  // der Nutzer die Prüfung zuvor schon einmal deaktiviert hatte — Standard
+  // ist an (true), wenn noch nie ein Wert gespeichert wurde.
+  mainWindow.webContents.session.setSpellCheckerEnabled(currentProject?.config?.editor?.spellcheck !== false);
+
   // Zentrale Schließen-Logik: liest die gespeicherte Einstellung
   // (main/close-behavior.js) und entscheidet, ob gefragt, minimiert oder
   // wirklich beendet wird. isQuitting bleibt die Ausnahme für "wirklich
@@ -347,6 +388,14 @@ function buildMenu() {
 function registerCoreIpc() {
   ipcMain.handle('app:getVersion', () => app.getVersion());
 
+  // Rechtschreibprüfung an-/abschalten (Nutzer-Feature, Einstellungen →
+  // Editor) — direkt über Electrons Session-API, kein Neustart nötig.
+  ipcMain.handle('app:setSpellCheckEnabled', (_e, enabled) => {
+    mainWindow?.webContents.session.setSpellCheckerEnabled(Boolean(enabled));
+    return { enabled: Boolean(enabled) };
+  });
+  ipcMain.handle('app:getSpellCheckEnabled', () => mainWindow?.webContents.session.isSpellCheckerEnabled() ?? true);
+
   ipcMain.handle('app:getPlatformInfo', () => ({
     platform: process.platform,
     arch: process.arch,
@@ -461,17 +510,86 @@ function registerCoreIpc() {
     // choice === 'cancel' (Abbrechen): nichts tun, Fenster bleibt einfach offen.
   });
 
-  // Update-Hinweis (bewusst der "einfache Weg", siehe Absprache): fragt nur
-  // ab, ob es ein neueres Release gibt, lädt aber NICHTS automatisch herunter
-  // und tauscht nichts selbst aus.
-  // Bugfix (nur durch einen echten, tatsächlich gebauten Test-Lauf gefunden,
-  // nicht durch bloßes Code-Lesen): electron-builder entfernt das komplette
-  // "build"-Feld aus dem package.json, das im FERTIGEN Programm landet —
-  // "build.publish" existierte im echten AppImage dadurch nie, nur beim
-  // Entwickeln (npm run dev), wo die unveränderte Quell-package.json genutzt
-  // wird. Owner/Repo werden deshalb jetzt aus "homepage" abgeleitet (bleibt
-  // beim Bauen erhalten) statt aus "build" — weiterhin nirgends fest im Code
-  // hinterlegt, nur eine andere Quelle.
+  // Automatisches Update-System (Nutzer-Feature) — nutzt electron-updater
+  // direkt auf dem bestehenden GitHub-Releases-Ablauf (derselbe
+  // "provider: github, owner: Smashinger, repo: Archiv-Wiki"-Block, den
+  // package.json für "npm run release" ohnehin schon hat, siehe build.publish
+  // weiter unten in dieser Datei nicht — das Feld existiert nur in der
+  // Quell-package.json, electron-updater liest es zur Build-Zeit über
+  // electron-builder, nicht zur Laufzeit). Ersetzt den vorherigen, selbst
+  // geschriebenen Roh-HTTPS-Aufruf gegen die GitHub-API — electron-updater
+  // übernimmt jetzt sowohl die Prüfung als auch (nach ausdrücklicher
+  // Zustimmung) das Herunterladen/Installieren, keine zweite, parallele
+  // Update-Logik.
+  //
+  // WICHTIG, bewusste Entscheidung: autoDownload UND autoInstallOnAppQuit
+  // bleiben IMMER false. WANN heruntergeladen wird, entscheidet weiter unten
+  // unsere eigene, einstellungsgesteuerte Logik — installiert/neu gestartet
+  // wird NIEMALS ohne ausdrücklichen Klick des Nutzers. Das ist keine
+  // Einstellung, sondern eine feste Regel dieses Programms.
+  let updateDownloadInProgress = false;
+  let updateReadyToInstall = false;
+
+  // Konfiguration und Ereignis-Verdrahtung nur, wenn electron-updater beim
+  // Programmstart tatsächlich geladen werden konnte (siehe try/catch um den
+  // require-Aufruf am Dateianfang) — ist autoUpdater null, bleibt das
+  // Update-System für diese Sitzung einfach inaktiv, ohne die App am Start
+  // zu hindern. Jeder IPC-Handler weiter unten prüft das ebenfalls einzeln.
+  if (autoUpdater) {
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
+    // electron-log wäre eine zusätzliche Abhängigkeit gewesen, nur für
+    // Logging — für ein Projekt dieser Größe reicht die normale Ausgabe.
+    autoUpdater.logger = {
+      info: (...args) => console.log('[Archiv Wiki] [Update]', ...args),
+      warn: (...args) => console.warn('[Archiv Wiki] [Update]', ...args),
+      error: (...args) => console.error('[Archiv Wiki] [Update]', ...args)
+    };
+
+    // Jedes autoUpdater-Ereignis ist von Haus aus asynchron — darf unter
+    // keinen Umständen die App zum Absturz bringen, egal was schiefgeht
+    // (Netzwerk weg, GitHub nicht erreichbar, Download abgebrochen, ...).
+    autoUpdater.on('error', (err) => {
+      console.error('[Archiv Wiki] Update-Fehler:', err?.message || err);
+      // Sichtbare Meldung an den Renderer NUR, wenn tatsächlich ein Download
+      // lief — der Nutzer erwartet in dem Moment aktiv etwas. Ein reiner
+      // Hintergrund-Check, der fehlschlägt (kein Internet, GitHub nicht
+      // erreichbar), bleibt bewusst still — genau wie beim bisherigen,
+      // einfachen Check (app:checkForUpdate fängt das ohnehin schon
+      // eigenständig ab und zeigt einfach "unbekannt" statt eines Fehlers).
+      if (updateDownloadInProgress) {
+        mainWindow?.webContents.send('update:error', { message: err?.message || 'Unbekannter Fehler beim Update.' });
+      }
+      updateDownloadInProgress = false;
+    });
+    autoUpdater.on('update-available', (info) => {
+      mainWindow?.webContents.send('update:available', { version: info.version });
+      // "Updates automatisch herunterladen" (Standard: an) UND "vor dem
+      // Herunterladen nachfragen" (Standard: aus) zusammen entscheiden, ob
+      // der Download sofort im Hintergrund losläuft oder der Nutzer zuerst
+      // gefragt wird — zeigt der Renderer in dem Fall die "Verfügbar"-
+      // Meldung selbst.
+      const state = readAppState();
+      const autoDownload = state.updateAutoDownload !== false;
+      const confirmFirst = state.updateConfirmBeforeDownload === true;
+      if (autoDownload && !confirmFirst) {
+        updateDownloadInProgress = true;
+        autoUpdater.downloadUpdate().catch((err) => {
+          console.error('[Archiv Wiki] Automatisches Herunterladen fehlgeschlagen:', err.message);
+          updateDownloadInProgress = false;
+        });
+      }
+    });
+    autoUpdater.on('download-progress', (progress) => {
+      mainWindow?.webContents.send('update:download-progress', { percent: Math.round(progress.percent) });
+    });
+    autoUpdater.on('update-downloaded', () => {
+      updateDownloadInProgress = false;
+      updateReadyToInstall = true;
+      mainWindow?.webContents.send('update:downloaded');
+    });
+  }
+
   function compareVersions(a, b) {
     const pa = String(a).replace(/^v/i, '').split('.').map(Number);
     const pb = String(b).replace(/^v/i, '').split('.').map(Number);
@@ -482,6 +600,12 @@ function registerCoreIpc() {
     return 0;
   }
 
+  // Bugfix (nur durch einen echten, tatsächlich gebauten Test-Lauf gefunden,
+  // nicht durch bloßes Code-Lesen): electron-builder entfernt das komplette
+  // "build"-Feld aus dem package.json, das im FERTIGEN Programm landet.
+  // Owner/Repo werden deshalb aus "homepage" abgeleitet (bleibt beim Bauen
+  // erhalten) — nur zur Anzeige eines Releases-Links genutzt, electron-updater
+  // selbst braucht das nicht (das liest seine eigene, mitgebaute app-update.yml).
   function getRepoOwnerAndName() {
     const homepage = require('./package.json').homepage || '';
     const match = homepage.match(/github\.com\/([^/]+)\/([^/]+?)\/?$/);
@@ -489,64 +613,97 @@ function registerCoreIpc() {
     return { owner: match[1], repo: match[2] };
   }
 
-  ipcMain.handle('app:checkForUpdate', () => {
+  // Weiterhin dieselbe Rückgabe-Form wie vorher ({currentVersion,
+  // latestVersion, updateAvailable, releaseUrl}) — Sidebar, Wizard und
+  // Einstellungsfenster (alle über renderer/js/update-check.js) laufen
+  // dadurch unverändert weiter, ganz ohne dort etwas anpassen zu müssen.
+  ipcMain.handle('app:checkForUpdate', async () => {
     const currentVersion = app.getVersion();
-    const { owner, repo } = getRepoOwnerAndName();
-    return new Promise((resolve) => {
-      const req = https.get(
-        `https://api.github.com/repos/${owner}/${repo}/releases/latest`,
-        { headers: { 'User-Agent': 'archiv-wiki-update-check' }, timeout: 6000 },
-        (res) => {
-          let data = '';
-          res.on('data', (chunk) => { data += chunk; });
-          res.on('end', () => {
-            // Bugfix (per Nutzer-Test entdeckt): vorher wurde JEDE Antwort
-            // blind als Erfolg behandelt, ganz ohne den HTTP-Status zu prüfen.
-            // Ein Fehler von GitHub (z. B. 403 bei Rate-Limit — unangemeldet
-            // nur 60 Anfragen/Stunde erlaubt — oder 404, falls kein
-            // veröffentlichtes, nicht-Vorab-Release existiert) sah dadurch
-            // optisch GENAUSO aus wie "wirklich aktuell", ganz ohne Hinweis,
-            // dass eigentlich gar nicht geprüft werden konnte.
-            if (res.statusCode !== 200) {
-              console.error(`[Archiv Wiki] Update-Check: GitHub antwortete mit Status ${res.statusCode} (${res.statusMessage || ''}). Details:`, data.slice(0, 300));
-              return resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null });
-            }
-            try {
-              const json = JSON.parse(data);
-              const latestVersion = String(json.tag_name || '').replace(/^v/i, '');
-              if (!latestVersion) {
-                console.error('[Archiv Wiki] Update-Check: GitHub-Antwort enthielt keinen tag_name — Rohdaten:', data.slice(0, 300));
-                return resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null });
-              }
-              const lastCheckAt = new Date().toISOString();
-              writeAppState({ lastUpdateCheckAt: lastCheckAt });
-              resolve({
-                currentVersion,
-                latestVersion,
-                updateAvailable: compareVersions(latestVersion, currentVersion) > 0,
-                releaseUrl: json.html_url || `https://github.com/${owner}/${repo}/releases/latest`,
-                lastCheckAt
-              });
-            } catch (err) {
-              console.error('[Archiv Wiki] Update-Check: GitHub-Antwort konnte nicht als JSON gelesen werden:', err.message);
-              resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null });
-            }
-          });
-        }
-      );
-      // Netzwerk-Aussetzer/Timeout dürfen die App nie blockieren oder abstürzen
-      // lassen — einfach "keine Update-Info verfügbar" zurückgeben, aber jetzt
-      // protokolliert statt komplett lautlos.
-      req.on('error', (err) => {
-        console.error('[Archiv Wiki] Update-Check: Netzwerkfehler:', err.message);
-        resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null });
-      });
-      req.on('timeout', () => {
-        console.error('[Archiv Wiki] Update-Check: Zeitüberschreitung (>6s) bei der Anfrage an GitHub.');
-        req.destroy();
-        resolve({ currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null });
-      });
-    });
+    if (!autoUpdater) {
+      // electron-updater konnte beim Start nicht geladen werden (siehe
+      // try/catch um den require-Aufruf am Dateianfang) — klar als "nicht
+      // verfügbar" melden, statt eine kryptische Ausnahme zu werfen.
+      return { currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null };
+    }
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      const latestVersion = result?.updateInfo?.version || null;
+      const lastCheckAt = new Date().toISOString();
+      writeAppState({ lastUpdateCheckAt: lastCheckAt });
+      let releaseUrl = null;
+      try {
+        const { owner, repo } = getRepoOwnerAndName();
+        releaseUrl = latestVersion
+          ? `https://github.com/${owner}/${repo}/releases/tag/v${latestVersion}`
+          : `https://github.com/${owner}/${repo}/releases/latest`;
+      } catch { /* homepage-Feld fehlt/unerwartet — releaseUrl bleibt null, kein Blocker für den Rest */ }
+      return {
+        currentVersion,
+        latestVersion,
+        updateAvailable: Boolean(latestVersion) && compareVersions(latestVersion, currentVersion) > 0,
+        releaseUrl,
+        lastCheckAt
+      };
+    } catch (err) {
+      // Netzwerk weg, GitHub nicht erreichbar, kein Release vorhanden, o.Ä. —
+      // lieber "keine Info verfügbar" als die App zu stören oder abstürzen
+      // zu lassen (identisches Prinzip wie vorher beim Roh-HTTPS-Aufruf).
+      console.error('[Archiv Wiki] Update-Check fehlgeschlagen:', err.message);
+      return { currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null };
+    }
+  });
+
+  // Manuelles Auslösen des Downloads — genutzt, wenn der Nutzer auf die
+  // "Verfügbar"-Meldung mit "Jetzt herunterladen" reagiert (siehe Einstellung
+  // "vor dem Herunterladen nachfragen"), oder als Absicherung, falls der
+  // automatische Download (oben) aus irgendeinem Grund nicht gestartet ist.
+  ipcMain.handle('app:downloadUpdate', async () => {
+    if (!autoUpdater) return { started: false, error: 'Update-System ist in dieser Sitzung nicht verfügbar.' };
+    if (updateDownloadInProgress || updateReadyToInstall) return { started: false };
+    updateDownloadInProgress = true;
+    try {
+      await autoUpdater.downloadUpdate();
+      return { started: true };
+    } catch (err) {
+      updateDownloadInProgress = false;
+      console.error('[Archiv Wiki] Manuell gestartetes Herunterladen fehlgeschlagen:', err.message);
+      return { started: false, error: err.message };
+    }
+  });
+
+  // Installation + Neustart — AUSSCHLIESSLICH auf ausdrücklichen Klick hin
+  // aufgerufen (siehe renderer), niemals von selbst. isQuitting wird bewusst
+  // gesetzt, damit die bestehende Schließen-Logik (Tray verstecken/nachfragen,
+  // siehe weiter oben) hier nicht dazwischenfunkt — ein Update-Neustart soll
+  // immer ein echter, vollständiger Neustart sein.
+  ipcMain.handle('app:installUpdateAndRestart', () => {
+    if (!autoUpdater || !updateReadyToInstall) return { installed: false };
+    isQuitting = true;
+    autoUpdater.quitAndInstall();
+    return { installed: true };
+  });
+
+  // Update-Einstellungen: app-weit (main/app-state.js), nicht pro Projekt —
+  // exakt dasselbe Muster wie das bestehende Schließen-Verhalten
+  // (app:getCloseBehavior/app:setCloseBehavior weiter unten), da es sich um
+  // eine Eigenschaft der Installation handelt, nicht eines einzelnen Wikis.
+  ipcMain.handle('app:getUpdateSettings', () => {
+    const state = readAppState();
+    return {
+      checkOnStart: state.updateCheckOnStart !== false,
+      autoDownload: state.updateAutoDownload !== false,
+      confirmBeforeDownload: state.updateConfirmBeforeDownload === true,
+      lastCheckAt: state.lastUpdateCheckAt || null
+    };
+  });
+  ipcMain.handle('app:setUpdateSetting', (_e, key, value) => {
+    // Bewusst eine feste Positivliste statt eines beliebigen Schlüssels —
+    // verhindert, dass über diesen Kanal versehentlich (oder böswillig)
+    // andere, nicht update-bezogene app-state-Felder überschrieben werden.
+    const allowed = ['updateCheckOnStart', 'updateAutoDownload', 'updateConfirmBeforeDownload'];
+    if (!allowed.includes(key)) return { saved: false };
+    writeAppState({ [key]: value });
+    return { saved: true };
   });
 
   // App-Passwortschutz: Passwort selbst wird nie gespeichert, nur Salt+Hash
@@ -671,6 +828,25 @@ app.whenReady().then(() => {
   // die App über Mitternacht hinaus geöffnet bleibt.
   setTimeout(() => { maybeRunAutoBackup({ getCurrentProject: () => currentProject }).catch(() => {}); }, 5000);
   setInterval(() => { maybeRunAutoBackup({ getCurrentProject: () => currentProject }).catch(() => {}); }, 10 * 60 * 1000);
+
+  // Automatischer Update-Check beim Start (Nutzer-Feature) — respektiert die
+  // Einstellung "Beim Start automatisch nach Updates suchen" (Standard: an).
+  // Leicht zeitversetzt zum Backup-Check oben, damit beide Hintergrund-
+  // Aktionen nicht exakt gleichzeitig um Netzwerk/Rechenzeit konkurrieren.
+  // checkForUpdates() selbst löst bei Erfolg automatisch die oben verdrahteten
+  // "update-available"/"update-not-available"-Ereignisse aus — kein
+  // zusätzlicher Code hier nötig, rein die Entscheidung ob überhaupt geprüft wird.
+  setTimeout(() => {
+    if (!autoUpdater) return; // electron-updater beim Start nicht ladbar gewesen — siehe try/catch am Dateianfang
+    if (readAppState().updateCheckOnStart === false) return;
+    autoUpdater.checkForUpdates().catch((err) => {
+      // Kein Internet, GitHub nicht erreichbar, o.Ä. — beim automatischen
+      // Start-Check bewusst NUR protokollieren, keine Fehlermeldung an den
+      // Nutzer. Ein manueller "Jetzt prüfen"-Klick (Einstellungen) zeigt
+      // Fehler weiterhin an, da der Nutzer dort aktiv etwas ausgelöst hat.
+      console.error('[Archiv Wiki] Automatischer Update-Check beim Start fehlgeschlagen:', err.message);
+    });
+  }, 8000);
 
   const appState = readAppState();
   if (isValidProject(appState.lastProjectPath)) {

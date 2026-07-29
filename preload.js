@@ -22,6 +22,16 @@ contextBridge.exposeInMainWorld('archivAPI', {
   openBackupFolder: () => ipcRenderer.invoke('app:openBackupFolder'),
   moveProjectFolder: () => ipcRenderer.invoke('app:moveProjectFolder'),
   checkForUpdate: () => ipcRenderer.invoke('app:checkForUpdate'),
+  // Automatisches Update-System (Nutzer-Feature) — Download/Installation
+  // sowie die zugehörigen Einstellungen und Ereignis-Kanäle.
+  downloadUpdate: () => ipcRenderer.invoke('app:downloadUpdate'),
+  installUpdateAndRestart: () => ipcRenderer.invoke('app:installUpdateAndRestart'),
+  getUpdateSettings: () => ipcRenderer.invoke('app:getUpdateSettings'),
+  setUpdateSetting: (key, value) => ipcRenderer.invoke('app:setUpdateSetting', key, value),
+  onUpdateAvailable: (callback) => { ipcRenderer.on('update:available', (_e, info) => callback(info)); },
+  onUpdateDownloadProgress: (callback) => { ipcRenderer.on('update:download-progress', (_e, progress) => callback(progress)); },
+  onUpdateDownloaded: (callback) => { ipcRenderer.on('update:downloaded', () => callback()); },
+  onUpdateError: (callback) => { ipcRenderer.on('update:error', (_e, info) => callback(info)); },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     update: (patch) => ipcRenderer.invoke('settings:update', patch),
@@ -108,6 +118,11 @@ contextBridge.exposeInMainWorld('archivAPI', {
   },
   setCloseBehavior: (value) => ipcRenderer.invoke('app:setCloseBehavior', value),
   resolveCloseDialog: (result) => ipcRenderer.invoke('app:resolveCloseDialog', result),
+
+  // Rechtschreibprüfung (Nutzer-Feature) — An-/Abschalten der Wellenlinien
+  // über die Einstellungen.
+  setSpellCheckEnabled: (enabled) => ipcRenderer.invoke('app:setSpellCheckEnabled', enabled),
+  getSpellCheckEnabled: () => ipcRenderer.invoke('app:getSpellCheckEnabled'),
 
   // --- Menü-/Tray-Events (Main → Renderer) ---
   onMenuOpenProject: (callback) => {

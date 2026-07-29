@@ -112,6 +112,28 @@ input{ font: inherit; }
   font-size: 14px;
   line-height: 1.65;
 }
+/* Lesemodus mit fester Textbreite (Nutzer-Feature, opt-in über Einstellungen
+   → Darstellung). Jedes direkte Kind der Vorschau wird einzeln auf die
+   eingestellte Breite begrenzt und mittig ausgerichtet — dadurch braucht
+   renderPreview() selbst KEINEN zusätzlichen Wrapper, jedes Element (Absatz,
+   Überschrift, Liste, Zitat, Callout, Bild) verhält sich automatisch gleich,
+   ganz ohne eigene Logik in der Markdown-Rendering-Funktion. Tabellen und
+   Code-Blöcke bekommen bewusst mehr Spielraum (siehe unten) und laufen bei
+   Bedarf selbst horizontal über (siehe .code-block pre weiter unten, hat das
+   schon immer gemacht), statt Inhalte abzuschneiden oder zu quetschen. */
+body.reading-width .preview-pane > *{
+  max-width: var(--read-width);
+  margin-left: auto;
+  margin-right: auto;
+}
+body.reading-width .preview-pane > table,
+body.reading-width .preview-pane > .code-block{
+  max-width: min(100%, calc(var(--read-width) * 1.3));
+}
+body.reading-width .preview-pane > table{
+  display: block;
+  overflow-x: auto;
+}
 .preview-pane h1, .preview-pane h2, .preview-pane h3{
   font-family: var(--mono); color: var(--text-main); margin: 18px 0 10px;
 }

@@ -10,7 +10,7 @@
 // neben jedem Feld) UND sofort über den Settings-Service (settings:update)
 // gespeichert — kein Neustart nötig, kein separater "Speichern"-Button.
 
-import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, setFocusMode } from './theme.js';
+import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, setFocusMode, READING_WIDTH_PRESETS, applyReadingWidth } from './theme.js';
 import { fetchUpdateStatus, renderUpdateStatus } from './update-check.js';
 import { animateIn, animateOut } from './motion.js';
 
@@ -224,6 +224,19 @@ function renderAppearanceSection(el, config, updateSetting) {
         ).join('')}
       </div>
     </div>
+    <div class="settings-field">
+      <span>Lesemodus</span>
+      <label class="settings-checkbox-row">
+        <input type="checkbox" id="stReadingWidthEnabled" ${config.readingWidthEnabled ? 'checked' : ''}>
+        <span>Optimale Lesebreite verwenden</span>
+      </label>
+      <div class="density-option-row" id="stReadingWidthRow">
+        ${Object.entries(READING_WIDTH_PRESETS).map(([key, preset]) =>
+          `<button type="button" class="density-option ${(config.readingWidthKey || 'standard') === key ? 'active' : ''}" data-reading-width="${key}">${escapeAttr(preset.label)}</button>`
+        ).join('')}
+      </div>
+      <p class="settings-hint">Begrenzt die Vorschau auf eine angenehme Lesebreite, besonders praktisch bei sehr breiten Fenstern. Der Editor selbst bleibt davon unberührt.</p>
+    </div>
   `;
   const customSwatch = el.querySelector('.color-swatch-custom');
   const customColorInput = el.querySelector('#stCustomColorInput');
@@ -279,6 +292,21 @@ function renderAppearanceSection(el, config, updateSetting) {
     if (document.body.classList.contains('focus-mode')) setFocusMode(true, btn.dataset.intensity);
     el.querySelectorAll('#stFocusIntensityRow button').forEach(b => b.classList.toggle('active', b === btn));
   });
+  // Lesemodus: läuft im selben Dokument wie die Hauptansicht (siehe Kommentar
+  // bei Focus-Modus oben) — Checkbox und Breiten-Auswahl wirken deshalb ohne
+  // Umweg sofort sichtbar in der offenen Notiz, kein Neustart nötig.
+  el.querySelector('#stReadingWidthEnabled').addEventListener('change', async (e) => {
+    applyReadingWidth(e.target.checked, config.readingWidthKey || 'standard');
+    await updateSetting({ readingWidthEnabled: e.target.checked });
+  });
+  el.querySelector('#stReadingWidthRow').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-reading-width]');
+    if (!btn) return;
+    await updateSetting({ readingWidthKey: btn.dataset.readingWidth });
+    config.readingWidthKey = btn.dataset.readingWidth;
+    applyReadingWidth(config.readingWidthEnabled, btn.dataset.readingWidth);
+    el.querySelectorAll('#stReadingWidthRow button').forEach(b => b.classList.toggle('active', b === btn));
+  });
 }
 
 // --- Editor ---
@@ -300,6 +328,10 @@ function renderEditorSection(el, config, updateSetting) {
       <span>Tab-Größe (Leerzeichen)</span>
       <input type="number" id="stTabSize" min="1" max="8" value="${escapeAttr(editor.tabSize ?? 2)}">
     </label>
+    <label class="settings-checkbox-row">
+      <input type="checkbox" id="stSpellcheck" ${editor.spellcheck !== false ? 'checked' : ''}>
+      <span>Rechtschreibprüfung im Editor</span>
+    </label>
     <p class="settings-hint">Der "Bearbeiten-Modus" (zum Umsortieren in der Sidebar) bleibt bewusst im "⋮"-Menü — das ist eine kurzzeitige Aktion, keine dauerhafte Einstellung.</p>
   `;
   el.querySelector('#stFontSize').addEventListener('change', async (e) => {
@@ -315,6 +347,13 @@ function renderEditorSection(el, config, updateSetting) {
     const val = Math.min(8, Math.max(1, Number(e.target.value) || 2));
     e.target.value = val;
     await updateSetting({ editor: { tabSize: val } });
+  });
+  // Rechtschreibprüfung (Nutzer-Feature): wirkt sofort live über Electrons
+  // Session-API (kein Neustart nötig) UND wird dauerhaft über denselben
+  // generischen Einstellungs-Mechanismus wie Auto-Save/Tab-Größe gespeichert.
+  el.querySelector('#stSpellcheck').addEventListener('change', async (e) => {
+    await window.archivAPI.setSpellCheckEnabled(e.target.checked);
+    await updateSetting({ editor: { spellcheck: e.target.checked } });
   });
 }
 
@@ -371,6 +410,10 @@ async function renderBackupSection(el, config, updateSetting) {
 async function renderUpdatesSection(el) {
   el.innerHTML = `<h3>Updates</h3><p class="settings-hint">Prüfe …</p>`;
   const status = await fetchUpdateStatus();
+  const updateSettings = await window.archivAPI.getUpdateSettings();
+  const lastCheckLabel = updateSettings.lastCheckAt
+    ? new Date(updateSettings.lastCheckAt).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
+    : 'noch nie geprüft';
   el.innerHTML = `
     <h3>Updates</h3>
     <div class="settings-field">
@@ -382,12 +425,36 @@ async function renderUpdatesSection(el) {
       <div class="settings-readonly-value" id="stLatestVersion">${status.latestVersion ? 'v' + escapeAttr(status.latestVersion) : 'unbekannt'}</div>
     </div>
     <div class="settings-field">
+      <span>Letzte Prüfung</span>
+      <div class="settings-readonly-value" id="stLastCheck">${escapeAttr(lastCheckLabel)}</div>
+    </div>
+    <div class="settings-field">
       <span>Status</span>
       <div class="update-status-inline"><span class="update-dot" id="stUpdateDot"></span><span class="update-status-label" id="stUpdateLabel"></span></div>
     </div>
     <div class="settings-button-row">
       <button type="button" class="btn ghost" id="stCheckNow">Jetzt nach Updates suchen</button>
       <button type="button" class="btn ghost" id="stOpenReleases">GitHub-Releases öffnen</button>
+    </div>
+    <div class="settings-field">
+      <span>Verhalten</span>
+      <label class="settings-checkbox-row">
+        <input type="checkbox" id="stUpdateCheckOnStart" ${updateSettings.checkOnStart ? 'checked' : ''}>
+        <span>Beim Start automatisch nach Updates suchen</span>
+      </label>
+      <label class="settings-checkbox-row">
+        <input type="checkbox" id="stUpdateAutoDownload" ${updateSettings.autoDownload ? 'checked' : ''}>
+        <span>Updates automatisch herunterladen</span>
+      </label>
+      <label class="settings-checkbox-row">
+        <input type="checkbox" id="stUpdateConfirmDownload" ${updateSettings.confirmBeforeDownload ? 'checked' : ''}>
+        <span>Vor dem Herunterladen nachfragen</span>
+      </label>
+      <label class="settings-checkbox-row">
+        <input type="checkbox" checked disabled>
+        <span>Vor dem Neustart immer nachfragen</span>
+      </label>
+      <p class="settings-hint">Archiv-Wiki installiert ein heruntergeladenes Update nie von selbst und startet nie von selbst neu — diese Nachfrage lässt sich deshalb bewusst nicht abschalten.</p>
     </div>
   `;
   renderUpdateStatus(el.querySelector('#stUpdateDot'), el.querySelector('#stUpdateLabel'), status);
@@ -397,11 +464,28 @@ async function renderUpdatesSection(el) {
     const fresh = await fetchUpdateStatus();
     el.querySelector('#stLatestVersion').textContent = fresh.latestVersion ? 'v' + fresh.latestVersion : 'unbekannt';
     renderUpdateStatus(el.querySelector('#stUpdateDot'), el.querySelector('#stUpdateLabel'), fresh);
+    const refreshed = await window.archivAPI.getUpdateSettings();
+    el.querySelector('#stLastCheck').textContent = refreshed.lastCheckAt
+      ? new Date(refreshed.lastCheckAt).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
+      : 'noch nie geprüft';
     e.target.disabled = false;
     e.target.textContent = 'Jetzt nach Updates suchen';
   });
   el.querySelector('#stOpenReleases').addEventListener('click', () => {
-    window.open(status.releaseUrl || 'https://github.com/Smashinger/archiv-wiki/releases', '_blank');
+    window.open(status.releaseUrl || 'https://github.com/Smashinger/Archiv-Wiki/releases', '_blank');
+  });
+  // Update-Einstellungen sind app-weit (main/app-state.js), nicht Teil der
+  // projektbezogenen config — deshalb direkt über window.archivAPI statt
+  // über das hier übliche updateSetting(), exakt wie beim bestehenden
+  // Schließen-Verhalten weiter oben in dieser Datei.
+  el.querySelector('#stUpdateCheckOnStart').addEventListener('change', (e) => {
+    window.archivAPI.setUpdateSetting('updateCheckOnStart', e.target.checked);
+  });
+  el.querySelector('#stUpdateAutoDownload').addEventListener('change', (e) => {
+    window.archivAPI.setUpdateSetting('updateAutoDownload', e.target.checked);
+  });
+  el.querySelector('#stUpdateConfirmDownload').addEventListener('change', (e) => {
+    window.archivAPI.setUpdateSetting('updateConfirmBeforeDownload', e.target.checked);
   });
 }
 

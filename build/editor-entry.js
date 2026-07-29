@@ -191,6 +191,14 @@ export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, 
       editorTheme,
       EditorState.tabSize.of(tabSize),
       EditorView.lineWrapping,
+      // Bugfix (Nutzer-Meldung: Rechtschreibprüfung funktioniert nicht):
+      // CodeMirror setzt als Code-Editor SELBST standardmäßig
+      // spellcheck="false" auf sein eigenes Textfeld — unabhängig von
+      // Electrons webPreferences.spellcheck (main.js), das dadurch komplett
+      // wirkungslos blieb, da es sich immer auf DIESES eine, überschriebene
+      // Element bezieht. Über CodeMirrors eigene, offizielle
+      // contentAttributes-Erweiterung hier ausdrücklich wieder aktiviert.
+      EditorView.contentAttributes.of({ spellcheck: 'true' }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) onChange?.(update.state.doc.toString());
         if (update.docChanged || update.selectionSet) reportCursor(update.state);

@@ -7003,6 +7003,9 @@ var LineTile = class _LineTile extends CompositeTile {
     return this.attrs;
   }
   // Find the tile associated with a given position in this line.
+  // Side -2/2 is handled specially, in that it allows the position
+  // returned to be before (-2) or after (2) widgets that would always
+  // be after/before a cursor position.
   resolveInline(pos, side, forCoords) {
     let before = null, beforeOff = -1, after = null, afterOff = -1;
     function scan(tile, pos2) {
@@ -7011,10 +7014,10 @@ var LineTile = class _LineTile extends CompositeTile {
         if (end >= pos2) {
           if (child.isComposite()) {
             scan(child, pos2 - off);
-          } else if ((!after || after.isHidden && (side > 0 && !(after.flags & 32) || forCoords && onSameLine(after, child))) && (end > pos2 || child.flags & 32)) {
+          } else if ((!after || after.isHidden && (side > 0 && !(after.flags & 32) || forCoords && onSameLine(after, child))) && (end > pos2 || child.flags & 32 && side <= 1)) {
             after = child;
             afterOff = pos2 - off;
-          } else if (off < pos2 || child.flags & 16 && !child.isHidden) {
+          } else if (off < pos2 || child.flags & 16 && !child.isHidden && side >= -1) {
             before = child;
             beforeOff = pos2 - off;
           }
@@ -7229,18 +7232,20 @@ var TilePointer = class {
     let { tile, index, beforeBreak, parents } = this;
     while (dist2 || side > 0) {
       if (!tile.isComposite()) {
-        if (index == tile.length) {
+        let len = tile.length;
+        if (index < len && dist2) {
+          let take = Math.min(dist2, len - index);
+          if (walker)
+            walker.skip(tile, index, index + take);
+          dist2 -= take;
+          index += take;
+        }
+        if (index == len) {
           beforeBreak = !!tile.breakAfter;
           ({ tile, index } = parents.pop());
           index++;
         } else if (!dist2) {
           break;
-        } else {
-          let take = Math.min(dist2, tile.length - index);
-          if (walker)
-            walker.skip(tile, index, index + take);
-          dist2 -= take;
-          index += take;
         }
       } else if (beforeBreak) {
         if (!dist2)
@@ -11705,6 +11710,8 @@ var baseTheme$1 = /* @__PURE__ */ buildTheme("." + baseThemeID, {
     backgroundColor: "#f5f5f5",
     color: "black"
   },
+  ".cm-panels-top": { top: "0" },
+  ".cm-panels-bottom": { bottom: "0" },
   "&light .cm-panels-top": {
     borderBottom: "1px solid #ddd"
   },
@@ -13625,6 +13632,22 @@ function runHandlers(map, event, view, scope) {
   currentKeyEvent = null;
   return handled;
 }
+var selectionBg = browser.gecko && browser.gecko_version >= 153 ? "#ffffff01" : "transparent";
+var hideNativeSelection = /* @__PURE__ */ Prec.highest(/* @__PURE__ */ EditorView.theme({
+  ".cm-line": {
+    "& ::selection, &::selection": { backgroundColor: `${selectionBg} !important` },
+    caretColor: "transparent !important"
+  },
+  ".cm-content": {
+    caretColor: "transparent !important",
+    "& :focus": {
+      caretColor: "initial !important",
+      "&::selection, & ::selection": {
+        backgroundColor: "Highlight !important"
+      }
+    }
+  }
+}));
 var UnicodeRegexpSupport = /x/.unicode != null ? "gu" : "g";
 function highlightActiveLine() {
   return activeLineHighlighter;
@@ -14152,7 +14175,6 @@ var PanelGroup = class {
     if (!this.dom) {
       this.dom = document.createElement("div");
       this.dom.className = this.top ? "cm-panels cm-panels-top" : "cm-panels cm-panels-bottom";
-      this.dom.style[this.top ? "top" : "bottom"] = "0";
       let parent = this.container || this.view.dom;
       parent.insertBefore(this.dom, this.top ? parent.firstChild : null);
     }
@@ -47921,6 +47943,14 @@ function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, onChange, o
       editorTheme,
       EditorState.tabSize.of(tabSize),
       EditorView.lineWrapping,
+      // Bugfix (Nutzer-Meldung: Rechtschreibprüfung funktioniert nicht):
+      // CodeMirror setzt als Code-Editor SELBST standardmäßig
+      // spellcheck="false" auf sein eigenes Textfeld — unabhängig von
+      // Electrons webPreferences.spellcheck (main.js), das dadurch komplett
+      // wirkungslos blieb, da es sich immer auf DIESES eine, überschriebene
+      // Element bezieht. Über CodeMirrors eigene, offizielle
+      // contentAttributes-Erweiterung hier ausdrücklich wieder aktiviert.
+      EditorView.contentAttributes.of({ spellcheck: "true" }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) onChange?.(update.state.doc.toString());
         if (update.docChanged || update.selectionSet) reportCursor(update.state);

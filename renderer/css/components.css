@@ -461,6 +461,20 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .dirty-label{ font-family: var(--mono); font-size:11.5px; color: var(--text-faint); }
 .dirty-label.is-dirty{ color: var(--accent-color); }
 .dirty-label.has-error{ color: var(--red); cursor: help; }
+/* Sanfte Bestätigungs-Animation beim Speichern (Nutzer-Feature) — reine
+   CSS-Keyframe-Animation statt JS-gesteuerter Stil-Änderungen (motion.js ist
+   für etwas anderes gedacht: JS-getriebenes Ein-/Ausblenden von Overlays).
+   Bewusst nur transform+opacity (laufen auf dem Compositor, kein Neu-Layout),
+   200ms Gesamtdauer, dezent statt springend. */
+@keyframes save-pulse{
+  0%{ transform: scale(1); opacity: 1; }
+  40%{ transform: scale(1.06); opacity: .85; }
+  100%{ transform: scale(1); opacity: 1; }
+}
+.dirty-label.save-pulse{ display: inline-block; animation: save-pulse 200ms ease-out; }
+@media (prefers-reduced-motion: reduce){
+  .dirty-label.save-pulse{ animation: none; }
+}
 .btn{ font-family: var(--mono); font-size:12px; font-weight:600; border-radius: var(--radius-sm); padding:8px 14px; cursor:pointer; border:1px solid var(--border); background: var(--bg-elev-2); color: var(--text-muted); }
 .btn:hover{ color: var(--text-main); border-color: var(--accent-dim); }
 .btn.primary{ background: var(--accent-color); color:#ffffff; border-color: var(--accent-color); }
@@ -688,6 +702,13 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .preview-pane table[data-table-index]:hover{ outline: 1px dashed var(--border); outline-offset: 2px; }
 
 .template-picker-list{ display:flex; flex-direction:column; gap:2px; margin-bottom:12px; }
+.template-picker-divider{
+  font-family: var(--mono); font-size:10.5px; text-transform:uppercase; color: var(--text-faint);
+  margin: 4px 0 6px; padding-top:8px; border-top:1px solid var(--border-soft);
+}
+.template-picker-row{ display:flex; align-items:center; gap:4px; margin-bottom:2px; }
+.template-picker-row .template-picker-btn{ flex:1; margin-bottom:0; }
+.icon-btn.small{ width:26px; height:26px; font-size:12px; }
 .template-picker-btn{
   display:block; width:100%; text-align:left;
   background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-sm);
@@ -918,3 +939,25 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
   .preview-pane pre, .preview-pane code { background: #f2f2f2 !important; color: #111111 !important; }
   .preview-pane .wiki-link, .preview-pane .wiki-link-missing { color: #1a56db !important; text-decoration: underline !important; }
 }
+
+/* Automatisches Update-System (Nutzer-Feature): dezente Benachrichtigung
+   unten rechts, statt eines blockierenden Dialogs — bewusst unauffällig,
+   der Nutzer kann jederzeit weiterarbeiten, ohne dass sie im Weg steht. */
+.update-toast{
+  position: fixed; right: 20px; bottom: 20px; z-index: 200;
+  width: 320px; max-width: calc(100vw - 40px);
+  background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: 0 8px 28px rgba(0,0,0,.32); padding: 14px 16px;
+  animation: update-toast-in 220ms ease-out;
+}
+@keyframes update-toast-in{
+  0%{ transform: translateY(12px); opacity: 0; }
+  100%{ transform: translateY(0); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce){
+  .update-toast{ animation: none; }
+}
+.update-toast-message{ font-size: 13px; color: var(--text-main); line-height: 1.5; margin-bottom: 10px; }
+.update-toast-progress{ height: 5px; border-radius: 3px; background: var(--bg-color); overflow: hidden; margin-bottom: 10px; }
+.update-toast-progress-bar{ height: 100%; width: 0%; background: var(--accent-color); transition: width 200ms ease-out; }
+.update-toast-actions{ display: flex; justify-content: flex-end; gap: 8px; }
