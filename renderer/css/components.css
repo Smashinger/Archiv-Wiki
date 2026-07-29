@@ -885,6 +885,8 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .sync-conflict-row.sync-conflict-resolved{ background: rgba(110,201,123,.06); border-color: rgba(110,201,123,.25); }
 .sync-conflict-path{ font-family: var(--mono); font-size:11.5px; color: var(--text-main); word-break:break-all; }
 .sync-conflict-reason{ font-size:11px; color: var(--text-faint); margin: 2px 0 7px; }
+.sync-conflict-details{ font-size:11px; color: var(--text-muted); margin-bottom:7px; line-height:1.6; }
+.sync-conflict-details-label{ color: var(--text-faint); }
 .sync-conflict-actions{ display:flex; gap:6px; flex-wrap:wrap; }
 .sync-conflict-actions button{
   background: var(--bg-elev-2); border:1px solid var(--border-soft); color: var(--text-muted);

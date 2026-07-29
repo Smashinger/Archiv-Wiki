@@ -173,12 +173,15 @@ async function performSyncAll({ projectPath, url, username, password }) {
 
   // Remote-Dateien (rekursiv, nur type:'file')
   const remoteEntries = await client.getDirectoryContents('/', { deep: true });
-  const remoteFiles = new Map(); // relPath -> { etag, size }
+  const remoteFiles = new Map(); // relPath -> { etag, size, lastmod }
   for (const entry of remoteEntries) {
     if (entry.type !== 'file') continue;
     const relPath = entry.filename.replace(/^\/+/, '');
     if (isExcluded(relPath)) continue;
-    remoteFiles.set(relPath, { etag: entry.etag, size: entry.size });
+    // lastmod (Nutzer-Feature: verständlichere Konflikt-Anzeige) liefert die
+    // Bibliothek beim ohnehin schon nötigen Verzeichnis-Abruf gleich mit —
+    // keine zusätzliche Netzwerk-Anfrage nötig, nur bisher ungenutzt.
+    remoteFiles.set(relPath, { etag: entry.etag, size: entry.size, lastmod: entry.lastmod });
   }
 
   // Lokale Dateien (rekursiv)
@@ -233,8 +236,24 @@ async function performSyncAll({ projectPath, url, username, password }) {
     const remote = remoteFiles.get(relPath);
     const m = manifest[relPath];
 
+    const localChanged = Boolean(local && m && (local.mtime.toISOString() !== m.localMtime || local.size !== m.localSize));
+    const remoteChanged = Boolean(remote && m && (remote.etag !== m.remoteEtag || remote.size !== m.remoteSize));
+
+    // Bugfix (Nutzer-Meldung: wiederkehrender Konflikt bei unveränderten
+    // Notizen): Metadaten (Zeitstempel/Größe/ETag) sind nur ein HINWEIS, kein
+    // Beweis für einen echten inhaltlichen Unterschied — z. B. kann ein
+    // Cloud-Speicher bei einem internen Datei-Scan eine neue ETag vergeben,
+    // ohne dass sich der Inhalt ändert. Der Inhalts-Vergleich lief bisher NUR
+    // beim allerersten Abgleich einer Datei (kein Manifest-Eintrag) — jetzt
+    // zusätzlich auch dann, wenn Metadaten "beide Seiten geändert" nahelegen,
+    // also GENAU der Fall, der einen Konflikt auslösen würde. In allen
+    // anderen Fällen (nur eine Seite geändert, oder gar keine) bleibt es
+    // beim reinen, günstigeren Metadaten-Vergleich, um nicht bei JEDER Datei
+    // unnötig herunterzuladen.
     let contentIdentical = false;
-    if (!m && local && remote) {
+    const wouldBeCreateConflict = !m && local && remote;
+    const wouldBeUpdateConflict = Boolean(m) && local && remote && localChanged && remoteChanged;
+    if (wouldBeCreateConflict || wouldBeUpdateConflict) {
       const localContent = fs.readFileSync(local.fullPath);
       const remoteContent = await client.getFileContents(relPath);
       contentIdentical = Buffer.isBuffer(remoteContent)
@@ -246,8 +265,8 @@ async function performSyncAll({ projectPath, url, username, password }) {
       localExists: Boolean(local),
       remoteExists: Boolean(remote),
       hasManifestEntry: Boolean(m),
-      localChanged: Boolean(local && m && (local.mtime.toISOString() !== m.localMtime || local.size !== m.localSize)),
-      remoteChanged: Boolean(remote && m && (remote.etag !== m.remoteEtag || remote.size !== m.remoteSize)),
+      localChanged,
+      remoteChanged,
       contentIdentical
     });
 
@@ -256,6 +275,13 @@ async function performSyncAll({ projectPath, url, username, password }) {
         delete manifest[relPath];
         break;
       case 'skip':
+        // Deckt jetzt auch den Fall ab, in dem Metadaten einen Konflikt
+        // nahelegten, der echte Inhalt sich aber als identisch herausstellte
+        // (contentIdentical === true) — der Manifest-Eintrag wird dabei ganz
+        // regulär auf den JETZT bekannten Stand aktualisiert, genau wie bei
+        // jedem anderen "unverändert"-Fall. Dadurch verschwindet ein reiner
+        // Metadaten-Fehlalarm dauerhaft, statt beim nächsten Abgleich erneut
+        // aufzutauchen.
         if (local && remote) manifest[relPath] = { localMtime: local.mtime.toISOString(), localSize: local.size, remoteEtag: remote.etag, remoteSize: remote.size };
         skipped++;
         break;
@@ -272,7 +298,25 @@ async function performSyncAll({ projectPath, url, username, password }) {
         fs.unlinkSync(local.fullPath); delete manifest[relPath]; deletedLocal++;
         break;
       case 'conflict':
-        conflicts.push({ relPath, reason: decision.reason, localExists: Boolean(local), remoteExists: Boolean(remote) });
+        // Bewusst weiterhin OHNE Manifest-Eintrag (siehe Kommentar in
+        // sync-classify.js): ein ECHTER Konflikt (Inhalt tatsächlich
+        // unterschiedlich) soll bei jedem Abgleich erneut gemeldet werden,
+        // bis der Nutzer ihn bewusst über sync:resolveConflict auflöst —
+        // alles andere würde einen ungelösten, echten Unterschied stillschweigend
+        // "vergessen" lassen.
+        conflicts.push({
+          relPath,
+          reason: decision.reason,
+          localExists: Boolean(local),
+          remoteExists: Boolean(remote),
+          // Nutzer-Feature: Datum + Größe beider Seiten mitgeben, damit die
+          // Konflikt-Auswahl in der Oberfläche eine echte Entscheidungshilfe
+          // zeigen kann, statt den Nutzer komplett blind raten zu lassen.
+          localMtime: local ? local.mtime.toISOString() : null,
+          localSize: local ? local.size : null,
+          remoteLastmod: remote ? remote.lastmod : null,
+          remoteSize: remote ? remote.size : null
+        });
         break;
     }
     // Bugfix (Audit-Punkt 2): Manifest nach JEDER Datei sichern, nicht erst

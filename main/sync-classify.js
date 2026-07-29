@@ -20,8 +20,22 @@ function isExcluded(relPath) {
 // ---------------------------------------------------------------------------
 // Eingabe: Existenz auf beiden Seiten, ob ein Manifest-Eintrag existiert
 // (= schon mal synchronisiert), ob lokal/remote seit dem Manifest-Stand
-// geändert wurden, und (nur relevant wenn kein Manifest-Eintrag existiert
-// UND beide Seiten existieren) ob der Inhalt zufällig identisch ist.
+// geändert wurden, und (nur relevant wenn beide Seiten existieren UND die
+// Metadaten allein auf einen Konflikt hindeuten würden) ob der tatsächliche
+// Inhalt trotzdem identisch ist.
+//
+// Bugfix (Nutzer-Meldung: wiederkehrender Konflikt bei unveränderten
+// Notizen): Metadaten (Zeitstempel/Größe/ETag) sind nur ein HINWEIS, kein
+// Beweis für einen echten inhaltlichen Unterschied — ein Cloud-Speicher kann
+// z. B. bei einem internen Datei-Scan eine neue ETag vergeben, ohne dass sich
+// der Inhalt ändert. contentIdentical wird deshalb jetzt in ZWEI Fällen vom
+// Aufrufer geprüft (siehe sync-ipc.js): beim allerersten Abgleich einer Datei
+// (wie schon vorher) UND wenn Metadaten "beide Seiten geändert" nahelegen.
+// Bewusst NICHT umgekehrt gelöst (z. B. einen Konflikt einfach nach einer
+// gewissen Zeit "verjähren" lassen) — ein ECHTER Konflikt (Inhalt tatsächlich
+// unterschiedlich) soll weiterhin bei jedem Abgleich gemeldet werden, bis der
+// Nutzer ihn bewusst auflöst. Alles andere wäre ein stilles Verschwinden
+// eines ungelösten, echten Unterschieds.
 //
 // Rückgabe: { action } mit action ∈
 //   'upload' | 'download' | 'skip' | 'cleanup' |
@@ -51,7 +65,13 @@ function classifyFile({ localExists, remoteExists, hasManifestEntry, localChange
       : { action: 'delete-local' };
   }
   // Beide vorhanden:
-  if (localChanged && remoteChanged) return { action: 'conflict', reason: 'Auf beiden Seiten seit dem letzten Abgleich geändert.' };
+  if (localChanged && remoteChanged) {
+    // Metadaten sagen "beide Seiten geändert" — das allein reicht nicht mehr,
+    // erst der echte Inhalt entscheidet (siehe Kommentar oben).
+    return contentIdentical
+      ? { action: 'skip' }
+      : { action: 'conflict', reason: 'Auf beiden Seiten seit dem letzten Abgleich geändert.' };
+  }
   if (localChanged) return { action: 'upload' };
   if (remoteChanged) return { action: 'download' };
   return { action: 'skip' };

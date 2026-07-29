@@ -711,6 +711,10 @@ async function openSyncSettingsModal() {
       <div class="sync-conflict-row" data-relpath="${escapeHtml(c.relPath)}">
         <div class="sync-conflict-path">${escapeHtml(c.relPath)}</div>
         <div class="sync-conflict-reason">${escapeHtml(c.reason)}</div>
+        <div class="sync-conflict-details">
+          ${c.localExists ? `<div><span class="sync-conflict-details-label">Deine Version:</span> ${escapeHtml(formatDateTime(c.localMtime))} · ${escapeHtml(formatBytes(c.localSize))}</div>` : ''}
+          ${c.remoteExists ? `<div><span class="sync-conflict-details-label">Cloud-Version:</span> ${escapeHtml(formatDateTime(c.remoteLastmod))} · ${escapeHtml(formatBytes(c.remoteSize))}</div>` : ''}
+        </div>
         <div class="sync-conflict-actions">
           <button type="button" data-resolve="keep-local">Meine Version behalten</button>
           <button type="button" data-resolve="keep-remote">Cloud-Version übernehmen</button>
@@ -3762,6 +3766,22 @@ function formatDate(iso) {
 }
 function formatTime(d) {
   return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+}
+// Nutzer-Feature (Konflikt-Anzeige): kombiniert Datum+Uhrzeit in einem Zug,
+// unter Wiederverwendung der beiden Funktionen oben statt eigener Logik.
+function formatDateTime(iso) {
+  if (!iso) return 'unbekannt';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return 'unbekannt';
+  return `${formatDate(iso)}, ${formatTime(d)} Uhr`;
+}
+// Nutzer-Feature (Konflikt-Anzeige): einzige Stelle im Projekt, die Bytes in
+// eine lesbare Größe umwandelt — bisher gab es dafür noch keine Funktion.
+function formatBytes(bytes) {
+  if (bytes == null) return 'unbekannt';
+  if (bytes < 1000) return `${bytes} Byte`;
+  if (bytes < 1000 * 1000) return `${(bytes / 1000).toFixed(1)} KB`;
+  return `${(bytes / (1000 * 1000)).toFixed(1)} MB`;
 }
 
 // ---------------------------------------------------------------------------
