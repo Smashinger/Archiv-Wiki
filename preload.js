@@ -20,7 +20,13 @@ contextBridge.exposeInMainWorld('archivAPI', {
   getBackupStatus: () => ipcRenderer.invoke('app:getBackupStatus'),
   runBackupNow: () => ipcRenderer.invoke('app:runBackupNow'),
   openBackupFolder: () => ipcRenderer.invoke('app:openBackupFolder'),
+  onBackupStatusUpdated: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on('backup:statusUpdated', listener);
+    return () => ipcRenderer.removeListener('backup:statusUpdated', listener);
+  },
   moveProjectFolder: () => ipcRenderer.invoke('app:moveProjectFolder'),
+  getUpdateStatus: () => ipcRenderer.invoke('app:getUpdateStatus'),
   checkForUpdate: () => ipcRenderer.invoke('app:checkForUpdate'),
   // Automatisches Update-System (Nutzer-Feature) — Download/Installation
   // sowie die zugehörigen Einstellungen und Ereignis-Kanäle.
@@ -32,6 +38,11 @@ contextBridge.exposeInMainWorld('archivAPI', {
   onUpdateDownloadProgress: (callback) => { ipcRenderer.on('update:download-progress', (_e, progress) => callback(progress)); },
   onUpdateDownloaded: (callback) => { ipcRenderer.on('update:downloaded', () => callback()); },
   onUpdateError: (callback) => { ipcRenderer.on('update:error', (_e, info) => callback(info)); },
+  onUpdateStatusChanged: (callback) => {
+    const listener = (_e, status) => callback(status);
+    ipcRenderer.on('update:statusChanged', listener);
+    return () => ipcRenderer.removeListener('update:statusChanged', listener);
+  },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     update: (patch) => ipcRenderer.invoke('settings:update', patch),

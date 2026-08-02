@@ -37,10 +37,10 @@
       </div>
       <div class="search-wrap">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="navSearch" placeholder="Durchsuchen…" autocomplete="off">
+        <input type="text" id="navSearch" placeholder="Durchsuchen…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="searchDropdown" aria-autocomplete="list" aria-haspopup="listbox">
         <button type="button" class="search-clear" id="searchClear" title="Suche leeren" aria-label="Suche leeren">✕</button>
         <kbd>Ctrl K</kbd>
-        <div class="search-dropdown" id="searchDropdown" style="display:none;"></div>
+        <div class="search-dropdown" id="searchDropdown" role="listbox" aria-label="Suchergebnisse" style="display:none;"></div>
       </div>
 
       <div class="action-row">
@@ -75,7 +75,7 @@
         <span class="spacer"></span>
         <span class="topbar-dates" id="topbarNoteDates"></span>
         <button class="icon-btn" id="btnSync" type="button" title="Cloud-Sync-Einstellungen" aria-label="Cloud-Sync-Einstellungen">☁</button>
-        <button class="icon-btn backup-warning-btn" id="btnBackupWarning" type="button" title="" aria-label="Backup-Warnung" style="display:none;">⚠️</button>
+        <button class="icon-btn backup-warning-btn" id="btnBackupWarning" type="button" title="" aria-label="Backup-Warnung" style="display:none;"><img class="lib-icon" src="assets/icon-library/security/alert-triangle.svg" alt=""></button>
         <button class="icon-btn trash-btn" id="btnTrash" type="button" title="Papierkorb" aria-label="Papierkorb">🗑<span class="trash-count" id="trashCount" style="display:none;"></span></button>
         <button class="icon-btn" id="btnBugReport" type="button" title="Fehler melden" aria-label="Fehler melden">🐛</button>
         <button class="icon-btn" id="btnAbout" type="button" title="Über Archiv Wiki" aria-label="Über Archiv Wiki">ℹ</button>

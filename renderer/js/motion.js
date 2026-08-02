@@ -9,9 +9,28 @@ const REDUCED_MOTION = typeof window.matchMedia === 'function' && window.matchMe
 const EASE_IN_DURATION = 100;
 const EASE_OUT_DURATION = 140;
 
+const animationVersions = new WeakMap();
+const pendingOutTimers = new WeakMap();
+
+function beginAnimation(el) {
+  const version = (animationVersions.get(el) || 0) + 1;
+  animationVersions.set(el, version);
+  const pendingTimer = pendingOutTimers.get(el);
+  if (pendingTimer) {
+    clearTimeout(pendingTimer);
+    pendingOutTimers.delete(el);
+  }
+  return version;
+}
+
+function isCurrentAnimation(el, version) {
+  return animationVersions.get(el) === version;
+}
+
 // Blendet ein bereits im DOM eingefügtes Element sanft ein — Aufrufer muss es
 // VORHER anhängen (display bleibt unangetastet, nur opacity/transform).
 export function animateIn(el) {
+  const version = beginAnimation(el);
   if (REDUCED_MOTION) { el.style.opacity = '1'; el.style.transform = 'none'; return; }
   el.style.opacity = '0';
   el.style.transform = 'translateY(-4px)';
@@ -21,6 +40,7 @@ export function animateIn(el) {
   // sonst wird die Animation in manchen Fällen einfach übersprungen.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
+      if (!isCurrentAnimation(el, version)) return;
       el.style.opacity = '1';
       el.style.transform = 'translateY(0)';
     });
@@ -30,9 +50,15 @@ export function animateIn(el) {
 // Blendet sanft aus, ruft onComplete danach auf (dort typischerweise
 // el.remove() bzw. el.style.display = 'none').
 export function animateOut(el, onComplete) {
+  const version = beginAnimation(el);
   if (REDUCED_MOTION) { onComplete(); return; }
   el.style.transition = `opacity ${EASE_IN_DURATION}ms ease-in, transform ${EASE_IN_DURATION}ms ease-in`;
   el.style.opacity = '0';
   el.style.transform = 'translateY(-4px)';
-  setTimeout(onComplete, EASE_IN_DURATION);
+  const timer = setTimeout(() => {
+    pendingOutTimers.delete(el);
+    if (!isCurrentAnimation(el, version)) return;
+    onComplete();
+  }, EASE_IN_DURATION);
+  pendingOutTimers.set(el, timer);
 }

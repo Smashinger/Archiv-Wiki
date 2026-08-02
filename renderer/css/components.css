@@ -40,6 +40,14 @@
   background:transparent; border:none; border-radius:50%; color: var(--text-faint); font-size:11px; cursor:pointer;
 }
 .search-clear:hover{ color: var(--text-main); background: rgba(255,255,255,0.06); }
+.search-wrap input:focus{ outline:none; }
+.search-wrap input:focus-visible,
+.search-clear:focus-visible,
+.search-result:focus-visible{
+  outline:2px solid var(--accent-dim);
+  outline-offset:2px;
+}
+.search-wrap input:focus-visible{ border-color:var(--accent-dim); }
 /* Bei Text: X-Button zeigen, Ctrl-K-Hinweis ausblenden (sonst zu eng bei 40px) */
 .search-wrap.has-value .search-clear{ display:flex; }
 .search-wrap.has-value kbd{ display:none; }
@@ -58,15 +66,44 @@
 .search-result:last-child{ border-bottom:none; }
 .search-result:hover, .search-result.active{ background: var(--bg-elev); }
 .search-result-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.search-result-title{ font-size:12.5px; color: var(--text-main); font-family: var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.search-result-title{ min-width:0; display:flex; align-items:center; gap:6px; font-size:12.5px; color: var(--text-main); font-family: var(--mono); overflow:hidden; white-space:nowrap; }
+.search-result-title > span:last-child{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.search-result-icon{ display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; width:14px; height:14px; }
+.search-result-icon .lib-icon{ width:14px; height:14px; vertical-align:0; }
 .search-result-category{
-  flex-shrink:0; font-family: var(--mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.04em;
+  flex-shrink:1; max-width:45%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family: var(--mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.04em;
   color: var(--text-faint); background: var(--bg-elev-2); border:1px solid var(--border-soft); border-radius: var(--radius-sm); padding:2px 6px;
 }
 .search-result-tags{ display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; }
 .search-result-tag{ font-family: var(--mono); font-size:9.5px; color: var(--accent-color); background: var(--accent-soft); border-radius: var(--radius-sm); padding:1px 6px; }
 .search-result-snippet{ margin-top:6px; font-size:11.5px; color: var(--text-muted); line-height:1.5; }
-.search-result-snippet mark, .search-result-title mark{ background: color-mix(in srgb, var(--accent-color) 35%, transparent); color: var(--text-main); border-radius:2px; padding:0 1px; }
+.search-result-title,
+.search-result-category,
+.search-result-tag,
+.search-result-snippet{
+  /* JetBrains Mono nutzt standardmäßig Ligaturen und kontextuelle Alternativen.
+     Sobald ein Treffer durch <mark> in getrennte Inline-Textläufe zerfällt,
+     kann Chromium diese Läufe unterschiedlich formen und einzelne Glyphen
+     optisch übereinander zeichnen. Für Suchergebnisse wird die Textformung
+     deshalb einheitlich ohne Ligaturen ausgeführt. */
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+.search-result-snippet mark,
+.search-result-title mark,
+.search-result-tag mark,
+.search-result-category mark{
+  background: color-mix(in srgb, var(--accent-color) 35%, transparent);
+  color: inherit;
+  border-radius:2px;
+  padding:0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+.search-results-limit{ padding:9px 12px; border-top:1px solid var(--border-soft); color:var(--text-faint); font-family:var(--mono); font-size:9.5px; line-height:1.4; text-align:center; }
 
 /* --- Action-Row: drei gleich große Buttons nebeneinander. "+ Notiz" bleibt
    akzentfarben (Haupt-Aktion), "+ Haupt"/"+ Unter" gleichen sich dezent an
@@ -416,6 +453,8 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 #btnFocusMode.active{ color: var(--accent-color); border-color: var(--accent-dim); }
 
 .backup-warning-btn{ color: var(--red); }
+.backup-warning-btn .lib-icon{ width:16px; height:16px; }
+.backup-dialog-icon{ width:14px; height:14px; margin-right:5px; vertical-align:-2px; }
 .backup-warning-btn:hover{ color: var(--red); filter: brightness(1.2); }
 
 .lock-screen{
@@ -974,6 +1013,20 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 }
 .settings-hint{ font-size: 11.5px; color: var(--text-faint); line-height: 1.5; margin: 4px 0 0; }
 .settings-hint-error{ color: var(--red); }
+.settings-hint-success{ color: var(--green); }
+.settings-hint-warning{ color: var(--amber); }
+.backup-status-message{
+  display:flex; flex-direction:column; gap:4px; margin: 0 0 14px; padding:9px 10px;
+  background: var(--bg-elev-2); border:1px solid var(--border-soft); border-radius: var(--radius-sm);
+  font-size:11.5px; line-height:1.5; color:var(--text-muted);
+}
+.backup-status-message strong{ font-family:var(--mono); font-size:11.5px; font-weight:600; }
+.backup-status-message-error{ border-color:var(--red); }
+.backup-status-message-error strong{ color:var(--red); }
+.backup-status-message-warning{ border-color:var(--amber); }
+.backup-status-message-warning strong{ color:var(--amber); }
+.backup-status-time{ color:var(--text-faint); font-size:11px; }
+.backup-restore-hint{ max-width:520px; }
 .settings-button-row{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .settings-modal .btn{
   min-height: 36px; display: inline-flex; align-items: center; justify-content: center; line-height: 1.4;
@@ -1042,6 +1095,11 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
   cursor:pointer; padding: 2px 0; text-align:left;
 }
 .backup-error-details-toggle:hover{ color: var(--accent-color); }
+
+.backup-error-overlay :is(button, [tabindex]):focus{ outline:none; }
+.backup-error-overlay :is(button, [tabindex]):focus-visible{
+  outline:2px solid var(--accent-dim); outline-offset:2px;
+}
 .backup-error-details{
   background: var(--bg-elev-2); border:1px solid var(--border-soft); border-radius: var(--radius-sm);
   padding:8px 10px; margin-top:6px; font-family: var(--mono); font-size:11px; color: var(--text-muted);
@@ -1139,3 +1197,19 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .update-toast-progress{ height: 5px; border-radius: 3px; background: var(--bg-color); overflow: hidden; margin-bottom: 10px; }
 .update-toast-progress-bar{ height: 100%; width: 0%; background: var(--accent-color); transition: width 200ms ease-out; }
 .update-toast-actions{ display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Update-Toast: bestehendes Layout, ergänzt um eindeutige Zustände und
+   tastaturfreundliche Bedienung ohne neue visuelle Sprache. */
+.update-toast-progress-row{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.update-toast-progress-row .update-toast-progress{ flex:1; margin-bottom:0; }
+.update-toast-progress-value{ min-width:38px; text-align:right; font-family:var(--mono); font-size:11.5px; color:var(--text-muted); }
+.update-toast-details{ margin:0 0 10px; font-size:11.5px; color:var(--text-faint); }
+.update-toast-details summary{ cursor:pointer; color:var(--text-muted); }
+.update-toast-details div{ margin-top:6px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.update-toast .btn:focus-visible{
+  outline:2px solid var(--accent-dim);
+  outline-offset:2px;
+}
+.settings-technical-details{ margin-top:6px; font-size:11.5px; }
+.settings-technical-details summary{ cursor:pointer; }
+.settings-technical-details div{ margin-top:6px; white-space:pre-wrap; overflow-wrap:anywhere; }

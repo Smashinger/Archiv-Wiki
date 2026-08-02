@@ -2294,7 +2294,7 @@ function createSearchIndex() {
   let index = new Document({
     document: {
       id: "relPath",
-      index: ["title", "body", "tags"]
+      index: ["title", "body", "tags", "categories"]
     },
     tokenize: "forward"
   });
@@ -2304,7 +2304,7 @@ function createSearchIndex() {
     // einer persönlichen Wiki (siehe Zielvorgabe <200ms/1000 Notizen) schnell genug).
     rebuild(docs) {
       index = new Document({
-        document: { id: "relPath", index: ["title", "body", "tags"] },
+        document: { id: "relPath", index: ["title", "body", "tags", "categories"] },
         tokenize: "forward"
       });
       for (const doc of docs) {
@@ -2312,7 +2312,8 @@ function createSearchIndex() {
           relPath: doc.relPath,
           title: doc.title || "",
           body: doc.body || "",
-          tags: Array.isArray(doc.tags) ? doc.tags.join(" ") : doc.tags || ""
+          tags: Array.isArray(doc.tags) ? doc.tags.join(" ") : doc.tags || "",
+          categories: [doc.mainCategory, doc.subCategory, doc.categoryPath].filter(Boolean).join(" ")
         });
       }
     },
@@ -2320,7 +2321,7 @@ function createSearchIndex() {
     search(query, limit = 50) {
       const q = String(query || "").trim();
       if (!q) return [];
-      const raw = index.search(q, { index: ["title", "body", "tags"], merge: true, limit });
+      const raw = index.search(q, { index: ["title", "body", "tags", "categories"], merge: true, limit });
       return raw.map((r) => r.id);
     }
   };

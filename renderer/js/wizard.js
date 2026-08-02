@@ -4,7 +4,7 @@
 
 import { buildSyncIntervalOptionsHtml } from './sync-shared.js';
 import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml } from './theme.js';
-import { fetchUpdateStatus, renderUpdateStatus } from './update-check.js';
+import { fetchUpdateStatus, onUpdateStatusChanged, renderUpdateStatus } from './update-check.js';
 
 const state = {
   step: 1,
@@ -43,30 +43,29 @@ const els = {
 
 const TOTAL_STEPS = 3;
 
-// Update-Hinweis (derselbe "einfache Weg" wie in der Haupt-App: nur
-// informieren, nichts automatisch herunterladen/austauschen). Nutzt denselben
-// bestehenden app:checkForUpdate-Kanal — keine zweite Prüf-Logik nötig.
-// Zeigt IMMER einen Status (genau wie der Sidebar-Footer der fertigen App):
-// grau "Auf dem neuesten Stand" ODER grün "Neue Version verfügbar" — kein
-// separater Button mehr, die Status-Zeile selbst ist der Link (identisches
-// Muster wie #updateStatusTop im Sidebar-Footer, siehe app.js).
-// Sofort (synchron, JS-seitig — kein Inline-Style im HTML, das wäre CSP-
-// blockiert) verstecken, BEVOR der asynchrone Update-Check überhaupt startet.
+// Update-Hinweis nutzt denselben zentralen Main-Status wie die Haupt-App.
 const wizardUpdateHintEl = document.getElementById('wizardUpdateHint');
-wizardUpdateHintEl.style.display = 'none';
+const wizardUpdateHintText = document.getElementById('wizardUpdateHintText');
+const wizardUpdateDot = document.getElementById('wizardUpdateDot');
+const wizardUpdateLabel = document.getElementById('wizardUpdateLabel');
+let wizardUpdateStatus = null;
 
-fetchUpdateStatus().then((status) => {
-  const hint = document.getElementById('wizardUpdateHint');
-  const hintText = document.getElementById('wizardUpdateHintText');
-  const dot = document.getElementById('wizardUpdateDot');
-  const label = document.getElementById('wizardUpdateLabel');
-  hint.style.display = 'block';
-  renderUpdateStatus(dot, label, status);
-  if (status.updateAvailable && status.latestVersion) {
-    hintText.classList.add('clickable');
-    hintText.addEventListener('click', () => window.open(status.releaseUrl, '_blank'));
+function applyWizardUpdateStatus(status) {
+  wizardUpdateStatus = status;
+  wizardUpdateHintEl.style.display = 'block';
+  renderUpdateStatus(wizardUpdateDot, wizardUpdateLabel, status);
+  wizardUpdateHintText.classList.toggle('clickable', status.phase === 'updateAvailable' && Boolean(status.releaseUrl));
+}
+
+wizardUpdateHintText.addEventListener('click', () => {
+  if (wizardUpdateStatus?.phase === 'updateAvailable' && wizardUpdateStatus.releaseUrl) {
+    window.open(wizardUpdateStatus.releaseUrl, '_blank');
   }
 });
+
+wizardUpdateHintEl.style.display = 'none';
+onUpdateStatusChanged(applyWizardUpdateStatus);
+fetchUpdateStatus().then(applyWizardUpdateStatus);
 
 // Sync-Intervall-Dropdown mit den GLEICHEN Optionen wie im späteren
 // In-App-Sync-Fenster befüllen (siehe renderer/js/sync-shared.js — Problem 2:

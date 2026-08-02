@@ -11,7 +11,7 @@
 // gespeichert — kein Neustart nötig, kein separater "Speichern"-Button.
 
 import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, setFocusMode, READING_WIDTH_PRESETS, applyReadingWidth, generateRandomAccentColor } from './theme.js';
-import { fetchUpdateStatus, renderUpdateStatus } from './update-check.js';
+import { fetchUpdateStatus, requestUpdateCheck, onUpdateStatusChanged, renderUpdateStatus } from './update-check.js';
 import { animateIn, animateOut } from './motion.js';
 
 function escapeAttr(s) {
@@ -115,6 +115,7 @@ export async function showSettingsWindow(context = {}) {
   if (openGeneration !== settingsWindowOpenGeneration) return;
   let activeId = SETTINGS_SECTIONS[0].id;
   let isClosing = false;
+  const backupUiState = { manualInProgress: false, feedback: null };
 
   const overlay = document.createElement('div');
   overlay.className = 'settings-overlay';
@@ -172,8 +173,13 @@ export async function showSettingsWindow(context = {}) {
     });
   }
 
+  let stopBackupStatusUpdates = null;
+  let stopUpdateStatusUpdates = null;
+
   function finishClose(restoreFocus = true) {
     document.removeEventListener('keydown', handleDialogKeydown, true);
+    stopBackupStatusUpdates?.();
+    stopUpdateStatusUpdates?.();
     overlay.remove();
     restoreBackground();
     closeActiveSettingsWindow = null;
@@ -242,7 +248,7 @@ export async function showSettingsWindow(context = {}) {
 
   let renderGeneration = 0;
 
-  async function renderActive() {
+  async function renderActive(overrides = {}) {
     const section = SETTINGS_SECTIONS.find(s => s.id === activeId);
     if (!section) return;
     const generation = ++renderGeneration;
@@ -268,13 +274,23 @@ export async function showSettingsWindow(context = {}) {
     };
 
     try {
-      await section.render(contentEl, config, updateSetting, context, lifecycle);
+      await section.render(contentEl, config, updateSetting, { ...context, backupUiState, ...overrides }, lifecycle);
     } catch (error) {
       if (!lifecycle.isCurrent()) return;
       console.error(`Einstellungsbereich "${section.id}" konnte nicht geladen werden:`, error);
       renderSettingsError(contentEl, section.label, 'Der Bereich konnte nicht geladen werden. Bitte versuche es erneut.');
     }
   }
+
+  stopBackupStatusUpdates = window.archivAPI.onBackupStatusUpdated?.((status) => {
+    if (!overlay.isConnected || activeId !== 'backup' || backupUiState.manualInProgress) return;
+    renderActive({ backupStatus: status });
+  });
+
+  stopUpdateStatusUpdates = onUpdateStatusChanged((status) => {
+    if (!overlay.isConnected || activeId !== 'updates') return;
+    renderActive({ updateStatus: status });
+  });
 
   overlay.querySelector('.settings-nav').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-section]');
@@ -630,42 +646,95 @@ function renderEditorSection(el, config, updateSetting) {
 // --- Backup ---
 async function renderBackupSection(el, config, updateSetting, context, lifecycle) {
   renderSettingsLoading(el, 'Backup', 'Lade Status …');
-  const status = await window.archivAPI.getBackupStatus();
+  const status = context.backupStatus || await window.archivAPI.getBackupStatus();
   if (!lifecycle.isCurrent()) return;
+
+  const isRunning = Boolean(status.inProgress || context.backupUiState.manualInProgress);
+  const lastSuccessText = status.lastSuccessAt ? formatRelative(status.lastSuccessAt) : 'Noch kein Backup erstellt.';
+  const feedback = context.backupUiState.feedback;
+  const feedbackHtml = feedback
+    ? `<p class="settings-hint settings-hint-${escapeAttr(feedback.type)}" role="status" data-backup-feedback>${escapeAttr(feedback.message)}</p>`
+    : '';
+  const lastErrorHtml = status.lastErrorAt
+    ? `
+      <div class="backup-status-message backup-status-message-error" role="status">
+        <strong>Letztes Backup fehlgeschlagen</strong>
+        <span>${escapeAttr(status.lastErrorUserMessage || status.lastErrorMessage || 'Das Backup konnte nicht erstellt werden.')}</span>
+        <span class="backup-status-time">${escapeAttr(formatRelative(status.lastErrorAt))}</span>
+        <button type="button" class="backup-error-details-toggle" id="stBackupErrorDetailsToggle">Technische Details anzeigen</button>
+        <pre class="backup-error-details" id="stBackupErrorDetails" style="display:none;">${escapeAttr([status.lastErrorCode, status.lastErrorMessage].filter(Boolean).join('\n') || 'Keine weiteren Details verfügbar.')}</pre>
+      </div>`
+    : '';
+  const cleanupHtml = status.lastCleanupErrorAt
+    ? `
+      <div class="backup-status-message backup-status-message-warning" role="status">
+        <strong>Backup erstellt</strong>
+        <span>${escapeAttr(status.lastCleanupErrorUserMessage || 'Das neue Backup wurde erstellt, aber ältere Sicherungen konnten nicht vollständig entfernt werden.')}</span>
+        <span class="backup-status-time">${escapeAttr(formatRelative(status.lastCleanupErrorAt))}</span>
+        <button type="button" class="backup-error-details-toggle" id="stBackupCleanupDetailsToggle">Technische Details anzeigen</button>
+        <pre class="backup-error-details" id="stBackupCleanupDetails" style="display:none;">${escapeAttr([status.lastCleanupErrorCode, status.lastCleanupErrorMessage].filter(Boolean).join('\n') || 'Keine weiteren Details verfügbar.')}</pre>
+      </div>`
+    : '';
+
   el.innerHTML = `
     <h3>Backup</h3>
     <section class="settings-group" aria-labelledby="stBackupSetupGroup">
       <h4 id="stBackupSetupGroup">Speicherort und Zeitplan</h4>
-    <div class="settings-field">
-      <span>Backup-Ordner</span>
-      <div class="settings-readonly-value" id="stBackupPath">${escapeAttr(config.backupPath || 'Noch kein Backup-Ordner gewählt')}</div>
-      <button type="button" class="btn ghost settings-inline-btn" id="stChangeBackupPath">Backup-Ordner wählen…</button>
-    </div>
-    <label class="settings-field">
-      <span>Automatisches Backup</span>
-      <select id="stBackupInterval">
-        ${BACKUP_INTERVAL_OPTIONS.map(o => `<option value="${o.value}" ${(config.backupIntervalDays ?? 1) === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
-      </select>
-    </label>
+      <div class="settings-field">
+        <span>Backup-Ordner</span>
+        <div class="settings-readonly-value" id="stBackupPath">${escapeAttr(config.backupPath || 'Noch kein Backup-Ordner ausgewählt.')}</div>
+        <button type="button" class="btn ghost settings-inline-btn" id="stChangeBackupPath">Backup-Ordner wählen…</button>
+      </div>
+      <label class="settings-field">
+        <span>Automatisches Backup</span>
+        <select id="stBackupInterval">
+          ${BACKUP_INTERVAL_OPTIONS.map(o => `<option value="${o.value}" ${(config.backupIntervalDays ?? 1) === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+        </select>
+      </label>
     </section>
     <section class="settings-group" aria-labelledby="stBackupStatusGroup">
       <h4 id="stBackupStatusGroup">Status</h4>
-    <div class="settings-field">
-      <span>Letztes erfolgreiches Backup</span>
-      <div class="settings-readonly-value">${escapeAttr(formatRelative(status.lastSuccessAt))}</div>
-    </div>
-    <div class="settings-field">
-      <span>Nächstes geplantes Backup</span>
-      <div class="settings-readonly-value">${escapeAttr(formatFuture(status.nextScheduledAt))}</div>
-    </div>
-    <div class="settings-button-row">
-      <button type="button" class="btn ghost" id="stRunBackupNow">Backup jetzt erstellen</button>
-      <button type="button" class="btn ghost" id="stOpenBackupFolder">Backup-Ordner öffnen</button>
-    </div>
+      ${feedbackHtml}
+      ${lastErrorHtml}
+      ${cleanupHtml}
+      <div class="settings-field">
+        <span>Letztes erfolgreiches Backup</span>
+        <div class="settings-readonly-value">${escapeAttr(lastSuccessText)}</div>
+      </div>
+      <div class="settings-field">
+        <span>Nächstes geplantes Backup</span>
+        <div class="settings-readonly-value">${escapeAttr(formatFuture(status.nextScheduledAt))}</div>
+      </div>
+      <div class="settings-button-row">
+        <button type="button" class="btn ghost" id="stRunBackupNow" ${isRunning ? 'disabled' : ''}>${isRunning ? 'Backup läuft …' : 'Backup jetzt erstellen'}</button>
+        <button type="button" class="btn ghost" id="stOpenBackupFolder">Backup-Ordner öffnen</button>
+      </div>
+    </section>
+    <section class="settings-group" aria-labelledby="stBackupRestoreGroup">
+      <h4 id="stBackupRestoreGroup">Wiederherstellung</h4>
+      <p class="settings-hint backup-restore-hint">Backup-Ordner öffnen, gewünschte ZIP-Datei auswählen und entpacken. Anschließend den entpackten Wiki-Ordner in Archiv-Wiki öffnen.</p>
     </section>
   `;
+
+  function wireDetailsToggle(toggleId, detailsId) {
+    const toggle = el.querySelector(`#${toggleId}`);
+    const details = el.querySelector(`#${detailsId}`);
+    if (!toggle || !details) return;
+    toggle.addEventListener('click', () => {
+      const show = details.style.display === 'none';
+      details.style.display = show ? 'block' : 'none';
+      toggle.textContent = show ? 'Technische Details ausblenden' : 'Technische Details anzeigen';
+      toggle.setAttribute('aria-expanded', String(show));
+    });
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', detailsId);
+  }
+  wireDetailsToggle('stBackupErrorDetailsToggle', 'stBackupErrorDetails');
+  wireDetailsToggle('stBackupCleanupDetailsToggle', 'stBackupCleanupDetails');
+
   el.querySelector('#stChangeBackupPath').addEventListener('click', async () => {
     clearInlineSettingsError(el);
+    context.backupUiState.feedback = null;
     try {
       const chosen = await window.archivAPI.chooseBackupFolder?.();
       if (!chosen || !lifecycle.isCurrent()) return;
@@ -679,6 +748,7 @@ async function renderBackupSection(el, config, updateSetting, context, lifecycle
   });
   el.querySelector('#stBackupInterval').addEventListener('change', async (e) => {
     clearInlineSettingsError(el);
+    context.backupUiState.feedback = null;
     try {
       await updateSetting({ backupIntervalDays: Number(e.target.value) });
     } catch (error) {
@@ -689,38 +759,58 @@ async function renderBackupSection(el, config, updateSetting, context, lifecycle
   el.querySelector('#stRunBackupNow').addEventListener('click', async (e) => {
     const button = e.currentTarget;
     clearInlineSettingsError(el);
+    context.backupUiState.feedback = null;
     button.disabled = true;
-    button.textContent = 'Läuft …';
+    button.textContent = 'Backup läuft …';
+    context.backupUiState.manualInProgress = true;
     try {
-      const before = await window.archivAPI.getBackupStatus();
-      await window.archivAPI.runBackupNow();
-      const after = await window.archivAPI.getBackupStatus();
+      const result = await window.archivAPI.runBackupNow();
+      context.backupUiState.manualInProgress = false;
       if (!lifecycle.isCurrent()) return;
-      const failed = after.lastErrorAt && after.lastErrorAt !== before.lastErrorAt
-        && after.consecutiveFailures > before.consecutiveFailures;
-      if (failed) {
-        showInlineSettingsError(el, after.lastErrorMessage || 'Das Backup konnte nicht erstellt werden.');
-        button.disabled = false;
-        button.textContent = 'Backup jetzt erstellen';
+      if (result?.started === false && result.reason === 'busy') {
+        context.backupUiState.feedback = { type: 'warning', message: 'Es läuft bereits ein Backup.' };
+        await renderBackupSection(el, config, updateSetting, { ...context, backupStatus: result?.status }, lifecycle);
         return;
       }
-      await renderBackupSection(el, config, updateSetting, context, lifecycle);
+      if (result?.success === false) {
+        context.backupUiState.feedback = {
+          type: 'error',
+          message: result.error?.userMessage || result.status?.lastErrorUserMessage || result.error?.message || 'Das Backup konnte nicht erstellt werden.'
+        };
+        await renderBackupSection(el, config, updateSetting, { ...context, backupStatus: result?.status }, lifecycle);
+        return;
+      }
+      context.backupUiState.feedback = {
+        type: 'success',
+        message: result?.cleanupWarnings > 0
+          ? 'Backup erfolgreich erstellt. Ältere Sicherungen konnten nicht vollständig entfernt werden.'
+          : 'Backup erfolgreich erstellt.'
+      };
+      await renderBackupSection(el, config, updateSetting, { ...context, backupStatus: result?.status }, lifecycle);
     } catch (error) {
+      context.backupUiState.manualInProgress = false;
       console.error('Backup konnte nicht erstellt werden:', error);
-      showInlineSettingsError(el, 'Das Backup konnte nicht erstellt werden.');
-      if (button.isConnected) {
-        button.disabled = false;
-        button.textContent = 'Backup jetzt erstellen';
+      context.backupUiState.feedback = { type: 'error', message: 'Das Backup konnte nicht erstellt werden.' };
+      if (lifecycle.isCurrent()) {
+        const latestStatus = await window.archivAPI.getBackupStatus().catch(() => status);
+        if (lifecycle.isCurrent()) await renderBackupSection(el, config, updateSetting, { ...context, backupStatus: latestStatus }, lifecycle);
       }
     }
   });
   el.querySelector('#stOpenBackupFolder').addEventListener('click', async () => {
     clearInlineSettingsError(el);
+    context.backupUiState.feedback = null;
     try {
-      await window.archivAPI.openBackupFolder();
+      const result = await window.archivAPI.openBackupFolder();
+      if (!lifecycle.isCurrent()) return;
+      if (!result?.opened) {
+        context.backupUiState.feedback = { type: 'error', message: 'Der Backup-Ordner konnte nicht geöffnet werden.' };
+        await renderBackupSection(el, config, updateSetting, { ...context, backupStatus: status }, lifecycle);
+      }
     } catch (error) {
       console.error('Backup-Ordner konnte nicht geöffnet werden:', error);
-      showInlineSettingsError(el, 'Der Backup-Ordner konnte nicht geöffnet werden.');
+      context.backupUiState.feedback = { type: 'error', message: 'Der Backup-Ordner konnte nicht geöffnet werden.' };
+      if (lifecycle.isCurrent()) await renderBackupSection(el, config, updateSetting, { ...context, backupStatus: status }, lifecycle);
     }
   });
 }
@@ -729,13 +819,21 @@ async function renderBackupSection(el, config, updateSetting, context, lifecycle
 async function renderUpdatesSection(el, config, updateSetting, context, lifecycle) {
   renderSettingsLoading(el, 'Updates', 'Prüfe …');
   const [status, updateSettings] = await Promise.all([
-    fetchUpdateStatus(),
+    context.updateStatus ? Promise.resolve(context.updateStatus) : fetchUpdateStatus(),
     window.archivAPI.getUpdateSettings()
   ]);
   if (!lifecycle.isCurrent()) return;
-  const lastCheckLabel = updateSettings.lastCheckAt
-    ? new Date(updateSettings.lastCheckAt).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
+  const lastCheckLabel = status.lastCheckAt
+    ? new Date(status.lastCheckAt).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
     : 'noch nie geprüft';
+  const showUpdateError = status.phase === 'error' || status.phase === 'unavailable';
+  const canInstallUpdate = status.phase === 'downloaded' || (status.phase === 'error' && status.installReady);
+  const installingUpdate = status.phase === 'installing';
+  const updateErrorHtml = showUpdateError ? `
+    <div class="settings-hint settings-hint-error" id="stUpdateError">
+      ${escapeHtml(status.errorMessage || 'Der Update-Status konnte nicht ermittelt werden.')}
+      ${status.errorDetails ? `<details class="settings-technical-details"><summary>Technische Details anzeigen</summary><div>${escapeHtml(status.errorDetails)}</div></details>` : ''}
+    </div>` : '';
   el.innerHTML = `
     <h3>Updates</h3>
     <section class="settings-group" aria-labelledby="stUpdateStatusGroup">
@@ -746,7 +844,7 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
     </div>
     <div class="settings-field">
       <span>Neueste verfügbare Version</span>
-      <div class="settings-readonly-value" id="stLatestVersion">${status.latestVersion ? 'v' + escapeAttr(status.latestVersion) : 'unbekannt'}</div>
+      <div class="settings-readonly-value" id="stLatestVersion">${status.availableVersion ? 'v' + escapeAttr(status.availableVersion) : 'unbekannt'}</div>
     </div>
     <div class="settings-field">
       <span>Letzte Prüfung</span>
@@ -755,9 +853,11 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
     <div class="settings-field">
       <span>Status</span>
       <div class="update-status-inline"><span class="update-dot" id="stUpdateDot"></span><span class="update-status-label" id="stUpdateLabel"></span></div>
+      ${updateErrorHtml}
     </div>
     <div class="settings-button-row">
       <button type="button" class="btn ghost" id="stCheckNow">Jetzt nach Updates suchen</button>
+      ${canInstallUpdate || installingUpdate ? `<button type="button" class="btn" id="stInstallUpdate" ${installingUpdate ? 'disabled' : ''}>${installingUpdate ? 'Update wird installiert …' : 'Jetzt neu starten'}</button>` : ''}
       <button type="button" class="btn ghost" id="stOpenReleases">GitHub-Releases öffnen</button>
     </div>
     </section>
@@ -771,17 +871,17 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
       </label>
       <label class="settings-checkbox-row">
         <input type="checkbox" id="stUpdateAutoDownload" ${updateSettings.autoDownload ? 'checked' : ''}>
-        <span>Updates automatisch herunterladen</span>
+        <span>Verfügbare Updates automatisch herunterladen</span>
       </label>
       <label class="settings-checkbox-row">
         <input type="checkbox" id="stUpdateConfirmDownload" ${updateSettings.confirmBeforeDownload ? 'checked' : ''}>
-        <span>Vor dem Herunterladen nachfragen</span>
+        <span>Vor jedem Download nachfragen</span>
       </label>
       <label class="settings-checkbox-row">
         <input type="checkbox" checked disabled>
         <span>Vor dem Neustart immer nachfragen</span>
       </label>
-      <p class="settings-hint">Archiv-Wiki installiert ein heruntergeladenes Update nie selbstständig und startet nie ohne Rückfrage neu. Die Rückfrage vor dem Neustart ist deshalb immer aktiv.</p>
+      <p class="settings-hint">Ist „Vor jedem Download nachfragen“ aktiviert, beginnt der Download erst nach deiner Bestätigung – auch wenn automatisches Herunterladen eingeschaltet ist. Archiv-Wiki installiert ein Update nie selbstständig und startet nie ohne Rückfrage neu.</p>
     </div>
     </section>
   `;
@@ -792,17 +892,12 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
     button.disabled = true;
     button.textContent = 'Prüfe …';
     try {
-      const fresh = await fetchUpdateStatus();
-      const refreshed = await window.archivAPI.getUpdateSettings();
+      const fresh = await requestUpdateCheck();
       if (!lifecycle.isCurrent()) return;
-      if (fresh.checkFailed) {
-        showInlineSettingsError(el, 'Die Update-Prüfung ist fehlgeschlagen.');
+      if (fresh.phase === 'error' || fresh.phase === 'unavailable') {
+        showInlineSettingsError(el, fresh.errorMessage || 'Die Update-Prüfung ist fehlgeschlagen.');
       }
-      el.querySelector('#stLatestVersion').textContent = fresh.latestVersion ? 'v' + fresh.latestVersion : 'unbekannt';
-      renderUpdateStatus(el.querySelector('#stUpdateDot'), el.querySelector('#stUpdateLabel'), fresh);
-      el.querySelector('#stLastCheck').textContent = refreshed.lastCheckAt
-        ? new Date(refreshed.lastCheckAt).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
-        : 'noch nie geprüft';
+      await renderUpdatesSection(el, config, updateSetting, { ...context, updateStatus: fresh }, lifecycle);
     } catch (error) {
       console.error('Update-Prüfung fehlgeschlagen:', error);
       showInlineSettingsError(el, 'Die Update-Prüfung ist fehlgeschlagen.');
@@ -810,6 +905,27 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
       if (button.isConnected) {
         button.disabled = false;
         button.textContent = 'Jetzt nach Updates suchen';
+      }
+    }
+  });
+  el.querySelector('#stInstallUpdate')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    clearInlineSettingsError(el);
+    button.disabled = true;
+    button.textContent = 'Update wird installiert …';
+    try {
+      const result = await window.archivAPI.installUpdateAndRestart();
+      if (!result?.started && lifecycle.isCurrent()) {
+        showInlineSettingsError(el, result?.error || 'Der Installations- und Neustartvorgang konnte nicht gestartet werden.');
+        button.disabled = false;
+        button.textContent = 'Jetzt neu starten';
+      }
+    } catch (error) {
+      console.error('Update-Installation konnte nicht gestartet werden:', error);
+      if (lifecycle.isCurrent()) {
+        showInlineSettingsError(el, 'Der Installations- und Neustartvorgang konnte nicht gestartet werden.');
+        button.disabled = false;
+        button.textContent = 'Jetzt neu starten';
       }
     }
   });

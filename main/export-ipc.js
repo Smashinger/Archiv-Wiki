@@ -15,7 +15,8 @@ const { TRASH_DIRNAME } = require('./project');
 // Export (unten, mit Speichern-Dialog) als auch vom automatischen
 // Hintergrund-Backup (main/backup.js), damit beide exakt dieselbe
 // Zip-Erstellung (inkl. .wiki-trash-Ausschluss) nutzen statt sie zu duplizieren.
-async function zipProjectTo(projectPath, destFilePath) {
+async function zipProjectTo(projectPath, destFilePath, options = {}) {
+  const { signal } = options;
   const { ZipArchive } = await import('archiver');
   if (typeof ZipArchive !== 'function') {
     throw new Error(
@@ -23,18 +24,52 @@ async function zipProjectTo(projectPath, destFilePath) {
       "Im Projektordner 'npm install' ausführen und Electron neu starten."
     );
   }
+
+  if (signal?.aborted) {
+    const err = new Error('Die ZIP-Erstellung wurde abgebrochen.');
+    err.code = 'BACKUP_ABORTED';
+    throw err;
+  }
+
   await new Promise((resolve, reject) => {
     const output = fs.createWriteStream(destFilePath);
     const archive = new ZipArchive({ zlib: { level: 9 } });
-    output.on('close', resolve);
-    archive.on('error', reject);
-    archive.on('warning', (err) => { if (err.code !== 'ENOENT') reject(err); });
+    let settled = false;
+
+    function finishResolve() {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', handleAbort);
+      resolve();
+    }
+
+    function finishReject(err) {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', handleAbort);
+      reject(err);
+    }
+
+    function handleAbort() {
+      const err = new Error('Die ZIP-Erstellung wurde abgebrochen.');
+      err.code = 'BACKUP_ABORTED';
+      try { archive.abort(); } catch { /* Archiv kann bereits abgeschlossen sein */ }
+      output.destroy(err);
+      finishReject(err);
+    }
+
+    output.on('close', finishResolve);
+    output.on('error', finishReject);
+    archive.on('error', finishReject);
+    archive.on('warning', (err) => { if (err.code !== 'ENOENT') finishReject(err); });
+    signal?.addEventListener('abort', handleAbort, { once: true });
+
     archive.pipe(output);
     archive.directory(projectPath, false, (entry) => {
       if (entry.name === TRASH_DIRNAME || entry.name.startsWith(TRASH_DIRNAME + '/')) return false;
       return entry;
     });
-    archive.finalize();
+    Promise.resolve(archive.finalize()).catch(finishReject);
   });
 }
 

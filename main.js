@@ -18,7 +18,7 @@ const { registerFilesystemIpc } = require('./main/filesystem-ipc');
 const { registerExportIpc, exportProjectZip } = require('./main/export-ipc');
 const { registerSyncIpc, isSyncInProgress } = require('./main/sync-ipc');
 const { registerSettingsIpc } = require('./main/settings-ipc');
-const { maybeRunAutoBackup, nextScheduledBackup, isBackupInProgress } = require('./main/backup');
+const { maybeRunAutoBackup, nextScheduledBackup, isBackupInProgress, readProjectBackupStatus, finishBackupBeforeQuit } = require('./main/backup');
 // Auf Modul-Ebene (wie alle require-Aufrufe hier oben), NICHT innerhalb einer
 // einzelnen Funktion — autoUpdater wird sowohl in registerCoreIpc() (IPC-
 // Handler, Ereignis-Verdrahtung) als auch im automatischen Programmstart-
@@ -37,10 +37,240 @@ const { maybeRunAutoBackup, nextScheduledBackup, isBackupInProgress } = require(
 // tatsächlich verfügbar ist (siehe registerCoreIpc() und den
 // Programmstart-Check weiter unten).
 let autoUpdater = null;
+let autoUpdaterLoadError = null;
 try {
   ({ autoUpdater } = require('electron-updater'));
 } catch (err) {
-  console.error('[Archiv Wiki] electron-updater konnte nicht geladen werden — automatische Updates sind in dieser Sitzung deaktiviert:', err.message);
+  autoUpdaterLoadError = err?.message || String(err);
+  console.error('[Archiv Wiki] electron-updater konnte nicht geladen werden — automatische Updates sind in dieser Sitzung deaktiviert:', autoUpdaterLoadError);
+}
+
+// Zentraler flüchtiger Update-Lifecycle. app.getVersion() bleibt die einzige
+// Quelle der installierten Version. Dieses Objekt ist die gemeinsame
+// Laufzeitquelle für Main-Prozess und alle sichtbaren Renderer.
+let updateCheckPromise = null;
+let updateDownloadPromise = null;
+let updateDownloadInProgress = false;
+let updateReadyToInstall = false;
+let updateInstallInProgress = false;
+
+function compareVersions(a, b) {
+  const pa = String(a).replace(/^v/i, '').split('.').map(Number);
+  const pb = String(b).replace(/^v/i, '').split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0, nb = pb[i] || 0;
+    if (na !== nb) return na - nb;
+  }
+  return 0;
+}
+
+function getUpdateReleaseUrl(version = null) {
+  try {
+    const homepage = require('./package.json').homepage || '';
+    const match = homepage.match(/github\.com\/([^/]+)\/([^/]+?)\/?$/);
+    if (!match) return null;
+    const base = `https://github.com/${match[1]}/${match[2]}/releases`;
+    return version ? `${base}/tag/v${version}` : `${base}/latest`;
+  } catch {
+    return null;
+  }
+}
+
+const updateStatus = {
+  phase: autoUpdater ? 'idle' : 'unavailable',
+  currentVersion: app.getVersion(),
+  availableVersion: null,
+  downloadPercent: null,
+  lastCheckAt: readAppState().lastUpdateCheckAt || null,
+  errorType: autoUpdater ? null : 'unavailable',
+  errorMessage: autoUpdater ? null : 'Das Update-System ist derzeit nicht verfügbar.',
+  errorDetails: autoUpdater ? null : autoUpdaterLoadError,
+  errorCategory: autoUpdater ? null : 'unavailable',
+  updaterAvailable: Boolean(autoUpdater),
+  installReady: false,
+  releaseUrl: getUpdateReleaseUrl()
+};
+
+
+function translateUpdateError(error, stage = 'check') {
+  const details = error?.message || String(error || 'Unbekannter Update-Fehler.');
+  const code = String(error?.code || '').toUpperCase();
+  const text = `${code} ${details}`.toLowerCase();
+
+  if (stage === 'unavailable') {
+    return { type: 'unavailable', message: 'Das Update-System ist derzeit nicht verfügbar.', details };
+  }
+  if (/checksum|sha512|sha-?512|digest|integrity|corrupt|beschädigt/.test(text)) {
+    return { type: 'integrity', message: 'Die heruntergeladene Update-Datei ist beschädigt und wurde nicht verwendet.', details };
+  }
+  if (/eacces|eperm|permission|access denied|not permitted|read-only|readonly/.test(text)) {
+    return { type: 'permission', message: 'Archiv-Wiki hat keine ausreichenden Berechtigungen für den Update-Vorgang.', details };
+  }
+  if (/enotfound|eai_again|err_internet_disconnected|network is unreachable|offline|net::err_|socket hang up|timed? ?out|timeout|connection reset|econnreset|econnrefused/.test(text)) {
+    return { type: 'network', message: 'Keine Verbindung zum Update-Server. Bitte prüfe deine Internetverbindung.', details };
+  }
+  if (/github/.test(text) && /(unavailable|unreachable|not reachable|rate limit|api)/.test(text)) {
+    return { type: 'github', message: 'GitHub ist derzeit nicht erreichbar. Bitte versuche es später erneut.', details };
+  }
+  if (/http|status code|response status/.test(text)) {
+    return { type: 'http', message: 'Der Update-Server hat die Anfrage nicht erfolgreich beantwortet.', details };
+  }
+  if (stage === 'download') {
+    return { type: 'download', message: 'Das Update konnte nicht heruntergeladen werden.', details };
+  }
+  if (stage === 'install') {
+    return { type: 'install', message: 'Das Update konnte nicht installiert und neu gestartet werden.', details };
+  }
+  return { type: 'check', message: 'Die Update-Prüfung ist fehlgeschlagen.', details };
+}
+
+function getUpdateStatusSnapshot() {
+  return { ...updateStatus };
+}
+
+function broadcastUpdateStatus() {
+  const snapshot = getUpdateStatusSnapshot();
+  for (const win of [mainWindow, wizardWindow]) {
+    if (win && !win.isDestroyed()) win.webContents.send('update:statusChanged', snapshot);
+  }
+}
+
+function setUpdateStatus(patch, { broadcast = true } = {}) {
+  Object.assign(updateStatus, patch, {
+    currentVersion: app.getVersion(),
+    updaterAvailable: Boolean(autoUpdater)
+  });
+  if (!autoUpdater) {
+    updateStatus.phase = 'unavailable';
+    updateStatus.installReady = false;
+  }
+  if (broadcast) broadcastUpdateStatus();
+  return getUpdateStatusSnapshot();
+}
+
+function runUpdateCheck() {
+  if (!autoUpdater) {
+    setUpdateStatus({
+      phase: 'unavailable',
+      errorType: 'unavailable',
+      errorMessage: 'Das Update-System ist derzeit nicht verfügbar.',
+      errorDetails: autoUpdaterLoadError,
+      errorCategory: 'unavailable'
+    });
+    return Promise.reject(Object.assign(new Error(updateStatus.errorMessage), { code: 'UPDATER_UNAVAILABLE' }));
+  }
+  if (updateCheckPromise) return updateCheckPromise;
+  if (updateInstallInProgress || updateReadyToInstall || updateDownloadInProgress) {
+    return Promise.resolve({ skipped: true, status: getUpdateStatusSnapshot() });
+  }
+
+  setUpdateStatus({ phase: 'checking', errorType: null, errorMessage: null, errorDetails: null, errorCategory: null });
+  updateCheckPromise = (async () => {
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      const checkedAt = new Date().toISOString();
+      writeAppState({ lastUpdateCheckAt: checkedAt });
+      const latestVersion = result?.updateInfo?.version || null;
+      const isAvailable = typeof result?.isUpdateAvailable === 'boolean'
+        ? result.isUpdateAvailable
+        : Boolean(latestVersion) && compareVersions(latestVersion, app.getVersion()) > 0;
+
+      // Ein zwischenzeitlich gestarteter Download oder Installationszustand
+      // besitzt Vorrang vor dem Abschluss der Prüfung.
+      if (!updateDownloadInProgress && !updateReadyToInstall && !updateInstallInProgress) {
+        setUpdateStatus({
+          phase: isAvailable ? 'updateAvailable' : 'upToDate',
+          availableVersion: isAvailable ? latestVersion : null,
+          releaseUrl: getUpdateReleaseUrl(isAvailable ? latestVersion : null),
+          lastCheckAt: checkedAt,
+          downloadPercent: null,
+          installReady: false,
+          errorType: null,
+          errorMessage: null,
+          errorDetails: null,
+          errorCategory: null
+        });
+      } else {
+        setUpdateStatus({
+          availableVersion: latestVersion || updateStatus.availableVersion,
+          releaseUrl: getUpdateReleaseUrl(latestVersion || updateStatus.availableVersion),
+          lastCheckAt: checkedAt,
+          errorType: null,
+          errorMessage: null,
+          errorDetails: null,
+          errorCategory: null
+        });
+      }
+      return result;
+    } catch (err) {
+      if (!updateDownloadInProgress && !updateReadyToInstall && !updateInstallInProgress) {
+        const translated = translateUpdateError(err, 'check');
+        setUpdateStatus({
+          phase: 'error',
+          errorType: 'check',
+          errorCategory: translated.type,
+          errorMessage: translated.message,
+          errorDetails: translated.details
+        });
+      }
+      throw err;
+    }
+  })().finally(() => {
+    updateCheckPromise = null;
+  });
+
+  return updateCheckPromise;
+}
+
+function startUpdateDownload() {
+  if (!autoUpdater) {
+    setUpdateStatus({ phase: 'unavailable', errorType: 'unavailable', errorCategory: 'unavailable', errorMessage: 'Das Update-System ist derzeit nicht verfügbar.', errorDetails: autoUpdaterLoadError });
+    return Promise.resolve({ started: false, reason: 'updater-unavailable', error: updateStatus.errorMessage });
+  }
+  if (updateInstallInProgress) return Promise.resolve({ started: false, reason: 'installation-in-progress' });
+  if (updateReadyToInstall) return Promise.resolve({ started: false, reason: 'update-ready' });
+  if (updateDownloadPromise) return updateDownloadPromise;
+
+  updateDownloadInProgress = true;
+  setUpdateStatus({
+    phase: 'downloading',
+    downloadPercent: 0,
+    installReady: false,
+    errorType: null,
+    errorMessage: null,
+    errorDetails: null,
+    errorCategory: null
+  });
+  updateDownloadPromise = (async () => {
+    try {
+      await autoUpdater.downloadUpdate();
+      return { started: true };
+    } catch (err) {
+      updateDownloadInProgress = false;
+      console.error('[Archiv Wiki] Update-Download fehlgeschlagen:', err?.message || err);
+      const translated = translateUpdateError(err, 'download');
+      setUpdateStatus({
+        phase: 'error',
+        downloadPercent: null,
+        installReady: false,
+        errorType: 'download',
+        errorCategory: translated.type,
+        errorMessage: translated.message,
+        errorDetails: translated.details
+      });
+      return {
+        started: false,
+        reason: 'download-failed',
+        error: translated.message,
+        details: translated.details
+      };
+    } finally {
+      updateDownloadInProgress = false;
+      updateDownloadPromise = null;
+    }
+  })();
+
+  return updateDownloadPromise;
 }
 
 const isDev = process.argv.includes('--dev');
@@ -124,6 +354,48 @@ let wizardWindow = null;
  *  bestehendes Projekt beim Start automatisch geladen wird). */
 let currentProject = { path: null, config: null };
 
+
+function getCurrentBackupStatus() {
+  const projectPath = currentProject?.path;
+  const stored = readProjectBackupStatus(projectPath);
+  const intervalDays = currentProject?.config?.backupIntervalDays ?? 1;
+  const backupPath = currentProject?.config?.backupPath;
+  return {
+    consecutiveFailures: stored.consecutiveFailures || 0,
+    lastSuccessAt: stored.lastSuccessAt || null,
+    lastErrorAt: stored.lastErrorAt || null,
+    lastErrorMessage: stored.lastErrorMessage || null,
+    lastErrorCode: stored.lastErrorCode || null,
+    lastErrorUserMessage: stored.lastErrorUserMessage || null,
+    lastCleanupErrorAt: stored.lastCleanupErrorAt || null,
+    lastCleanupErrorMessage: stored.lastCleanupErrorMessage || null,
+    lastCleanupErrorCode: stored.lastCleanupErrorCode || null,
+    lastCleanupErrorUserMessage: stored.lastCleanupErrorUserMessage || null,
+    intervalDays,
+    nextScheduledAt: backupPath ? nextScheduledBackup(backupPath, intervalDays) : null,
+    inProgress: isBackupInProgress()
+  };
+}
+
+function broadcastBackupStatus() {
+  const status = getCurrentBackupStatus();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('backup:statusUpdated', status);
+  }
+  refreshTrayMenu(status);
+  return status;
+}
+
+async function runBackup(force = false) {
+  const operation = maybeRunAutoBackup({ getCurrentProject: () => currentProject }, force);
+  // maybeRunAutoBackup setzt die zentrale Sperre synchron vor dem ersten await.
+  // Dadurch können alle Oberflächen den laufenden Zustand sofort aus derselben
+  // Statusquelle übernehmen.
+  broadcastBackupStatus();
+  const result = await operation;
+  return { ...result, status: broadcastBackupStatus() };
+}
+
 // ---------------------------------------------------------------------------
 // Fenster-Erstellung
 // ---------------------------------------------------------------------------
@@ -145,6 +417,7 @@ function createWizardWindow() {
 
   wizardWindow.once('ready-to-show', () => wizardWindow.show());
   wizardWindow.loadFile(rendererWizardPath);
+  wizardWindow.webContents.once('did-finish-load', () => wizardWindow?.webContents.send('update:statusChanged', getUpdateStatusSnapshot()));
   if (isDev) wizardWindow.webContents.openDevTools({ mode: 'detach' });
 
   wizardWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -203,6 +476,7 @@ function createMainWindow() {
   });
 
   mainWindow.loadFile(rendererIndexPath);
+  mainWindow.webContents.once('did-finish-load', () => mainWindow?.webContents.send('update:statusChanged', getUpdateStatusSnapshot()));
 
   if (isDev) mainWindow.webContents.openDevTools({ mode: 'detach' });
 
@@ -281,17 +555,27 @@ function handleCloseRequest() {
   mainWindow.webContents.send('app:show-close-dialog');
 }
 
-// Sauberes Beenden (Nutzer-Anforderung): falls GERADE ein Backup oder
-// Cloud-Abgleich läuft, kurz darauf warten statt mitten drin abzuwürgen —
-// beides sind bei uns kurze, in sich abgeschlossene Vorgänge (kein dauerhaft
-// offener Verbindungs-Zustand), ein kurzes Warten reicht dafür aus.
+// Zentrale Beenden-Sequenz. Ein laufendes Backup darf seinen temporären
+// Schreibvorgang zunächst sauber abschließen; bleibt es hängen, bricht das
+// Backup-Modul ausschließlich die Temp-Datei kontrolliert ab und räumt sie
+// auf. Mehrfaches Beenden startet keine parallelen Beenden-Abläufe.
+let quitInProgress = false;
 async function quitCleanly() {
-  const start = Date.now();
-  while ((isBackupInProgress() || isSyncInProgress()) && Date.now() - start < 5000) {
-    await new Promise(r => setTimeout(r, 100));
+  if (quitInProgress) return;
+  quitInProgress = true;
+  try {
+    await finishBackupBeforeQuit();
+
+    // Der Sync-Bereich besitzt weiterhin seine eigene bestehende Warte-Logik;
+    // diese Phase verändert ausschließlich die Backup-Sicherheit.
+    const syncStart = Date.now();
+    while (isSyncInProgress() && Date.now() - syncStart < 5000) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+  } finally {
+    isQuitting = true;
+    app.quit();
   }
-  isQuitting = true;
-  app.quit();
 }
 
 // ---------------------------------------------------------------------------
@@ -335,7 +619,7 @@ function buildMenu() {
           }
         },
         { type: 'separator' },
-        { label: 'Beenden', accelerator: 'CmdOrCtrl+Q', click: () => app.quit() }
+        { label: 'Beenden', accelerator: 'CmdOrCtrl+Q', click: () => quitCleanly() }
       ]
     },
     {
@@ -407,20 +691,7 @@ function registerCoreIpc() {
   // Backup-Warnung-Feature: Anzahl aufeinanderfolgender fehlgeschlagener
   // automatischer Backups (siehe main/backup.js) — ab 3 in Folge zeigt die
   // App eine sichtbare Warnung, statt dass es unbemerkt weiter fehlschlägt.
-  ipcMain.handle('app:getBackupStatus', () => {
-    const state = readAppState();
-    const intervalDays = currentProject?.config?.backupIntervalDays ?? 1;
-    const backupPath = currentProject?.config?.backupPath;
-    return {
-      consecutiveFailures: state.backupConsecutiveFailures || 0,
-      lastSuccessAt: state.backupLastSuccessAt || null,
-      lastErrorAt: state.backupLastErrorAt || null,
-      lastErrorMessage: state.backupLastErrorMessage || null,
-      lastErrorCode: state.backupLastErrorCode || null,
-      intervalDays,
-      nextScheduledAt: backupPath ? nextScheduledBackup(backupPath, intervalDays) : null
-    };
-  });
+  ipcMain.handle('app:getBackupStatus', () => getCurrentBackupStatus());
 
   // "Backup jetzt erstellen"-Button im neuen Einstellungsfenster — erzwingt
   // ein Backup unabhängig vom Intervall. Bugfix (Audit-Punkt 3): löschte
@@ -428,15 +699,21 @@ function registerCoreIpc() {
   // erfolgreich war — bei vollem Datenträger war dadurch auch das alte,
   // funktionierende Backup weg. maybeRunAutoBackup(..., force: true) schreibt
   // jetzt selbst erst in eine temporäre Datei und ersetzt nur bei Erfolg.
-  ipcMain.handle('app:runBackupNow', async () => {
-    await maybeRunAutoBackup({ getCurrentProject: () => currentProject }, true);
-    return readAppState();
-  });
+  ipcMain.handle('app:runBackupNow', async () => runBackup(true));
 
   // "Backup-Ordner öffnen"-Button — zeigt den Ordner im Dateimanager des Systems.
-  ipcMain.handle('app:openBackupFolder', () => {
+  ipcMain.handle('app:openBackupFolder', async () => {
     const backupPath = currentProject?.config?.backupPath;
-    if (backupPath) shell.openPath(backupPath);
+    if (!backupPath) {
+      return { opened: false, error: 'Es wurde noch kein Backup-Ordner ausgewählt.' };
+    }
+    try {
+      const errorMessage = await shell.openPath(backupPath);
+      if (errorMessage) return { opened: false, error: errorMessage };
+      return { opened: true };
+    } catch (error) {
+      return { opened: false, error: error?.message || 'Der Backup-Ordner konnte nicht geöffnet werden.' };
+    }
   });
 
   // "Ändern"-Button beim Speicherort (Einstellungsfenster → Allgemein):
@@ -527,9 +804,6 @@ function registerCoreIpc() {
   // unsere eigene, einstellungsgesteuerte Logik — installiert/neu gestartet
   // wird NIEMALS ohne ausdrücklichen Klick des Nutzers. Das ist keine
   // Einstellung, sondern eine feste Regel dieses Programms.
-  let updateDownloadInProgress = false;
-  let updateReadyToInstall = false;
-
   // Konfiguration und Ereignis-Verdrahtung nur, wenn electron-updater beim
   // Programmstart tatsächlich geladen werden konnte (siehe try/catch um den
   // require-Aufruf am Dateianfang) — ist autoUpdater null, bleibt das
@@ -550,19 +824,75 @@ function registerCoreIpc() {
     // keinen Umständen die App zum Absturz bringen, egal was schiefgeht
     // (Netzwerk weg, GitHub nicht erreichbar, Download abgebrochen, ...).
     autoUpdater.on('error', (err) => {
-      console.error('[Archiv Wiki] Update-Fehler:', err?.message || err);
-      // Sichtbare Meldung an den Renderer NUR, wenn tatsächlich ein Download
-      // lief — der Nutzer erwartet in dem Moment aktiv etwas. Ein reiner
-      // Hintergrund-Check, der fehlschlägt (kein Internet, GitHub nicht
-      // erreichbar), bleibt bewusst still — genau wie beim bisherigen,
-      // einfachen Check (app:checkForUpdate fängt das ohnehin schon
-      // eigenständig ab und zeigt einfach "unbekannt" statt eines Fehlers).
-      if (updateDownloadInProgress) {
-        mainWindow?.webContents.send('update:error', { message: err?.message || 'Unbekannter Fehler beim Update.' });
+      const technicalMessage = err?.message || String(err || 'Unbekannter Update-Fehler.');
+      const installWasRunning = updateInstallInProgress;
+      const downloadWasRunning = updateDownloadInProgress;
+      console.error('[Archiv Wiki] Update-Fehler:', technicalMessage);
+
+      if (installWasRunning) {
+        updateInstallInProgress = false;
+        // Das bereits vollständig heruntergeladene Update bleibt erneut
+        // installierbar, solange electron-updater keinen neuen Download
+        // verlangt. So ist ein erneuter ausdrücklicher Versuch möglich.
+        updateReadyToInstall = true;
+        isQuitting = false;
+        if (!app.hasSingleInstanceLock()) {
+          const lockRestored = app.requestSingleInstanceLock();
+          if (!lockRestored) {
+            console.error('[Archiv Wiki] Single-Instance-Lock konnte nach fehlgeschlagener Update-Installation nicht wiederhergestellt werden.');
+          }
+        }
+        const translated = translateUpdateError(err, 'install');
+        setUpdateStatus({
+          phase: 'error',
+          installReady: true,
+          errorType: 'install',
+          errorCategory: translated.type,
+          errorMessage: translated.message,
+          errorDetails: translated.details
+        });
+        mainWindow?.webContents.send('update:error', {
+          stage: 'install', message: updateStatus.errorMessage, details: technicalMessage
+        });
+        return;
       }
-      updateDownloadInProgress = false;
+
+      if (downloadWasRunning) {
+        updateDownloadInProgress = false;
+        const translated = translateUpdateError(err, 'download');
+        setUpdateStatus({
+          phase: 'error', downloadPercent: null, installReady: false,
+          errorType: 'download', errorCategory: translated.type, errorMessage: translated.message, errorDetails: translated.details
+        });
+        mainWindow?.webContents.send('update:error', {
+          stage: 'download', message: updateStatus.errorMessage, details: technicalMessage
+        });
+      }
+      // Prüfungsfehler werden vom gemeinsamen runUpdateCheck()-Promise an
+      // den jeweiligen Aufrufer zurückgegeben und hier nicht als Download-
+      // oder Installationsfehler fehlklassifiziert.
+    });
+    autoUpdater.on('checking-for-update', () => {
+      if (!updateDownloadInProgress && !updateReadyToInstall && !updateInstallInProgress) {
+        setUpdateStatus({ phase: 'checking', errorType: null, errorMessage: null, errorDetails: null, errorCategory: null });
+      }
+    });
+    autoUpdater.on('update-not-available', () => {
+      if (!updateDownloadInProgress && !updateReadyToInstall && !updateInstallInProgress) {
+        setUpdateStatus({
+          phase: 'upToDate', availableVersion: null, releaseUrl: getUpdateReleaseUrl(),
+          downloadPercent: null, installReady: false, errorType: null, errorMessage: null, errorDetails: null,
+          errorCategory: null
+        });
+      }
     });
     autoUpdater.on('update-available', (info) => {
+      setUpdateStatus({
+        phase: 'updateAvailable', availableVersion: info.version || null,
+        releaseUrl: getUpdateReleaseUrl(info.version || null), downloadPercent: null,
+        installReady: false, errorType: null, errorMessage: null, errorDetails: null,
+        errorCategory: null
+      });
       mainWindow?.webContents.send('update:available', { version: info.version });
       // "Updates automatisch herunterladen" (Standard: an) UND "vor dem
       // Herunterladen nachfragen" (Standard: aus) zusammen entscheiden, ob
@@ -573,115 +903,117 @@ function registerCoreIpc() {
       const autoDownload = state.updateAutoDownload !== false;
       const confirmFirst = state.updateConfirmBeforeDownload === true;
       if (autoDownload && !confirmFirst) {
-        updateDownloadInProgress = true;
-        autoUpdater.downloadUpdate().catch((err) => {
-          console.error('[Archiv Wiki] Automatisches Herunterladen fehlgeschlagen:', err.message);
-          updateDownloadInProgress = false;
+        startUpdateDownload().catch((err) => {
+          // startUpdateDownload fängt technische Downloadfehler selbst ab;
+          // dieser Catch schützt nur vor unerwarteten Programmierfehlern.
+          console.error('[Archiv Wiki] Automatisches Herunterladen konnte nicht gestartet werden:', err?.message || err);
         });
       }
     });
     autoUpdater.on('download-progress', (progress) => {
-      mainWindow?.webContents.send('update:download-progress', { percent: Math.round(progress.percent) });
+      const percent = Math.max(0, Math.min(100, Math.round(progress.percent || 0)));
+      setUpdateStatus({ phase: 'downloading', downloadPercent: percent, installReady: false, errorType: null, errorMessage: null, errorDetails: null, errorCategory: null });
+      mainWindow?.webContents.send('update:download-progress', { percent });
     });
     autoUpdater.on('update-downloaded', () => {
       updateDownloadInProgress = false;
-      updateReadyToInstall = true;
+      if (!updateInstallInProgress) updateReadyToInstall = true;
+      setUpdateStatus({ phase: 'downloaded', downloadPercent: 100, installReady: true, errorType: null, errorMessage: null, errorDetails: null, errorCategory: null });
       mainWindow?.webContents.send('update:downloaded');
     });
-  }
 
-  function compareVersions(a, b) {
-    const pa = String(a).replace(/^v/i, '').split('.').map(Number);
-    const pb = String(b).replace(/^v/i, '').split('.').map(Number);
-    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-      const na = pa[i] || 0, nb = pb[i] || 0;
-      if (na !== nb) return na - nb;
-    }
-    return 0;
-  }
-
-  // Bugfix (nur durch einen echten, tatsächlich gebauten Test-Lauf gefunden,
-  // nicht durch bloßes Code-Lesen): electron-builder entfernt das komplette
-  // "build"-Feld aus dem package.json, das im FERTIGEN Programm landet.
-  // Owner/Repo werden deshalb aus "homepage" abgeleitet (bleibt beim Bauen
-  // erhalten) — nur zur Anzeige eines Releases-Links genutzt, electron-updater
-  // selbst braucht das nicht (das liest seine eigene, mitgebaute app-update.yml).
-  function getRepoOwnerAndName() {
-    const homepage = require('./package.json').homepage || '';
-    const match = homepage.match(/github\.com\/([^/]+)\/([^/]+?)\/?$/);
-    if (!match) throw new Error('Konnte Owner/Repo nicht aus "homepage" in package.json ableiten.');
-    return { owner: match[1], repo: match[2] };
+    // electron-updater emittiert dieses Ereignis nach quitAndInstall(). Es
+    // markiert den besonderen Update-Beendenpfad ausdrücklich, damit normale
+    // Tray-/Fenster-Schließen-Logik und der allgemeine before-quit-Handler
+    // den Installationsablauf nicht umlenken.
+    autoUpdater.on('before-quit-for-update', () => {
+      updateInstallInProgress = true;
+      isQuitting = true;
+      setUpdateStatus({ phase: 'installing', installReady: true, errorType: null, errorMessage: null, errorDetails: null, errorCategory: null });
+    });
   }
 
   // Weiterhin dieselbe Rückgabe-Form wie vorher ({currentVersion,
   // latestVersion, updateAvailable, releaseUrl}) — Sidebar, Wizard und
   // Einstellungsfenster (alle über renderer/js/update-check.js) laufen
   // dadurch unverändert weiter, ganz ohne dort etwas anpassen zu müssen.
+  ipcMain.handle('app:getUpdateStatus', () => getUpdateStatusSnapshot());
+
   ipcMain.handle('app:checkForUpdate', async () => {
-    const currentVersion = app.getVersion();
-    if (!autoUpdater) {
-      // electron-updater konnte beim Start nicht geladen werden (siehe
-      // try/catch um den require-Aufruf am Dateianfang) — klar als "nicht
-      // verfügbar" melden, statt eine kryptische Ausnahme zu werfen.
-      return { currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null };
-    }
     try {
-      const result = await autoUpdater.checkForUpdates();
-      const latestVersion = result?.updateInfo?.version || null;
-      const lastCheckAt = new Date().toISOString();
-      writeAppState({ lastUpdateCheckAt: lastCheckAt });
-      let releaseUrl = null;
-      try {
-        const { owner, repo } = getRepoOwnerAndName();
-        releaseUrl = latestVersion
-          ? `https://github.com/${owner}/${repo}/releases/tag/v${latestVersion}`
-          : `https://github.com/${owner}/${repo}/releases/latest`;
-      } catch { /* homepage-Feld fehlt/unerwartet — releaseUrl bleibt null, kein Blocker für den Rest */ }
-      return {
-        currentVersion,
-        latestVersion,
-        updateAvailable: Boolean(latestVersion) && compareVersions(latestVersion, currentVersion) > 0,
-        releaseUrl,
-        lastCheckAt
-      };
+      await runUpdateCheck();
     } catch (err) {
-      // Netzwerk weg, GitHub nicht erreichbar, kein Release vorhanden, o.Ä. —
-      // lieber "keine Info verfügbar" als die App zu stören oder abstürzen
-      // zu lassen (identisches Prinzip wie vorher beim Roh-HTTPS-Aufruf).
-      console.error('[Archiv Wiki] Update-Check fehlgeschlagen:', err.message);
-      return { currentVersion, latestVersion: null, updateAvailable: false, releaseUrl: null };
+      console.error('[Archiv Wiki] Update-Check fehlgeschlagen:', err?.message || err);
     }
+    return getUpdateStatusSnapshot();
   });
 
   // Manuelles Auslösen des Downloads — genutzt, wenn der Nutzer auf die
   // "Verfügbar"-Meldung mit "Jetzt herunterladen" reagiert (siehe Einstellung
   // "vor dem Herunterladen nachfragen"), oder als Absicherung, falls der
   // automatische Download (oben) aus irgendeinem Grund nicht gestartet ist.
-  ipcMain.handle('app:downloadUpdate', async () => {
-    if (!autoUpdater) return { started: false, error: 'Update-System ist in dieser Sitzung nicht verfügbar.' };
-    if (updateDownloadInProgress || updateReadyToInstall) return { started: false };
-    updateDownloadInProgress = true;
-    try {
-      await autoUpdater.downloadUpdate();
-      return { started: true };
-    } catch (err) {
-      updateDownloadInProgress = false;
-      console.error('[Archiv Wiki] Manuell gestartetes Herunterladen fehlgeschlagen:', err.message);
-      return { started: false, error: err.message };
-    }
-  });
+  ipcMain.handle('app:downloadUpdate', () => startUpdateDownload());
 
   // Installation + Neustart — AUSSCHLIESSLICH auf ausdrücklichen Klick hin
   // aufgerufen (siehe renderer), niemals von selbst. isQuitting wird bewusst
   // gesetzt, damit die bestehende Schließen-Logik (Tray verstecken/nachfragen,
   // siehe weiter oben) hier nicht dazwischenfunkt — ein Update-Neustart soll
   // immer ein echter, vollständiger Neustart sein.
-  ipcMain.handle('app:installUpdateAndRestart', () => {
-    if (!autoUpdater || !updateReadyToInstall) return { installed: false };
-    isQuitting = true;
-    autoUpdater.quitAndInstall();
-    return { installed: true };
+  ipcMain.handle('app:installUpdateAndRestart', async () => {
+    if (!autoUpdater) return { started: false, reason: 'updater-unavailable', error: 'Das Update-System ist derzeit nicht verfügbar.' };
+    if (updateInstallInProgress) return { started: false, reason: 'installation-in-progress', error: 'Die Update-Installation läuft bereits.' };
+    if (!updateReadyToInstall) return { started: false, reason: 'update-not-ready', error: 'Das Update ist noch nicht zur Installation bereit.' };
+    if (updateDownloadInProgress || updateDownloadPromise) return { started: false, reason: 'download-in-progress', error: 'Das Update wird noch heruntergeladen.' };
+
+    updateInstallInProgress = true;
+    setUpdateStatus({ phase: 'installing', installReady: true, errorType: null, errorMessage: null, errorDetails: null, errorCategory: null });
+    try {
+      // Vor dem besonderen Updater-Beendenpfad dieselben kritischen Arbeiten
+      // sauber abschließen, die auch der normale Beenden-Ablauf berücksichtigt.
+      await finishBackupBeforeQuit();
+      const syncStart = Date.now();
+      while (isSyncInProgress() && Date.now() - syncStart < 5000) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      isQuitting = true;
+      autoUpdater.autoRunAppAfterInstall = true;
+
+      // AppImage startet die neue Version im Rahmen von quitAndInstall(). Der
+      // alte Prozess kann zu diesem Zeitpunkt noch leben; deshalb den Lock
+      // unmittelbar vorher freigeben, damit der neue Prozess nicht als zweite
+      // Instanz beendet wird.
+      if (app.hasSingleInstanceLock()) app.releaseSingleInstanceLock();
+
+      // electron-updater 6.8.9: quitAndInstall(isSilent, isForceRunAfter).
+      // Nicht-stille Installation plus ausdrücklich erzwungener Neustart;
+      // kein paralleles app.relaunch(), weil der Updater den Neustart trägt.
+      autoUpdater.quitAndInstall(false, true);
+      return { started: true };
+    } catch (err) {
+      updateInstallInProgress = false;
+      updateReadyToInstall = true;
+      isQuitting = false;
+      if (!app.hasSingleInstanceLock()) app.requestSingleInstanceLock();
+      const details = err?.message || String(err);
+      console.error('[Archiv Wiki] Update-Installation konnte nicht gestartet werden:', details);
+      const translated = translateUpdateError(err, 'install');
+      setUpdateStatus({
+        phase: 'error', installReady: true, errorType: 'install', errorCategory: translated.type,
+        errorMessage: translated.message, errorDetails: translated.details
+      });
+      mainWindow?.webContents.send('update:error', {
+        stage: 'install', message: updateStatus.errorMessage, details
+      });
+      return {
+        started: false,
+        reason: 'install-start-failed',
+        error: translated.message,
+        details: translated.details
+      };
+    }
   });
+
 
   // Update-Einstellungen: app-weit (main/app-state.js), nicht pro Projekt —
   // exakt dasselbe Muster wie das bestehende Schließen-Verhalten
@@ -753,6 +1085,25 @@ function registerCoreIpc() {
 // unterschiedlich zuverlässig (unter GNOME z. B. oft nur mit einer
 // zusätzlichen Erweiterung sichtbar) — das ist eine Einschränkung des
 // jeweiligen Systems, keine Einschränkung dieser App.
+function refreshTrayMenu(status = getCurrentBackupStatus()) {
+  if (!tray || tray.isDestroyed()) return;
+  function showAndFocus() { mainWindow?.show(); mainWindow?.focus(); }
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Fenster öffnen', click: showAndFocus },
+    { label: 'Dashboard öffnen', click: () => { showAndFocus(); mainWindow?.webContents.send('menu:go-home'); } },
+    { label: 'Nach Updates suchen', click: () => { showAndFocus(); mainWindow?.webContents.send('menu:check-for-updates'); } },
+    {
+      label: status.inProgress ? 'Backup läuft …' : 'Backup jetzt erstellen',
+      enabled: !status.inProgress,
+      click: async () => { await runBackup(true); }
+    },
+    { type: 'separator' },
+    { label: 'Einstellungen…', click: () => { showAndFocus(); mainWindow?.webContents.send('menu:open-settings'); } },
+    { type: 'separator' },
+    { label: 'Beenden', click: () => { isQuitting = true; app.quit(); } }
+  ]));
+}
+
 function createTray() {
   // Bugfix (Nutzer-Meldung: App startete komplett nicht mehr, unhandled
   // promise rejection beim Icon-Laden): Tray ist eine reine Komfort-Funktion
@@ -772,23 +1123,8 @@ function createTray() {
     return;
   }
   tray.setToolTip('Archiv Wiki');
-  function showAndFocus() { mainWindow?.show(); mainWindow?.focus(); }
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Fenster öffnen', click: showAndFocus },
-    { label: 'Dashboard öffnen', click: () => { showAndFocus(); mainWindow?.webContents.send('menu:go-home'); } },
-    { label: 'Nach Updates suchen', click: () => { showAndFocus(); mainWindow?.webContents.send('menu:check-for-updates'); } },
-    {
-      label: 'Backup jetzt erstellen',
-      click: async () => { await maybeRunAutoBackup({ getCurrentProject: () => currentProject }, true); }
-    },
-    { type: 'separator' },
-    { label: 'Einstellungen…', click: () => { showAndFocus(); mainWindow?.webContents.send('menu:open-settings'); } },
-    { type: 'separator' },
-    { label: 'Archiv-Wiki beenden', click: () => quitCleanly() }
-  ]));
-  // Linksklick auf das Symbol selbst öffnet/fokussiert ebenfalls (zusätzlich
-  // zum Rechtsklick-Menü) — unter Windows/den meisten Linux-Umgebungen üblich.
-  tray.on('click', showAndFocus);
+  tray.on('click', () => { mainWindow?.show(); mainWindow?.focus(); });
+  refreshTrayMenu();
 }
 
 app.whenReady().then(() => {
@@ -826,8 +1162,8 @@ app.whenReady().then(() => {
   // dieser Pfad nur gespeichert, aber nie genutzt). Kurz nach Start prüfen
   // (falls schon ein Projekt bekannt ist) plus ein Hintergrund-Timer, falls
   // die App über Mitternacht hinaus geöffnet bleibt.
-  setTimeout(() => { maybeRunAutoBackup({ getCurrentProject: () => currentProject }).catch(() => {}); }, 5000);
-  setInterval(() => { maybeRunAutoBackup({ getCurrentProject: () => currentProject }).catch(() => {}); }, 10 * 60 * 1000);
+  setTimeout(() => { runBackup(false).catch(() => {}); }, 5000);
+  setInterval(() => { runBackup(false).catch(() => {}); }, 10 * 60 * 1000);
 
   // Automatischer Update-Check beim Start (Nutzer-Feature) — respektiert die
   // Einstellung "Beim Start automatisch nach Updates suchen" (Standard: an).
@@ -839,7 +1175,7 @@ app.whenReady().then(() => {
   setTimeout(() => {
     if (!autoUpdater) return; // electron-updater beim Start nicht ladbar gewesen — siehe try/catch am Dateianfang
     if (readAppState().updateCheckOnStart === false) return;
-    autoUpdater.checkForUpdates().catch((err) => {
+    runUpdateCheck().catch((err) => {
       // Kein Internet, GitHub nicht erreichbar, o.Ä. — beim automatischen
       // Start-Check bewusst NUR protokollieren, keine Fehlermeldung an den
       // Nutzer. Ein manueller "Jetzt prüfen"-Klick (Einstellungen) zeigt
@@ -872,7 +1208,15 @@ app.whenReady().then(() => {
 // window-all-closed) — setzt isQuitting, BEVOR die close-Handler der Fenster
 // laufen, damit das Hauptfenster dann wirklich schließt statt nur versteckt
 // zu werden (siehe mainWindow.on('close', ...) weiter oben).
-app.on('before-quit', () => { isQuitting = true; });
+app.on('before-quit', (event) => {
+  if (isQuitting) return;
+  if (isBackupInProgress()) {
+    event.preventDefault();
+    quitCleanly();
+    return;
+  }
+  isQuitting = true;
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

@@ -6,12 +6,12 @@ import * as fs from './filesystem.js';
 import { buildSyncIntervalOptionsHtml } from './sync-shared.js';
 import { applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, EDITOR_FONT_SIZE_DEFAULT, setFocusMode, applyReadingWidth } from './theme.js';
 import { ICON_LIBRARY, ICON_CATEGORIES, searchIconLibrary } from './icon-library.js';
-import { fetchUpdateStatus, renderUpdateStatus } from './update-check.js';
+import { fetchUpdateStatus, requestUpdateCheck, onUpdateStatusChanged, renderUpdateStatus } from './update-check.js';
 import { showSettingsWindow } from './settings-window.js';
 import { animateIn, animateOut } from './motion.js';
 import { initEllipsisTooltips } from './tooltip.js';
 import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor, setSyncScrollEnabled, setAutoSaveSeconds } from './editor.js';
-import { rebuildIndex, search as searchNotes, searchWithDetails } from './search.js';
+import { rebuildIndex, getSearchState, search as searchNotes, searchWithDetails } from './search.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -59,10 +59,11 @@ function escapeHtml(s) {
 // "kategorie/name", z. B. "os/tux") — bestehende Emoji bleiben dadurch
 // vollständig unverändert funktionsfähig, die Bibliothek ergänzt nur.
 function renderIconHtml(iconValue, fallbackEmoji) {
-  if (iconValue && iconValue.includes('/')) {
-    return `<img class="lib-icon" src="assets/icon-library/${iconValue}.svg" alt="">`;
+  const resolvedIcon = iconValue || fallbackEmoji;
+  if (resolvedIcon && resolvedIcon.includes('/')) {
+    return `<img class="lib-icon" src="assets/icon-library/${resolvedIcon}.svg" alt="">`;
   }
-  return escapeHtml(iconValue || fallbackEmoji);
+  return escapeHtml(resolvedIcon);
 }
 
 // ---------------------------------------------------------------------------
@@ -443,27 +444,95 @@ function showCloseDialog() {
 }
 
 function showBackupErrorModal(status) {
+  document.querySelector('.backup-error-overlay')?.remove();
+  const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const overlay = document.createElement('div');
-  overlay.className = 'prompt-overlay';
+  overlay.className = 'prompt-overlay backup-error-overlay';
   const lastError = status.lastErrorAt ? formatRelativeTime(status.lastErrorAt) : 'unbekannt';
   overlay.innerHTML = `
-    <div class="prompt-modal">
-      <div class="prompt-title">⚠️ Automatisches Backup fehlgeschlagen<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
-      <p class="sync-modal-note">${status.consecutiveFailures}x in Folge fehlgeschlagen · zuletzt ${escapeHtml(lastError)}</p>
-      <p class="sync-modal-note">${escapeHtml(friendlyBackupErrorText(status.lastErrorCode, status.lastErrorMessage))}</p>
-      <button type="button" class="backup-error-details-toggle" id="backupErrorDetailsToggle">Details anzeigen</button>
-      <pre class="backup-error-details" id="backupErrorDetails" style="display:none;">${escapeHtml(status.lastErrorMessage || 'Keine weiteren Details verfügbar.')}</pre>
+    <div class="prompt-modal" role="dialog" aria-modal="true" aria-labelledby="backupErrorDialogTitle" aria-describedby="backupErrorDialogDescription">
+      <div class="prompt-title" id="backupErrorDialogTitle"><img class="lib-icon backup-dialog-icon" src="assets/icon-library/security/alert-triangle.svg" alt=""> Backup fehlgeschlagen<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Backup-Fehler schließen">✕</button></div>
+      <p class="sync-modal-note" id="backupErrorDialogDescription">${status.consecutiveFailures}x in Folge fehlgeschlagen · zuletzt ${escapeHtml(lastError)}</p>
+      <p class="sync-modal-note">${escapeHtml(status.lastErrorUserMessage || friendlyBackupErrorText(status.lastErrorCode, status.lastErrorMessage))}</p>
+      <button type="button" class="backup-error-details-toggle" id="backupErrorDetailsToggle" aria-expanded="false" aria-controls="backupErrorDetails">Details anzeigen</button>
+      <pre class="backup-error-details" id="backupErrorDetails" style="display:none;">${escapeHtml([status.lastErrorCode, status.lastErrorMessage].filter(Boolean).join('\n') || 'Keine weiteren Details verfügbar.')}</pre>
     </div>`;
+
+  const backgroundState = [...document.body.children].map(element => ({
+    element,
+    inert: element.inert,
+    ariaHidden: element.getAttribute('aria-hidden')
+  }));
+  backgroundState.forEach(({ element }) => {
+    element.inert = true;
+    element.setAttribute('aria-hidden', 'true');
+  });
   document.body.appendChild(overlay);
-  function close() { overlay.remove(); }
-  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
-  overlay.querySelector('[data-action="close-x"]').addEventListener('click', close);
-  overlay.querySelector('#backupErrorDetailsToggle').addEventListener('click', (e) => {
+
+  const modal = overlay.querySelector('.prompt-modal');
+  const closeButton = overlay.querySelector('[data-action="close-x"]');
+  const focusableSelector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+  let closed = false;
+
+  function restoreBackground() {
+    backgroundState.forEach(({ element, inert, ariaHidden }) => {
+      if (!element.isConnected) return;
+      element.inert = inert;
+      if (ariaHidden === null) element.removeAttribute('aria-hidden');
+      else element.setAttribute('aria-hidden', ariaHidden);
+    });
+  }
+
+  function close() {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener('keydown', handleKeydown, true);
+    overlay.remove();
+    restoreBackground();
+    if (previouslyFocused?.isConnected) {
+      requestAnimationFrame(() => previouslyFocused.focus({ preventScroll: true }));
+    }
+  }
+
+  function focusableElements() {
+    return [...modal.querySelectorAll(focusableSelector)].filter(element => element.getClientRects().length > 0);
+  }
+
+  function handleKeydown(event) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = focusableElements();
+    if (!focusable.length) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || !modal.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || !modal.contains(active))) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  document.addEventListener('keydown', handleKeydown, true);
+  closeButton.addEventListener('click', close);
+  overlay.querySelector('#backupErrorDetailsToggle').addEventListener('click', (event) => {
     const details = overlay.querySelector('#backupErrorDetails');
     const nowShown = details.style.display === 'none';
     details.style.display = nowShown ? 'block' : 'none';
-    e.target.textContent = nowShown ? 'Details verbergen' : 'Details anzeigen';
+    event.currentTarget.textContent = nowShown ? 'Details verbergen' : 'Details anzeigen';
+    event.currentTarget.setAttribute('aria-expanded', String(nowShown));
   });
+  requestAnimationFrame(() => closeButton.focus({ preventScroll: true }));
 }
 
 // ---------------------------------------------------------------------------
@@ -549,7 +618,7 @@ document.getElementById('btnSettings').addEventListener('click', openSettingsWin
 // --- Tray-/Menü-Ereignisse aus dem Hauptprozess ---
 window.archivAPI.onShowCloseDialog(() => showCloseDialog());
 window.archivAPI.onGoHome(() => { location.hash = '#home'; });
-window.archivAPI.onCheckForUpdatesRequested(() => checkForUpdateAndRender());
+window.archivAPI.onCheckForUpdatesRequested(() => requestUpdateCheck());
 window.archivAPI.onOpenSettingsRequested(() => openSettingsWindow());
 
 // Automatisches Update-System (Nutzer-Feature): dezente Ecken-Benachrichtigung
@@ -558,22 +627,69 @@ window.archivAPI.onOpenSettingsRequested(() => openSettingsWindow());
 // aufeinanderfolgende Zustände derselben Sache, keine drei gleichzeitigen
 // Meldungen), daher wird ein evtl. vorhandener Toast bei jedem neuen Aufruf
 // zuerst entfernt.
-function showUpdateToast({ message, primaryLabel, onPrimary, showProgress = false, dismissLabel = 'Später' }) {
+function showUpdateToast({
+  message,
+  primaryLabel,
+  onPrimary,
+  showProgress = false,
+  progress = 0,
+  dismissLabel = 'Später',
+  dismissible = true,
+  removeOnPrimary = true,
+  primaryBusyLabel = null,
+  ariaMode = null,
+  details = null,
+  onDismiss = null
+}) {
   document.querySelectorAll('.update-toast').forEach(el => el.remove());
+  const safePercent = Math.max(0, Math.min(100, Number(progress) || 0));
   const toast = document.createElement('div');
   toast.className = 'update-toast';
+  if (ariaMode) {
+    toast.setAttribute('role', 'region');
+    toast.setAttribute('aria-label', ariaMode === 'error' ? 'Update-Fehler' : 'Update-Status');
+  }
   toast.innerHTML = `
-    <div class="update-toast-message">${escapeHtml(message)}</div>
-    ${showProgress ? '<div class="update-toast-progress"><div class="update-toast-progress-bar" id="updateToastProgressBar"></div></div>' : ''}
-    <div class="update-toast-actions">
-      <button type="button" class="btn ghost small" data-action="dismiss">${escapeHtml(dismissLabel)}</button>
+    <div class="update-toast-message"${ariaMode ? ` role="${ariaMode === 'error' ? 'alert' : 'status'}" aria-live="${ariaMode === 'error' ? 'assertive' : 'polite'}" aria-atomic="true"` : ''}>${escapeHtml(message)}</div>
+    ${showProgress ? `
+      <div class="update-toast-progress-row">
+        <div class="update-toast-progress" role="progressbar" aria-label="Downloadfortschritt" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${safePercent}">
+          <div class="update-toast-progress-bar" id="updateToastProgressBar" style="width:${safePercent}%"></div>
+        </div>
+        <span class="update-toast-progress-value" id="updateToastProgressValue" aria-hidden="true">${safePercent} %</span>
+      </div>` : ''}
+    ${details ? `<details class="update-toast-details"><summary>Technische Details</summary><div>${escapeHtml(details)}</div></details>` : ''}
+    ${(dismissible || primaryLabel) ? `<div class="update-toast-actions">
+      ${dismissible ? `<button type="button" class="btn ghost small" data-action="dismiss">${escapeHtml(dismissLabel)}</button>` : ''}
       ${primaryLabel ? `<button type="button" class="btn small" data-action="primary">${escapeHtml(primaryLabel)}</button>` : ''}
-    </div>
+    </div>` : ''}
   `;
   document.body.appendChild(toast);
-  toast.querySelector('[data-action="dismiss"]').addEventListener('click', () => toast.remove());
-  if (primaryLabel) {
-    toast.querySelector('[data-action="primary"]').addEventListener('click', () => { onPrimary?.(); toast.remove(); });
+  toast.querySelector('[data-action="dismiss"]')?.addEventListener('click', () => {
+    onDismiss?.();
+    toast.remove();
+  });
+  const primaryButton = toast.querySelector('[data-action="primary"]');
+  if (primaryButton) {
+    primaryButton.addEventListener('click', async () => {
+      primaryButton.disabled = true;
+      const originalLabel = primaryButton.textContent;
+      if (primaryBusyLabel) primaryButton.textContent = primaryBusyLabel;
+      try {
+        const result = await onPrimary?.();
+        if (removeOnPrimary) toast.remove();
+        else if (result?.started === false && toast.isConnected) {
+          primaryButton.disabled = false;
+          primaryButton.textContent = originalLabel;
+        }
+      } catch (error) {
+        console.error('[Archiv Wiki] Update-Aktion fehlgeschlagen:', error);
+        if (toast.isConnected) {
+          primaryButton.disabled = false;
+          primaryButton.textContent = originalLabel;
+        }
+      }
+    });
   }
   return toast;
 }
@@ -636,49 +752,153 @@ function showMoveUndoToast(originalRelPath, moved) {
   });
 }
 
-// "Vor dem Herunterladen nachfragen" (Standard: aus) UND "Updates automatisch
-// herunterladen" (Standard: an) entscheiden zusammen im Hauptprozess (siehe
-// main.js), ob der Download beim Erscheinen dieser Meldung schon LÄUFT oder
-// erst noch auf den Klick "Jetzt herunterladen" wartet — hier daher beide
-// Fälle abgedeckt, statt das im Renderer ein zweites Mal zu entscheiden.
-window.archivAPI.onUpdateAvailable(async (info) => {
-  const settings = await window.archivAPI.getUpdateSettings();
-  if (settings.autoDownload && !settings.confirmBeforeDownload) {
-    // Download läuft (main.js) bereits von selbst los — nur informieren,
-    // kein "Jetzt herunterladen"-Knopf nötig, da es nichts zu bestätigen gibt.
-    showUpdateToast({ message: `Eine neue Version von Archiv-Wiki ist verfügbar (${info.version}). Sie wird im Hintergrund heruntergeladen.` });
-  } else {
-    showUpdateToast({
-      message: `Eine neue Version von Archiv-Wiki ist verfügbar (${info.version}).`,
-      primaryLabel: 'Jetzt herunterladen',
-      onPrimary: async () => {
-        showUpdateToast({ message: 'Update wird heruntergeladen …', showProgress: true });
-        const result = await window.archivAPI.downloadUpdate();
-        if (result?.error) {
-          showUpdateToast({ message: `Herunterladen fehlgeschlagen: ${result.error}` });
-        }
-      }
+// Alle sichtbaren Update-Zustände stammen aus dem zentralen Main-Status.
+let lastRenderedUpdateToastKey = null;
+let dismissedUpdateToastKey = null;
+
+async function installDownloadedUpdate() {
+  return window.archivAPI.installUpdateAndRestart();
+}
+
+async function renderUpdateToastFromStatus(status) {
+  const phase = status?.phase || 'idle';
+  const toastKey = `${phase}:${status?.availableVersion || ''}:${status?.errorType || ''}:${status?.errorMessage || ''}`;
+  if (dismissedUpdateToastKey === toastKey && phase !== 'installing') return;
+
+  if (phase === 'upToDate') {
+    document.querySelectorAll('.update-toast[data-update-phase]').forEach(el => el.remove());
+    lastRenderedUpdateToastKey = null;
+    dismissedUpdateToastKey = null;
+    return;
+  }
+  if (phase === 'idle' || phase === 'checking') return;
+
+  if (phase === 'downloading') {
+    const percent = Math.max(0, Math.min(100, Number(status.downloadPercent) || 0));
+    let toast = document.querySelector('.update-toast[data-update-phase="downloading"]');
+    if (!toast) {
+      toast = showUpdateToast({
+        message: 'Update wird heruntergeladen …',
+        showProgress: true,
+        progress: percent,
+        ariaMode: 'status',
+        onDismiss: () => { dismissedUpdateToastKey = toastKey; }
+      });
+      toast.dataset.updatePhase = 'downloading';
+    }
+    const bar = toast.querySelector('#updateToastProgressBar');
+    const progressEl = toast.querySelector('.update-toast-progress');
+    const valueEl = toast.querySelector('#updateToastProgressValue');
+    if (bar) bar.style.width = `${percent}%`;
+    if (progressEl) progressEl.setAttribute('aria-valuenow', String(percent));
+    if (valueEl) valueEl.textContent = `${percent} %`;
+    lastRenderedUpdateToastKey = toastKey;
+    return;
+  }
+
+  if (lastRenderedUpdateToastKey === toastKey && document.querySelector(`.update-toast[data-update-phase="${phase}"]`)) return;
+
+  let toast = null;
+  if (phase === 'updateAvailable') {
+    const settings = await window.archivAPI.getUpdateSettings();
+    const needsConfirmation = !settings.autoDownload || settings.confirmBeforeDownload;
+    toast = showUpdateToast({
+      message: needsConfirmation
+        ? `Eine neue Version von Archiv-Wiki ist verfügbar (${status.availableVersion || '?'}).`
+        : `Eine neue Version von Archiv-Wiki ist verfügbar (${status.availableVersion || '?'}). Sie wird im Hintergrund heruntergeladen.`,
+      primaryLabel: needsConfirmation ? 'Jetzt herunterladen' : null,
+      onPrimary: needsConfirmation ? () => window.archivAPI.downloadUpdate() : null,
+      primaryBusyLabel: 'Download startet …',
+      ariaMode: 'status',
+      onDismiss: () => { dismissedUpdateToastKey = toastKey; }
+    });
+  } else if (phase === 'downloaded') {
+    toast = showUpdateToast({
+      message: 'Das Update wurde heruntergeladen und ist bereit zur Installation.',
+      primaryLabel: 'Jetzt neu starten',
+      onPrimary: installDownloadedUpdate,
+      primaryBusyLabel: 'Update wird installiert …',
+      removeOnPrimary: false,
+      ariaMode: 'status',
+      onDismiss: () => { dismissedUpdateToastKey = toastKey; }
+    });
+  } else if (phase === 'installing') {
+    toast = showUpdateToast({
+      message: 'Update wird installiert …',
+      dismissible: false,
+      ariaMode: 'status'
+    });
+  } else if (phase === 'error') {
+    toast = showUpdateToast({
+      message: status.errorMessage || 'Der Update-Vorgang ist fehlgeschlagen.',
+      details: status.errorDetails || null,
+      primaryLabel: status.installReady ? 'Erneut installieren' : null,
+      onPrimary: status.installReady ? installDownloadedUpdate : null,
+      primaryBusyLabel: 'Update wird installiert …',
+      removeOnPrimary: false,
+      dismissLabel: 'Schließen',
+      ariaMode: 'error',
+      onDismiss: () => { dismissedUpdateToastKey = toastKey; }
+    });
+  } else if (phase === 'unavailable') {
+    toast = showUpdateToast({
+      message: status.errorMessage || 'Das Update-System ist derzeit nicht verfügbar.',
+      details: status.errorDetails || null,
+      dismissLabel: 'Schließen',
+      ariaMode: 'error',
+      onDismiss: () => { dismissedUpdateToastKey = toastKey; }
     });
   }
+
+  if (toast) {
+    toast.dataset.updatePhase = phase;
+    toast.dataset.updateToastKey = toastKey;
+    lastRenderedUpdateToastKey = toastKey;
+  }
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || event.defaultPrevented) return;
+  const toast = document.querySelector('.update-toast[data-update-phase]');
+  if (!toast || toast.dataset.updatePhase === 'installing') return;
+  event.preventDefault();
+  event.stopPropagation();
+  dismissedUpdateToastKey = toast.dataset.updateToastKey || null;
+  toast.remove();
+  lastRenderedUpdateToastKey = null;
 });
-window.archivAPI.onUpdateDownloadProgress(({ percent }) => {
-  const bar = document.getElementById('updateToastProgressBar');
-  if (bar) bar.style.width = `${percent}%`;
-  // Fortschritts-Balken existiert noch nicht (z. B. automatischer Download
-  // ohne vorherige "Verfügbar"-Meldung mit Fortschrittsanzeige) — dann jetzt
-  // mit Fortschritt neu anzeigen, statt den ersten Fortschritts-Wert zu verlieren.
-  else showUpdateToast({ message: 'Update wird heruntergeladen …', showProgress: true });
+
+let currentSidebarUpdateStatus = null;
+els.updateStatusTop.addEventListener('click', async () => {
+  if (currentSidebarUpdateStatus?.phase === 'updateAvailable' && currentSidebarUpdateStatus.releaseUrl) {
+    window.open(currentSidebarUpdateStatus.releaseUrl, '_blank');
+    return;
+  }
+  if (currentSidebarUpdateStatus?.phase === 'downloaded' || (currentSidebarUpdateStatus?.phase === 'error' && currentSidebarUpdateStatus.installReady)) {
+    await installDownloadedUpdate();
+  }
 });
-window.archivAPI.onUpdateDownloaded(() => {
-  showUpdateToast({
-    message: 'Das Update wurde erfolgreich heruntergeladen.',
-    primaryLabel: 'Jetzt neu starten',
-    onPrimary: () => window.archivAPI.installUpdateAndRestart()
-  });
-});
-window.archivAPI.onUpdateError(({ message }) => {
-  showUpdateToast({ message: `Update-Fehler: ${message}` });
-});
+
+function applyCentralUpdateStatus(status) {
+  currentSidebarUpdateStatus = status;
+  els.updateStatusCurrent.textContent = status.currentVersion ? `v${status.currentVersion}` : '';
+  renderUpdateStatus(els.updateDot, els.updateStatusLabel, status, 'update-status-label');
+  const clickable = (
+    (status.phase === 'updateAvailable' && Boolean(status.releaseUrl)) ||
+    status.phase === 'downloaded' ||
+    (status.phase === 'error' && status.installReady)
+  );
+  els.updateStatusTop.classList.toggle('clickable', clickable);
+  els.updateStatusTop.setAttribute('aria-disabled', clickable ? 'false' : 'true');
+  els.updateStatusTop.title = status.phase === 'downloaded'
+    ? 'Update installieren und Archiv-Wiki neu starten'
+    : status.phase === 'updateAvailable'
+      ? 'GitHub-Release öffnen'
+      : '';
+  renderUpdateToastFromStatus(status);
+}
+
+onUpdateStatusChanged(applyCentralUpdateStatus);
 
 // ---------------------------------------------------------------------------
 // Sync-Einstellungen — jederzeit über den ☁-Button in der Topbar erreichbar
@@ -1020,7 +1240,16 @@ async function refreshAll() {
   }
   renderNavTree();
   render(); // aktuelle Route neu zeichnen (Baum kann sich geändert haben)
-  rebuildIndex().catch(err => console.error('[Archiv Wiki] Such-Index konnte nicht aktualisiert werden', err));
+  const indexRebuild = rebuildIndex();
+  refreshSearchDropdownForCurrentQuery();
+  indexRebuild
+    .then(result => {
+      if (result.applied) refreshSearchDropdownForCurrentQuery();
+    })
+    .catch(err => {
+      console.error('[Archiv Wiki] Such-Index konnte nicht aktualisiert werden', err);
+      refreshSearchDropdownForCurrentQuery();
+    });
   updateTrashBadge();
 }
 
@@ -1840,35 +2069,119 @@ els.searchClear.addEventListener('click', () => {
 let searchDropdownIndex = -1;
 let currentSearchResults = [];
 
-function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-
-function highlightTerm(text, query) {
-  const escapedText = escapeHtml(text);
-  if (!query) return escapedText;
-  const re = new RegExp(`(${escapeRegExp(escapeHtml(query))})`, 'ig');
-  return escapedText.replace(re, '<mark>$1</mark>');
+function normalizeHighlightText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('de');
 }
+
+// Hebt sichtbare Treffer Unicode-tolerant hervor, ohne die Suchlogik oder
+// Trefferreihenfolge zu verändern. Dadurch bleibt z. B. "uber" in "Über"
+// nachvollziehbar. HTML wird abschnittsweise escaped, bevor <mark> ergänzt wird.
+function highlightTerm(text, query) {
+  const source = String(text ?? '');
+  const normalizedQuery = normalizeHighlightText(query).trim();
+  if (!source || !normalizedQuery) return escapeHtml(source);
+
+  let normalizedText = '';
+  const starts = [];
+  const ends = [];
+  let sourceOffset = 0;
+
+  for (const char of source) {
+    const charStart = sourceOffset;
+    sourceOffset += char.length;
+    const normalizedChar = normalizeHighlightText(char);
+
+    // Bei bereits zerlegten Unicode-Zeichen (z. B. "u" + kombinierter
+    // Umlaut) entfernt die Normalisierung das Kombinationszeichen. Es gehört
+    // visuell dennoch zum vorherigen Buchstaben und muss in dessen Markierung
+    // eingeschlossen bleiben. Andernfalls trennt <mark> den Graphem-Cluster
+    // und Chromium zeichnet das lose Zeichen über einem zweiten Glyphen.
+    if (!normalizedChar) {
+      for (let i = ends.length - 1; i >= 0 && ends[i] === charStart; i -= 1) {
+        ends[i] = sourceOffset;
+      }
+      continue;
+    }
+
+    for (const normalizedPart of normalizedChar) {
+      normalizedText += normalizedPart;
+      starts.push(charStart);
+      ends.push(sourceOffset);
+    }
+  }
+
+  const ranges = [];
+  let searchFrom = 0;
+  while (searchFrom < normalizedText.length) {
+    const normalizedOffset = normalizedText.indexOf(normalizedQuery, searchFrom);
+    if (normalizedOffset < 0) break;
+    const normalizedEnd = normalizedOffset + normalizedQuery.length - 1;
+    const start = starts[normalizedOffset];
+    const end = ends[normalizedEnd];
+    const previous = ranges.at(-1);
+    if (!previous || start >= previous.end) ranges.push({ start, end });
+    searchFrom = normalizedOffset + normalizedQuery.length;
+  }
+
+  if (ranges.length === 0) return escapeHtml(source);
+
+  let html = '';
+  let offset = 0;
+  for (const range of ranges) {
+    html += escapeHtml(source.slice(offset, range.start));
+    html += `<mark>${escapeHtml(source.slice(range.start, range.end))}</mark>`;
+    offset = range.end;
+  }
+  return html + escapeHtml(source.slice(offset));
+}
+
 
 let searchDropdownOpen = false;
 
+function setSearchDropdownExpanded(expanded) {
+  els.navSearch.setAttribute('aria-expanded', String(expanded));
+  if (!expanded) els.navSearch.removeAttribute('aria-activedescendant');
+}
+
 function renderSearchDropdown(query) {
-  currentSearchResults = searchWithDetails(query);
+  const searchState = getSearchState();
+  currentSearchResults = [];
   searchDropdownIndex = -1;
-  if (currentSearchResults.length === 0) {
-    els.searchDropdown.innerHTML = `<div class="search-dropdown-empty">Keine Treffer für „${escapeHtml(query)}"</div>`;
+  els.navSearch.removeAttribute('aria-activedescendant');
+  els.searchDropdown.removeAttribute('aria-busy');
+
+  if (searchState === 'loading') {
+    els.searchDropdown.setAttribute('aria-busy', 'true');
+    els.searchDropdown.innerHTML = '<div class="search-dropdown-empty" role="status">Suchindex wird vorbereitet …</div>';
+  } else if (searchState === 'error') {
+    els.searchDropdown.innerHTML = '<div class="search-dropdown-empty" role="status">Die Suche konnte nicht vorbereitet werden.</div>';
   } else {
-    els.searchDropdown.innerHTML = currentSearchResults.map((r, i) => `
-      <button type="button" class="search-result" data-index="${i}">
-        <div class="search-result-head">
-          <span class="search-result-title">📄 ${highlightTerm(r.title, query)}</span>
-          ${r.category ? `<span class="search-result-category">${escapeHtml(r.category)}</span>` : ''}
-        </div>
-        ${r.tags.length ? `<div class="search-result-tags">${r.tags.map(t => `<span class="search-result-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
-        ${r.snippet ? `<div class="search-result-snippet">${highlightTerm(r.snippet, query)}</div>` : ''}
-      </button>
-    `).join('');
+    const detailedResults = searchWithDetails(query);
+    currentSearchResults = detailedResults.results;
+    if (currentSearchResults.length === 0) {
+      els.searchDropdown.innerHTML = `<div class="search-dropdown-empty" role="status">Keine Treffer für „${escapeHtml(query)}“</div>`;
+    } else {
+      const resultHtml = currentSearchResults.map((r, i) => `
+        <button type="button" class="search-result" id="search-option-${i}" role="option" aria-selected="false" tabindex="-1" data-index="${i}">
+          <div class="search-result-head">
+            <span class="search-result-title"><span class="search-result-icon">${renderIconHtml(r.icon, 'docs/file-text')}</span><span>${highlightTerm(r.title, query)}</span></span>
+            ${r.categoryPath ? `<span class="search-result-category" title="${escapeHtml(r.categoryPath)}">${highlightTerm(r.categoryPath, query)}</span>` : ''}
+          </div>
+          ${r.tags.length ? `<div class="search-result-tags">${r.tags.map(t => `<span class="search-result-tag">${highlightTerm(t, query)}</span>`).join('')}</div>` : ''}
+          ${r.snippet ? `<div class="search-result-snippet">${highlightTerm(r.snippet, query)}</div>` : ''}
+        </button>
+      `).join('');
+      const limitHtml = detailedResults.hasMore
+        ? '<div class="search-results-limit" role="status">Weitere Treffer vorhanden – die ersten 30 werden angezeigt.</div>'
+        : '';
+      els.searchDropdown.innerHTML = resultHtml + limitHtml;
+    }
   }
   els.searchDropdown.style.display = 'block';
+  setSearchDropdownExpanded(true);
   if (!searchDropdownOpen) {
     searchDropdownOpen = true;
     animateIn(els.searchDropdown);
@@ -1881,9 +2194,15 @@ function renderSearchDropdown(query) {
   }
 }
 
+function refreshSearchDropdownForCurrentQuery() {
+  const query = els.navSearch.value.trim();
+  if (query) renderSearchDropdown(query);
+}
+
 function closeSearchDropdown() {
   if (!searchDropdownOpen) return;
   searchDropdownOpen = false;
+  setSearchDropdownExpanded(false);
   animateOut(els.searchDropdown, () => {
     els.searchDropdown.style.display = 'none';
     els.searchDropdown.innerHTML = '';
@@ -1891,8 +2210,22 @@ function closeSearchDropdown() {
   searchDropdownIndex = -1;
 }
 
-function updateSearchDropdownActive() {
-  els.searchDropdown.querySelectorAll('.search-result').forEach((btn, i) => btn.classList.toggle('active', i === searchDropdownIndex));
+function updateSearchDropdownActive({ keepVisible = false } = {}) {
+  const options = [...els.searchDropdown.querySelectorAll('.search-result')];
+  let activeOption = null;
+  options.forEach((btn, i) => {
+    const active = i === searchDropdownIndex;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', String(active));
+    if (active) activeOption = btn;
+  });
+
+  if (activeOption) {
+    els.navSearch.setAttribute('aria-activedescendant', activeOption.id);
+    if (keepVisible) activeOption.scrollIntoView({ block: 'nearest' });
+  } else {
+    els.navSearch.removeAttribute('aria-activedescendant');
+  }
 }
 
 // Wartet kurz darauf, dass die Ziel-Notiz tatsächlich offen ist (Navigation
@@ -1921,29 +2254,43 @@ els.navSearch.addEventListener('input', () => {
 });
 
 els.navSearch.addEventListener('keydown', (e) => {
-  if (els.searchDropdown.style.display === 'none' || currentSearchResults.length === 0) return;
+  if (e.key === 'Escape' && searchDropdownOpen) {
+    e.preventDefault();
+    e.stopPropagation();
+    closeSearchDropdown();
+    return;
+  }
+
+  if (!searchDropdownOpen || currentSearchResults.length === 0) return;
+
   if (e.key === 'ArrowDown') {
     e.preventDefault();
     searchDropdownIndex = Math.min(searchDropdownIndex + 1, currentSearchResults.length - 1);
-    updateSearchDropdownActive();
+    updateSearchDropdownActive({ keepVisible: true });
   } else if (e.key === 'ArrowUp') {
     e.preventDefault();
-    searchDropdownIndex = Math.max(searchDropdownIndex - 1, 0);
-    updateSearchDropdownActive();
+    searchDropdownIndex = searchDropdownIndex <= 0
+      ? 0
+      : searchDropdownIndex - 1;
+    updateSearchDropdownActive({ keepVisible: true });
   } else if (e.key === 'Enter') {
     e.preventDefault();
     const target = currentSearchResults[searchDropdownIndex >= 0 ? searchDropdownIndex : 0];
     if (target) openSearchResult(target, els.navSearch.value.trim());
-  } else if (e.key === 'Escape') {
-    e.preventDefault();
-    closeSearchDropdown();
   }
 });
 
+// Der Fokus bleibt nach dem ARIA-Combobox-Muster im Suchfeld. Die Treffer
+// selbst sind nicht Teil der Tab-Reihenfolge; Mausaktivierung läuft über den
+// regulären Click-Pfad, während Pfeiltasten + Enter den internen Auswahlindex
+// und aria-activedescendant gemeinsam steuern.
 els.searchDropdown.addEventListener('mousedown', (e) => {
+  if (e.target.closest('.search-result')) e.preventDefault();
+});
+
+els.searchDropdown.addEventListener('click', (e) => {
   const btn = e.target.closest('.search-result');
   if (!btn) return;
-  e.preventDefault(); // Fokus/Blur der Sucheingabe soll den Klick nicht durchkreuzen
   const result = currentSearchResults[Number(btn.dataset.index)];
   if (result) openSearchResult(result, els.navSearch.value.trim());
 });
@@ -4437,14 +4784,7 @@ window.addEventListener('beforeunload', (e) => {
 // aus. Versionsnummern kommen beide zur Laufzeit (app.getVersion() bzw.
 // GitHub-Releases-API), stehen nirgends fest im Code.
 async function checkForUpdateAndRender() {
-  els.updateStatusCurrent.textContent = '';
-  const status = await fetchUpdateStatus();
-  if (status.currentVersion) els.updateStatusCurrent.textContent = `v${status.currentVersion}`;
-  renderUpdateStatus(els.updateDot, els.updateStatusLabel, status, 'update-status-label');
-  if (status.updateAvailable && status.latestVersion) {
-    els.updateStatusTop.classList.add('clickable');
-    els.updateStatusTop.addEventListener('click', () => window.open(status.releaseUrl, '_blank'));
-  }
+  applyCentralUpdateStatus(await fetchUpdateStatus());
 }
 
 function waitForUnlock() {
@@ -4507,17 +4847,26 @@ function waitForUnlock() {
   }
 
   // Backup-Warnung: Symbol bleibt standardmäßig versteckt, erscheint nur ab
-  // 3 aufeinanderfolgenden fehlgeschlagenen automatischen Backups (main/backup.js
-  // zählt das mit) — vorher liefen Fehlschläge komplett unbemerkt im Hintergrund.
-  try {
-    const backupStatus = await window.archivAPI.getBackupStatus();
-    if (backupStatus.consecutiveFailures >= 3) {
-      const btn = document.getElementById('btnBackupWarning');
-      btn.style.display = 'flex';
-      const lastError = backupStatus.lastErrorAt ? formatRelativeTime(backupStatus.lastErrorAt) : 'unbekannt';
-      btn.title = `${backupStatus.consecutiveFailures}x automatisches Backup in Folge fehlgeschlagen (zuletzt: ${lastError})`;
-      btn.addEventListener('click', () => showBackupErrorModal(backupStatus));
+  // 3 aufeinanderfolgenden fehlgeschlagenen Backups (main/backup.js zählt das
+  // projektbezogen mit) — vorher liefen Fehlschläge unbemerkt im Hintergrund.
+  function applyBackupStatus(backupStatus) {
+    const btn = document.getElementById('btnBackupWarning');
+    if (!btn) return;
+    const visible = backupStatus.consecutiveFailures >= 3;
+    btn.style.display = visible ? 'flex' : 'none';
+    btn.onclick = null;
+    if (!visible) {
+      btn.removeAttribute('title');
+      return;
     }
+    const lastError = backupStatus.lastErrorAt ? formatRelativeTime(backupStatus.lastErrorAt) : 'unbekannt';
+    btn.title = `${backupStatus.consecutiveFailures}x Backup in Folge fehlgeschlagen (zuletzt: ${lastError})`;
+    btn.onclick = () => showBackupErrorModal(backupStatus);
+  }
+
+  try {
+    applyBackupStatus(await window.archivAPI.getBackupStatus());
+    window.archivAPI.onBackupStatusUpdated?.(applyBackupStatus);
   } catch { /* Backup-Status ist rein informativ, App funktioniert auch ohne diese Prüfung */ }
 
   // Branding-Zeile über der Suche: "Wiki von [Name]", Name kommt aus der

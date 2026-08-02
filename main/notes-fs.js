@@ -101,12 +101,25 @@ function getSearchDocuments(projectPath) {
       } else if (entry.isFile() && entry.name.toLowerCase().endsWith(NOTE_EXT)) {
         try {
           const { frontmatter, body } = readNoteRaw(entryFullPath);
+          const categoryParts = path.dirname(entryRelPath)
+            .split(path.sep)
+            .filter(part => part && part !== '.');
+          const mainCategory = frontmatter.mainCategory || categoryParts[0] || '';
+          const subCategory = frontmatter.category || categoryParts.at(-1) || '';
+          const categoryPath = categoryParts.length
+            ? categoryParts.join(' / ')
+            : [mainCategory, subCategory].filter(Boolean).filter((value, index, values) => values.indexOf(value) === index).join(' / ');
+
           docs.push({
             relPath: entryRelPath,
             title: frontmatter.title || entry.name,
             body,
             tags: frontmatter.tags || [],
-            category: frontmatter.category || frontmatter.mainCategory || ''
+            icon: frontmatter.icon || '',
+            category: subCategory || mainCategory,
+            mainCategory,
+            subCategory,
+            categoryPath
           });
         } catch { /* defekte Notiz — einfach überspringen statt Index-Aufbau abzubrechen */ }
       }
