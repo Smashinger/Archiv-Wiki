@@ -10,7 +10,7 @@
 // neben jedem Feld) UND sofort über den Settings-Service (settings:update)
 // gespeichert — kein Neustart nötig, kein separater "Speichern"-Button.
 
-import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, setFocusMode, READING_WIDTH_PRESETS, applyReadingWidth } from './theme.js';
+import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, setFocusMode, READING_WIDTH_PRESETS, applyReadingWidth, generateRandomAccentColor } from './theme.js';
 import { fetchUpdateStatus, renderUpdateStatus } from './update-check.js';
 import { animateIn, animateOut } from './motion.js';
 
@@ -201,8 +201,15 @@ function renderAppearanceSection(el, config, updateSetting) {
     <h3>Darstellung</h3>
     <div class="settings-field">
       <span>Akzentfarbe</span>
-      <div class="color-swatches" id="stAccentSwatches">${buildAccentSwatchesHtml(config.accentKey || 'orange')}</div>
+      <div class="color-swatches" id="stAccentSwatches">
+        ${buildAccentSwatchesHtml(config.accentKey || 'orange')}
+        <button type="button" class="color-swatch color-swatch-random" id="stRandomAccent" data-accent="random" title="Neue Zufallsfarbe erzeugen">🎲</button>
+      </div>
       <input type="color" id="stCustomColorInput" class="settings-hidden-color-input" value="${escapeAttr(config.customAccentColor || '#c17d45')}">
+      <div class="settings-hex-input-row">
+        <input type="text" class="settings-hex-input" id="stHexInput" placeholder="#RRGGBB" maxlength="7" value="${config.accentKey === 'custom' ? escapeAttr(config.customAccentColor || '') : ''}">
+        <span class="settings-hint" id="stHexHint">oder Farbcode eingeben</span>
+      </div>
     </div>
     <div class="settings-field">
       <span>Sidebar-Größe</span>
@@ -235,11 +242,13 @@ function renderAppearanceSection(el, config, updateSetting) {
           `<button type="button" class="density-option ${(config.readingWidthKey || 'standard') === key ? 'active' : ''}" data-reading-width="${key}">${escapeAttr(preset.label)}</button>`
         ).join('')}
       </div>
-      <p class="settings-hint">Begrenzt die Vorschau auf eine angenehme Lesebreite, besonders praktisch bei sehr breiten Fenstern. Der Editor selbst bleibt davon unberührt.</p>
+      <p class="settings-hint">Begrenzt Editor und Vorschau auf eine angenehme Lesebreite, besonders praktisch bei sehr breiten Fenstern. Tabellen und Codeblöcke bleiben davon ausgenommen und nutzen weiterhin die volle verfügbare Breite.</p>
     </div>
   `;
   const customSwatch = el.querySelector('.color-swatch-custom');
   const customColorInput = el.querySelector('#stCustomColorInput');
+  const hexInput = el.querySelector('#stHexInput');
+  const hexHint = el.querySelector('#stHexHint');
   // Aktuell gewählte eigene Farbe als Hintergrund zeigen — bewusst per JS
   // gesetzt statt als Inline-Style im HTML-String (letzteres würde im Wizard
   // durch dessen strengere CSP blockiert; hier zwar unkritisch, aber gleiches
@@ -248,26 +257,65 @@ function renderAppearanceSection(el, config, updateSetting) {
     customSwatch.style.background = config.customAccentColor;
     customSwatch.textContent = '';
   }
+  // Gemeinsame Anwenden-Funktion für JEDEN Weg zu einer eigenen Farbe (native
+  // Farbwahl, Zufalls-Kreis, oder das Hex-Textfeld weiter unten) — vermeidet,
+  // dieselben drei Schritte (anwenden, speichern, Kreis-Zustand aktualisieren)
+  // an drei Stellen zu wiederholen.
+  async function applyCustomColor(hex) {
+    applyAccentPalette('custom', hex);
+    await updateSetting({ accentKey: 'custom', customAccentColor: hex });
+    customSwatch.style.background = hex;
+    customSwatch.textContent = '';
+    el.querySelectorAll('#stAccentSwatches button').forEach(s => s.classList.toggle('active', s === customSwatch));
+    hexInput.value = hex;
+    hexInput.classList.remove('invalid');
+  }
   el.querySelector('#stAccentSwatches').addEventListener('click', async (e) => {
     const swatch = e.target.closest('[data-accent]');
     if (!swatch) return;
     const key = swatch.dataset.accent;
     if (key === 'custom') { customColorInput.click(); return; }
+    // Zufalls-Akzentfarbe (Nutzer-Feature): wird bewusst wie eine ganz
+    // normale, manuell gewählte eigene Farbe behandelt (accentKey:'custom')
+    // — keine eigene, vierte Kategorie dafür, nur dass der Hex-Wert nicht
+    // vom Nutzer, sondern von generateRandomAccentColor() kommt.
+    if (key === 'random') { await applyCustomColor(generateRandomAccentColor()); return; }
     applyAccentPalette(key);
     await updateSetting({ accentKey: key });
     el.querySelectorAll('#stAccentSwatches button').forEach(s => s.classList.toggle('active', s.dataset.accent === key));
+    hexInput.value = '';
+    hexInput.classList.remove('invalid');
   });
   customColorInput.addEventListener('input', (e) => {
     // Live-Vorschau schon während des Ziehens im Farbwähler, noch ungespeichert.
     applyAccentPalette('custom', e.target.value);
     customSwatch.style.background = e.target.value;
     customSwatch.textContent = '';
+    hexInput.value = e.target.value;
   });
   customColorInput.addEventListener('change', async (e) => {
-    const hex = e.target.value;
-    applyAccentPalette('custom', hex);
-    await updateSetting({ accentKey: 'custom', customAccentColor: hex });
-    el.querySelectorAll('#stAccentSwatches button').forEach(s => s.classList.toggle('active', s === customSwatch));
+    await applyCustomColor(e.target.value);
+  });
+  // Eigener Hex-Code (Nutzer-Feature): Ersatzweg zum nativen Systemdialog,
+  // der unter manchen Linux-Desktops die Hex-Eingabe hinter einer
+  // zusätzlichen "+"-Kachel versteckt, statt sie direkt anzuzeigen — mit
+  // diesem Feld ist man davon unabhängig, unabhängig vom jeweiligen
+  // Betriebssystem-Dialog.
+  const HEX_PATTERN = /^#[0-9a-fA-F]{6}$/;
+  hexInput.addEventListener('input', (e) => {
+    const value = e.target.value.trim();
+    hexInput.classList.toggle('invalid', value.length > 0 && !HEX_PATTERN.test(value));
+  });
+  hexInput.addEventListener('change', async (e) => {
+    let value = e.target.value.trim();
+    if (value && !value.startsWith('#')) value = '#' + value; // "a3f5c2" genauso akzeptieren wie "#a3f5c2"
+    if (!HEX_PATTERN.test(value)) {
+      hexInput.classList.add('invalid');
+      hexHint.textContent = 'Ungültig — bitte im Format #RRGGBB eingeben';
+      return;
+    }
+    hexHint.textContent = 'oder Farbcode eingeben';
+    await applyCustomColor(value);
   });
   el.querySelector('#stDensityRow').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-density]');
@@ -322,8 +370,9 @@ function renderEditorSection(el, config, updateSetting) {
     </label>
     <label class="settings-field">
       <span>Auto-Save-Intervall (Sekunden)</span>
-      <input type="number" id="stAutoSave" min="5" max="300" step="5" value="${escapeAttr(editor.autoSave ?? 30)}">
+      <input type="number" id="stAutoSave" min="0" max="300" step="5" value="${escapeAttr(editor.autoSave ?? 30)}">
     </label>
+    <p class="settings-hint">0 Sekunden deaktiviert das automatische Speichern.</p>
     <label class="settings-field">
       <span>Tab-Größe (Leerzeichen)</span>
       <input type="number" id="stTabSize" min="1" max="8" value="${escapeAttr(editor.tabSize ?? 2)}">
@@ -332,14 +381,14 @@ function renderEditorSection(el, config, updateSetting) {
       <input type="checkbox" id="stSpellcheck" ${editor.spellcheck !== false ? 'checked' : ''}>
       <span>Rechtschreibprüfung im Editor</span>
     </label>
-    <p class="settings-hint">Der "Bearbeiten-Modus" (zum Umsortieren in der Sidebar) bleibt bewusst im "⋮"-Menü — das ist eine kurzzeitige Aktion, keine dauerhafte Einstellung.</p>
   `;
   el.querySelector('#stFontSize').addEventListener('change', async (e) => {
     const px = applyEditorFontSize(Number(e.target.value));
     await updateSetting({ editorFontSize: px });
   });
   el.querySelector('#stAutoSave').addEventListener('change', async (e) => {
-    const val = Math.min(300, Math.max(5, Number(e.target.value) || 30));
+    const raw = Number(e.target.value);
+    const val = Number.isNaN(raw) ? 30 : Math.min(300, Math.max(0, raw));
     e.target.value = val;
     await updateSetting({ editor: { autoSave: val } });
   });

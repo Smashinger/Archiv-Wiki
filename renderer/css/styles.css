@@ -121,17 +121,52 @@ input{ font: inherit; }
    Code-Blöcke bekommen bewusst mehr Spielraum (siehe unten) und laufen bei
    Bedarf selbst horizontal über (siehe .code-block pre weiter unten, hat das
    schon immer gemacht), statt Inhalte abzuschneiden oder zu quetschen. */
-body.reading-width .preview-pane > *{
+body.reading-width .preview-content{
+  max-width: calc(var(--read-width) * 1.3);
+  margin-left: auto;
+  margin-right: auto;
+}
+/* Normale Inhalte (Absatz, Überschrift, Liste, Zitat, Callout, Bild — alles
+   außer Tabellen/Code) teilen sich EINE gemeinsame, engere Regel. Da alle
+   denselben Wert bekommen, landen sie automatisch an derselben linken
+   Kante — keine Sonderbehandlung für ein einzelnes Element, die zu
+   abweichender Ausrichtung führen könnte (genau das war der frühere Fehler
+   beim Bild). Bilder liegen innerhalb eines <p> und folgen dieser Regel
+   daher automatisch mit, ohne eigene Zentrierung zu benötigen. */
+body.reading-width .preview-content > :not(table):not(.code-block){
   max-width: var(--read-width);
   margin-left: auto;
   margin-right: auto;
 }
-body.reading-width .preview-pane > table,
-body.reading-width .preview-pane > .code-block{
-  max-width: min(100%, calc(var(--read-width) * 1.3));
-}
-body.reading-width .preview-pane > table{
+/* Tabellen/Code dürfen den vollen (breiteren) Container nutzen — kein
+   eigenes margin/width nötig, sie füllen einfach den äußeren Rahmen und
+   scrollen bei Bedarf selbst horizontal (siehe .code-block pre weiter
+   unten, hat das schon immer gemacht). */
+body.reading-width .preview-content > table{
   display: block;
+  width: 100%;
+  overflow-x: auto;
+}
+/* Lesebreite jetzt auch im Editor (Nutzer-Feature) — dieselbe Einstellung,
+   keine zusätzliche Option. Anders als bei der Vorschau gibt es hier keine
+   separaten HTML-Elemente pro Markdown-Konstrukt, sondern eine einzige,
+   durchgehende CodeMirror-Textfläche — deshalb wird JEDE Zeile einzeln
+   zentriert, statt einen äußeren Container zu begrenzen (das würde auch
+   die Ausnahme-Zeilen einschränken). Tabellen-/Code-Zeilen (per echtem
+   Syntaxbaum erkannt, siehe editor-bundle.js) bekommen bewusst die volle
+   Breite mit eigenem horizontalen Scrollen statt Umbruch — genau das
+   Prinzip, das die Vorschau bei Tabellen/Code bereits nutzt, nur zeilen-
+   statt elementweise umgesetzt. */
+body.reading-width .cm-content .cm-line{
+  max-width: var(--read-width);
+  margin-left: auto;
+  margin-right: auto;
+}
+body.reading-width .cm-content .cm-line.cm-line-nowrap{
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+  white-space: pre;
   overflow-x: auto;
 }
 .preview-pane h1, .preview-pane h2, .preview-pane h3{
@@ -140,6 +175,17 @@ body.reading-width .preview-pane > table{
 .preview-pane h1{ font-size: 22px; margin-top: 0; }
 .preview-pane h2{ font-size: 18px; border-top: 1px solid var(--border-soft); padding-top: 14px; }
 .preview-pane h3{ font-size: 15px; color: var(--accent-color); }
+/* H4-H6 (Nutzer-Feature): schließt logisch an H3 an, bleibt aber immer bei
+   der Fließtext-Monospace-Familie statt auf Browser-Standard zurückzufallen.
+   Größe sinkt nie unter die 14px-Fließtextgröße — ab H5 übernehmen
+   Schriftstärke/Großschreibung die weitere Abstufung, statt die Schrift
+   noch kleiner (und damit unauffälliger als Fließtext) werden zu lassen. */
+.preview-pane h4{ font-family: var(--mono); color: var(--text-main); font-size: 15px; font-weight: 700; margin: 16px 0 8px; }
+.preview-pane h5{ font-family: var(--mono); color: var(--text-main); font-size: 14px; font-weight: 700; margin: 14px 0 8px; }
+.preview-pane h6{
+  font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .04em; margin: 14px 0 8px;
+}
 .preview-pane p{ margin: 0 0 12px; }
 .preview-pane a{ color: var(--cyan); }
 .preview-pane ul, .preview-pane ol{ margin: 0 0 12px; padding-left: 20px; }
@@ -152,6 +198,10 @@ body.reading-width .preview-pane > table{
   margin: 0 0 14px; padding: 4px 14px; border-left: 3px solid var(--border);
   color: var(--text-faint); font-style: italic;
 }
+/* Horizontale Linie (Nutzer-Feature): flacher Strich statt Browser-
+   Standard (border-style: inset, ein veralteter 3D-Effekt) — nutzt
+   dieselbe, bereits überall in der Vorschau verwendete Randfarbe. */
+.preview-pane hr{ border: none; border-top: 1px solid var(--border); margin: 22px 0; }
 .preview-pane table{ width: 100%; border-collapse: collapse; margin: 6px 0 16px; font-size: 13px; }
 .preview-pane th:not([align]), .preview-pane td:not([align]){ text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border-soft); }
 .preview-pane th[align], .preview-pane td[align]{ padding: 7px 10px; border-bottom: 1px solid var(--border-soft); }
@@ -162,7 +212,7 @@ body.reading-width .preview-pane > table{
    einfach: ein Hover-Wrapper zeigt vier Knöpfe (25/50/75/100%), keine
    Beobachter, keine dynamische Größenmessung. */
 .preview-pane .img-size-wrap{ position: relative; display: inline-block; max-width: 100%; vertical-align: top; }
-.preview-pane .img-size-wrap img{ display: block; max-width: 100%; border-radius: var(--radius-sm); }
+.preview-pane .img-size-wrap img{ display: block; max-width: 100%; border-radius: var(--radius-sm); cursor: zoom-in; }
 .preview-pane .img-size-buttons{
   position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
   opacity: 0; pointer-events: none; transition: opacity .12s ease;
@@ -173,6 +223,23 @@ body.reading-width .preview-pane > table{
   font-family: var(--mono); font-size: 10.5px; padding: 3px 7px; border-radius: var(--radius-sm); cursor: pointer;
 }
 .preview-pane .img-size-buttons button:hover{ color: var(--accent-color); border-color: var(--accent-dim); }
+/* Bild-Lightbox (Nutzer-Feature): eigenes Overlay, keine Browserfunktion
+   (kein neuer Tab, kein natives Vollbild). Dezente, schnelle Animation
+   (150ms) für Ein-/Ausblenden. Bild wird per max-width/max-height auf den
+   verfügbaren Platz begrenzt (object-fit:contain erhält das Seitenverhältnis
+   und "passt" so automatisch auch sehr große Bilder ein). */
+.image-lightbox-overlay{
+  position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,.75);
+  display: flex; align-items: center; justify-content: center;
+  cursor: zoom-out; animation: lightbox-fade-in .15s ease-out;
+}
+.image-lightbox-overlay img{
+  max-width: 90vw; max-height: 90vh; object-fit: contain;
+  border-radius: var(--radius-md); box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  animation: lightbox-scale-in .15s ease-out;
+}
+@keyframes lightbox-fade-in{ from{ opacity: 0; } to{ opacity: 1; } }
+@keyframes lightbox-scale-in{ from{ transform: scale(.96); opacity: 0; } to{ transform: scale(1); opacity: 1; } }
 .preview-pane .code-block{ position: relative; margin: 4px 0 16px; }
 .preview-pane .code-block .lang{
   display: block; font-family: var(--mono); font-size: 10px; text-transform: uppercase;

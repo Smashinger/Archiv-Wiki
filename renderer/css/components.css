@@ -109,6 +109,13 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .group-header .g-count{ font-family: var(--mono); font-size:10px; color: var(--text-faint); background: var(--bg-elev-2); border:1px solid var(--border); padding: 1px 7px; border-radius: var(--radius-sm); flex-shrink:0; }
 .group-header .g-chevron{ width:11px; height:11px; stroke: var(--text-faint); transition: transform .18s ease; flex-shrink:0; }
 .group-header .g-icon{ flex-shrink:0; font-size:var(--density-icon-size); line-height:1; }
+/* Aktive Kategorie (Nutzer-Feature): dezente Hervorhebung aller
+   Vorfahren-Kategorien der aktuell geöffneten Notiz — bewusst nur die
+   Textfarbe, kein Hintergrund/keine Fettschrift wie bei der aktiven Notiz
+   selbst (die bleibt der eigentliche visuelle Fokus, das hier ist nur ein
+   dezenter "hier befindest du dich"-Hinweis). Bei Hauptkategorien ohne
+   sichtbaren Effekt, da diese ohnehin schon immer akzentfarben sind. */
+.nav-group.active-ancestor > .group-header-row .group-header{ color: var(--accent-color); }
 /* Bibliotheks-Icons (SVG als <img>, siehe renderIconHtml in app.js) — Größe
    richtet sich am umgebenden Element aus, invertiert (weiß) fürs Dark Theme,
    passend zu den restlichen Symbolen. */
@@ -136,7 +143,7 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .group-list{
   list-style:none; margin: 4px 0 6px 10px; padding: 0 0 0 11px;
   border-left: 1.5px solid var(--border-soft);
-  max-height: 900px; opacity:1; overflow:hidden;
+  opacity:1; overflow:hidden;
   transition: max-height .25s ease, opacity .2s ease, border-color .2s ease;
 }
 .group-list > li{ margin-bottom: 1px; }
@@ -161,23 +168,15 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .nav-item-row:hover .nav-icon-btn{ opacity:1; }
 .nav-icon-btn:hover{ color: var(--red); background: rgba(226,88,90,.1); }
 
-/* --- Ziehen-Griff: jetzt immer sichtbar, kein "Bearbeiten-Modus" mehr nötig --- */
+/* Ziehen-Griff (Nutzer-Feature): erscheint automatisch beim Überfahren
+   einer Zeile mit der Maus — kein extra Modus mehr nötig. Dieselbe
+   opacity-Technik wie das bereits bestehende .nav-icon-btn, für ein
+   konsistentes Erscheinungsbild beider "erst bei Hover sichtbar"-Elemente. */
 .row-handle{
-  display:none; align-items:center; justify-content:center; flex-shrink:0; cursor:grab; color: var(--text-faint); font-size:13px;
-  padding: 4px 3px; line-height:1; border-radius: var(--radius-sm);
+  display:flex; align-items:center; justify-content:center; flex-shrink:0; cursor:grab; color: var(--text-faint); font-size:13px;
+  padding: 4px 3px; line-height:1; border-radius: var(--radius-sm); opacity:0; transition: opacity .12s ease;
 }
-.sidebar.edit-mode .row-handle{ display:flex; }
-.edit-mode-btn{
-  display:flex; align-items:center; justify-content:center;
-  width:34px; height:34px; flex-shrink:0;
-  background: transparent; border: none; color: var(--text-faint);
-  font-size:17px; border-radius: var(--radius-sm); cursor:pointer;
-  transition: background .15s ease, color .15s ease, transform .1s ease;
-}
-.edit-mode-btn:hover{ background: var(--bg-elev-2); color: var(--text-main); transform: scale(1.05); }
-.edit-mode-btn:active{ transform: scale(0.96); }
-.edit-mode-btn.active{ background: var(--accent-soft); color: var(--accent-color); }
-.edit-mode-btn.active:hover{ background: var(--accent-soft); color: var(--accent-color); transform: scale(1.05); }
+.group-header-row:hover .row-handle, .nav-item-row:hover .row-handle{ opacity:1; }
 .row-handle:active{ cursor:grabbing; }
 .group-header-row.drag-over{ box-shadow: inset 0 0 0 2px var(--accent-color); border-radius: var(--radius-sm); background: var(--accent-soft); }
 .group-header-row.drag-over.invalid{ box-shadow: inset 0 0 0 2px var(--red); background: rgba(226,88,90,.08); }
@@ -207,8 +206,54 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 }
 
 /* --- Home: zweigeteiltes Dashboard (Zuletzt bearbeitet + Alle Notizen) --- */
-.home-heading{ font-family: var(--mono); font-size: 22px; color: var(--text-main); margin: 0 0 6px; }
-.home-sub{ color: var(--text-muted); font-size: 14px; margin: 0 0 20px; }
+.home-header-row{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.home-heading{ font-family: var(--mono); font-size: 26px; color: var(--text-main); margin: 0 0 4px; }
+/* Dezenter Kontext-Hinweis (Nutzer-Feature): "Zuletzt gearbeitet an ..." oder
+   "Am häufigsten genutzt: ...", abwechselnd — ersetzt keine bestehende Zeile,
+   ergänzt sie nur knapp, daher bewusst kleiner als .home-sub gehalten. */
+.home-context-line{ color: var(--text-faint); font-size:12.5px; margin: 0 0 2px; }
+.home-sub{ color: var(--text-muted); font-size: 14px; margin: 0 0 14px; }
+.dashboard-gear-btn{
+  flex-shrink:0; width:30px; height:30px; border-radius:50%; border:1px solid var(--border);
+  background: var(--bg-elev); color: var(--text-faint); cursor:pointer; font-size:14px;
+  display:flex; align-items:center; justify-content:center; transition: border-color .15s ease, color .15s ease;
+}
+.dashboard-gear-btn:hover{ border-color: var(--accent-dim); color: var(--text-main); }
+.dashboard-header-actions{ display:flex; align-items:center; gap:8px; flex-shrink:0; }
+/* Tipp-Symbol (Nutzer-Feature, überarbeitet): dieselbe runde Grundform wie
+   das Zahnrad, damit beide als zusammengehöriges Paar wirken — bewusst KEIN
+   eigener Platz im Dashboard-Inhalt selbst, siehe .dashboard-tip-popover. */
+.dashboard-tip-icon-btn{
+  flex-shrink:0; width:30px; height:30px; border-radius:50%; border:1px solid var(--border);
+  background: var(--bg-elev); cursor:pointer; font-size:14px;
+  display:flex; align-items:center; justify-content:center; transition: border-color .15s ease;
+}
+.dashboard-tip-icon-btn:hover{ border-color: var(--accent-dim); }
+.dashboard-tip-popover{
+  position:fixed; z-index:180; max-width:280px; display:flex; align-items:flex-start; gap:8px;
+  background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0,0,0,.3); padding:11px 14px; font-size:12.5px; color: var(--text-muted);
+  animation: update-toast-in 150ms ease-out;
+}
+/* Sperr-Symbol (Nutzer-Feature): dieselbe runde Grundform wie Zahnrad/Tipp-
+   Symbol. Im gesperrten Zustand dezent mit der Akzentfarbe hervorgehoben —
+   sofort erkennbar, aber bewusst nicht aufdringlich (kein Vollton-Hintergrund,
+   nur Rahmen + Symbolfarbe). */
+.dashboard-lock-btn{
+  flex-shrink:0; width:30px; height:30px; border-radius:50%; border:1px solid var(--border);
+  background: var(--bg-elev); color: var(--text-faint); cursor:pointer; font-size:13px;
+  display:flex; align-items:center; justify-content:center; transition: border-color .15s ease, color .15s ease;
+}
+.dashboard-lock-btn:hover{ border-color: var(--accent-dim); color: var(--text-main); }
+.dashboard-lock-btn.locked{ border-color: var(--accent-dim); color: var(--accent-color); }
+/* Kurze, sich selbst wieder entfernende Rückmeldung (Nutzer-Anforderung:
+   dezent, keine Buttons) — bewusst eine eigene, einfachere Variante statt
+   der bestehenden showUpdateToast(), die immer einen "Später"-Knopf hat. */
+.quick-feedback-toast{
+  position:fixed; bottom:20px; right:20px; z-index:200; background: var(--bg-elev-2);
+  border:1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0,0,0,.3);
+  padding:9px 16px; font-size:12.5px; color: var(--text-main); animation: update-toast-in 150ms ease-out;
+}
 
 /* Begrenzt NUR den Dashboard-Inhalt auf eine ruhige Lesebreite — bewusst
    NICHT am geteilten .content-scroll-Container (den nutzt auch die
@@ -216,7 +261,26 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
    Breitenbegrenzung haben soll, siehe Test dazu). */
 .dashboard-wrap{ max-width: 1180px; margin: 0 auto; }
 
-.stats-widget{ display:flex; gap:10px; margin: 0 0 28px; flex-wrap:wrap; }
+/* Gemeinsamer Layout-Container für ALLE Dashboard-Bereiche (Nutzer-Feature:
+   einheitliche Abstände unabhängig von der Reihenfolge). Der Abstand
+   zwischen den Bereichen entsteht AUSSCHLIESSLICH hier, über CSS-Gap — kein
+   einzelnes Widget bringt eine eigene margin-Regel mit. Dadurch bleibt der
+   Abstand strukturell garantiert immer gleich, egal welche Reihenfolge der
+   Nutzer über das Personalisierungs-Zahnrad wählt, und jedes künftige,
+   neue Widget erbt automatisch dasselbe Verhalten, ohne selbst etwas dafür
+   tun zu müssen — es muss nur ein weiteres Kind dieses Containers werden.
+   Vorher hatte jeder Bereich (.stats-widget, .pinned-strip, .dashboard-tip)
+   eine eigene, unterschiedliche margin-Angabe (20px/16px/16px) — beim
+   Verschieben trafen dadurch unterschiedliche Werte aufeinander, je nachdem
+   welche zwei Bereiche gerade nebeneinander standen. */
+.dashboard-body{ display:flex; flex-direction:column; gap:16px; }
+
+.stats-widget{ display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start; }
+/* Zurückgeführt auf den verifizierten Stand aus Tag v1.12.0 (echter Vergleich
+   mit dem GitHub-Repository, nicht aus dem Gedächtnis rekonstruiert): Zahl
+   oben, Icon+Beschriftung als EINE gemeinsame Zeile darunter — kein
+   separates Icon-Element, keine drei getrennten Zeilen wie in der
+   zwischenzeitlichen Überarbeitung. Keine Zusatzinfo mehr. */
 .stat-chip{
   display:flex; flex-direction:column; gap:2px; background: var(--bg-elev);
   border:1px solid var(--border); border-radius: var(--radius-md); padding:10px 16px; min-width:110px;
@@ -227,8 +291,12 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .stat-chip .stat-label{ font-size:11px; color: var(--text-faint); }
 
 .pinned-strip{
-  display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; margin: 0 0 28px;
+  display:flex; gap:10px; overflow-x:auto; padding-bottom:4px;
 }
+/* Zurückgeführt auf den verifizierten Stand aus Tag v1.12.0: einzeilig
+   (Icon + Titel), keine zweite Zeile mit Kategorie/Datum mehr — bei
+   abgeschnittenem Titel übernimmt der native Tooltip (title-Attribut) die
+   Funktion, den vollen Namen zu zeigen. */
 .pinned-chip{
   display:flex; align-items:center; gap:7px; flex-shrink:0; max-width:200px;
   background: var(--bg-elev); border:1px solid var(--border); border-radius: var(--radius-md);
@@ -261,22 +329,32 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .stats-bar-fill{ height:100%; background: var(--accent-color); border-radius:4px; }
 .stats-bar-count{ font-family: var(--mono); font-size:11px; color: var(--text-faint); width:24px; text-align:right; flex-shrink:0; }
 
-.dashboard-sections{ display:flex; flex-direction:column; gap:16px; height: calc(100vh - 360px); min-height: 340px; }
+.dashboard-sections{ display:flex; flex-direction:column; gap:16px; }
 .dashboard-section{ display:flex; flex-direction:column; border-radius: var(--radius-md); border:1px solid var(--border); overflow:hidden; min-height:0; }
-.dashboard-section.recent{ flex: 0 0 35%; background: var(--bg-elev-2); }
-.dashboard-section.all{ flex: 1 1 65%; background: var(--bg-elev); }
+.dashboard-section.recent{ flex: 0 0 auto; background: var(--bg-elev-2); }
+.dashboard-section.all{ flex: 0 0 auto; background: var(--bg-elev); }
 .dashboard-section-header{
   font-family: var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.07em;
   color: var(--text-faint); padding:10px 16px; border-bottom:1px solid var(--border-soft); flex-shrink:0;
+  display:flex; align-items:center; justify-content:space-between;
 }
 .dashboard-list{ flex:1; overflow-y:auto; min-height:0; }
+/* "Alle X anzeigen" (Nutzer-Feature: einstellbare Bereichsgröße) — schlichter
+   Textlink am Ende der sichtbaren Auswahl, keine zusätzliche Schaltfläche. */
+.dashboard-show-more{
+  display:block; width:100%; text-align:center; padding:9px 16px; background:none; border:none;
+  border-top:1px solid var(--border-soft); color: var(--text-faint); font-family: inherit; font-size:12px;
+  cursor:pointer; transition: color .15s ease;
+}
+.dashboard-show-more:hover{ color: var(--accent-color); }
 
 .dashboard-row{
   display:grid; grid-template-columns: 26px minmax(100px,1fr) minmax(0,2fr) 90px 92px;
   align-items:center; gap:12px; padding:9px 16px; border-bottom:1px solid var(--border-soft); cursor:pointer;
+  border-left:2px solid transparent; transition: border-left-color .12s ease, background .12s ease;
 }
 .dashboard-row:last-child{ border-bottom:none; }
-.dashboard-row:hover{ background: rgba(255,255,255,.03); }
+.dashboard-row:hover{ background: rgba(255,255,255,.03); border-left-color: var(--accent-color); }
 .dashboard-row .dr-icon{ font-size:14px; text-align:center; }
 .dashboard-row .dr-title{
   font-family: var(--mono); font-size:13px; color: var(--text-main);
@@ -290,6 +368,35 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 .dashboard-row .dr-date{ font-size:11px; color: var(--text-faint); text-align:right; white-space:nowrap; }
+
+/* Dashboard-Personalisierung (Nutzer-Feature): kompaktes Overlay, keine
+   eigene Fensterebene nötig — dasselbe Prinzip wie andere Prompt-Overlays
+   in dieser App. */
+.dashboard-settings-overlay{
+  position:fixed; inset:0; background: rgba(0,0,0,.45); display:flex;
+  align-items:flex-start; justify-content:center; padding-top:80px; z-index:150;
+}
+.dashboard-settings-panel{
+  width:320px; background: var(--bg-elev); border:1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px rgba(0,0,0,.35); padding:16px;
+}
+.dashboard-settings-panel h3{ margin:0 0 12px; font-size:14px; color: var(--text-main); }
+.dashboard-settings-row{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:7px 0; border-bottom:1px solid var(--border-soft);
+}
+.dashboard-settings-row:last-of-type{ border-bottom:none; }
+.dashboard-settings-row label{ display:flex; align-items:center; gap:8px; font-size:13px; color: var(--text-muted); cursor:pointer; }
+.dashboard-settings-row.disabled label{ color: var(--text-faint); }
+.dashboard-settings-reorder{ display:flex; gap:4px; }
+.dashboard-settings-reorder button{
+  width:22px; height:22px; border-radius: var(--radius-sm); border:1px solid var(--border);
+  background: var(--bg-color); color: var(--text-faint); cursor:pointer; font-size:11px; line-height:1;
+}
+.dashboard-settings-reorder button:hover:not(:disabled){ color: var(--text-main); border-color: var(--accent-dim); }
+.dashboard-settings-reorder button:disabled{ opacity:.3; cursor:default; }
+.dashboard-settings-size-block{ margin-top:14px; }
+.dashboard-settings-size-block > span{ display:block; font-size:12px; color: var(--text-faint); margin-bottom:6px; }
 
 @media (max-width:900px){
   .dashboard-row{ grid-template-columns: 22px minmax(80px,1fr) 70px 70px; }
@@ -340,6 +447,7 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 @keyframes tooltip-fade-in{ from{ opacity:0; transform: translateY(-2px); } to{ opacity:1; transform: translateY(0); } }
 
 .color-swatch-row{ display:flex; gap:8px; flex-wrap:wrap; }
+.color-swatches{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
 .density-option-row{ display:flex; gap:8px; }
 .settings-checkbox-row{
   display:flex; align-items:center; gap:8px; margin-bottom:8px; cursor:pointer;
@@ -356,10 +464,20 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .font-size-select{
   background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-sm);
   color: var(--text-muted); font-family: var(--mono); font-size:11.5px; padding: 5px 6px;
-  cursor:pointer; height: 30px;
+  cursor:pointer; height: 32px;
 }
 .font-size-select:hover{ color: var(--text-main); border-color: var(--accent-dim); }
 .font-size-select:focus{ outline:none; border-color: var(--accent-color); }
+/* Politur (Übergänge/Hover vereinheitlichen): bewusst gescopt auf die
+   Editor-Werkzeugleiste selbst, keine neue Animationsart — überträgt nur
+   den bereits an vielen anderen Stellen der App dominierenden .15s-
+   Standardwert auf Elemente, die bisher gar keinen Übergang hatten. */
+.note-toolbar .icon-btn,
+.note-toolbar .font-size-select,
+.note-toolbar .view-toggle button,
+.note-toolbar .format-toolbar button{
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
 .color-swatch{
   width:32px; height:32px; border-radius:50%; border:2px solid transparent;
   cursor:pointer; padding:0; transition: transform .1s ease, border-color .15s ease;
@@ -381,6 +499,22 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
   background: conic-gradient(from 180deg, #c17d45, #4a80a8, #4f9b73, #8a6fb5, #b0495a, #c17d45);
   font-size: 13px; display:flex; align-items:center; justify-content:center;
 }
+.color-swatch-random{
+  background: var(--bg-color); border-color: var(--border);
+  font-size: 14px; display:flex; align-items:center; justify-content:center;
+}
+.color-swatch-random:hover{ border-color: var(--accent-dim); }
+/* Eigener Hex-Code (Nutzer-Feature): Ersatzweg zum nativen Systemdialog, der
+   unter manchen Linux-Desktops die Hex-Eingabe hinter einem zusätzlichen
+   Klick auf eine "+"-Kachel versteckt — mit diesem Feld ist man davon
+   unabhängig. */
+.settings-hex-input-row{ display:flex; align-items:center; gap:8px; margin-top:10px; }
+.settings-hex-input{
+  width:110px; padding:6px 10px; border-radius:var(--radius-md); border:1px solid var(--border);
+  background: var(--bg-color); color: var(--text-main); font-family: var(--mono); font-size:13px;
+}
+.settings-hex-input:focus{ outline:none; border-color: var(--accent-color); }
+.settings-hex-input.invalid{ border-color: var(--red); }
 /* Natives Farbfeld bleibt technisch vorhanden/klickbar (per .click() aus JS
    ausgelöst), aber unsichtbar — die "Eigene…"-Kachel selbst ist die
    eigentliche, sichtbare Bedienfläche. */
@@ -455,8 +589,8 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 
 .note-toolbar{ display:flex; align-items:center; flex-wrap: wrap; gap:10px; margin-bottom: 10px; }
 .note-toolbar .spacer{ flex:1; }
-.view-toggle{ display:flex; background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-sm); padding:2px; }
-.view-toggle button{ background:transparent; border:none; color: var(--text-faint); font-family: var(--mono); font-size:11.5px; padding: 5px 11px; border-radius: var(--radius-sm); cursor:pointer; }
+.view-toggle{ display:flex; align-items:center; height:32px; background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-sm); padding:2px; }
+.view-toggle button{ height:100%; background:transparent; border:none; color: var(--text-faint); font-family: var(--mono); font-size:11.5px; padding: 0 11px; border-radius: var(--radius-sm); cursor:pointer; }
 .view-toggle button.active{ background: var(--bg-elev); color: var(--accent-color); }
 .dirty-label{ font-family: var(--mono); font-size:11.5px; color: var(--text-faint); }
 .dirty-label.is-dirty{ color: var(--accent-color); }
@@ -483,6 +617,12 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .btn.small{ padding:8px 10px; font-size:14px; line-height:1; }
 .btn-mt{ margin-top: 16px; }
 .icon-btn.danger:hover{ color: var(--red); border-color: rgba(226,88,90,.4); }
+/* Politur (Editor-Höhenvereinheitlichung): bewusst nur auf den Speichern-
+   Knopf INNERHALB der Editor-Werkzeugleiste beschränkt, nicht die
+   allgemeine .btn-Klasse selbst — die wird app-weit an vielen anderen,
+   nicht editor-bezogenen Stellen verwendet. */
+.note-toolbar #btnSave{ height:32px; display:flex; align-items:center; transition: color .15s ease, border-color .15s ease, filter .15s ease; }
+.note-toolbar #btnDeleteNote{ transition: color .15s ease, border-color .15s ease; }
 
 /* --- Split-View --- */
 .note-split{ display:flex; gap:0; height: calc(100vh - 280px); min-height: 320px; }
@@ -642,7 +782,7 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 /* --- Formatierungs-Toolbar (Fett/Kursiv/Durchgestrichen/Link/Code/Listen/Callout) --- */
 .format-toolbar{ display:flex; gap:2px; align-items:center; flex-wrap: wrap; padding-left:4px; border-left:1px solid var(--border-soft); margin-left:2px; }
 .format-toolbar button{
-  width:28px; height:28px; display:flex; align-items:center; justify-content:center;
+  width:32px; height:32px; display:flex; align-items:center; justify-content:center;
   background:transparent; border:1px solid transparent; border-radius: var(--radius-sm);
   color: var(--text-muted); font-size:13px; cursor:pointer;
 }

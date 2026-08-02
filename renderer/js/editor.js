@@ -11,10 +11,35 @@ let currentEditor = null;
 let currentRelPath = null;
 let currentProjectPath = null;
 let autosaveTimer = null;
+// Vorschau-Entprellung (Nutzer-Feature): exakt dasselbe Prinzip wie
+// autosaveTimer direkt darunter — Timer wird bei jeder Änderung
+// zurückgesetzt, löst erst nach einer kurzen Schreibpause tatsächlich aus.
+let previewDebounceTimer = null;
 let dirty = false;
 // Sync-Scroll (Nutzer-Feature): ein/ausschaltbar, Standardwert an.
 let syncScrollEnabled = true;
+// Auto-Save-Intervall (Bugfix, Editor-Audit Phase 10): als Modul-Variable
+// gehalten (statt nur als einmaliger Parameter beim Öffnen), damit eine
+// Änderung in den Einstellungen sofort wirkt, ohne die Notiz erneut öffnen
+// zu müssen — exakt dasselbe Prinzip wie syncScrollEnabled/
+// setSyncScrollEnabled direkt darüber. onSaved/onSaveError ebenfalls als
+// Modul-Variablen gehalten, damit ein bereits laufender Timer bei einer
+// Intervalländerung mit den richtigen Callbacks neu geplant werden kann.
+let currentAutoSaveSeconds = 30;
+let currentOnSaved = null;
+let currentOnSaveError = null;
 export function setSyncScrollEnabled(enabled) { syncScrollEnabled = enabled; }
+
+// Auto-Save-Intervall live ändern (Bugfix/Nutzer-Feature) — wirkt sofort,
+// auch ohne die Notiz erneut zu öffnen. Läuft gerade ein Timer (es gibt
+// ungespeicherte Änderungen), wird er mit dem neuen Intervall neu geplant,
+// statt auf den nächsten Tastendruck zu warten. Läuft keiner, wird auch
+// keiner unnötig gestartet — clearTimeout(alterTimer) stellt dabei sicher,
+// dass nie zwei Auto-Save-Timer parallel existieren.
+export function setAutoSaveSeconds(seconds) {
+  currentAutoSaveSeconds = seconds;
+  if (autosaveTimer) scheduleAutosave(currentOnSaved, currentOnSaveError);
+}
 
 // Öffnet eine Notiz im Editor. Räumt einen evtl. vorher offenen Editor sauber
 // auf (destroy), damit nie zwei CodeMirror-Instanzen um denselben Container
@@ -35,6 +60,9 @@ export async function openNoteInEditor({
 }) {
   closeEditor();
   currentProjectPath = projectPath || null;
+  currentAutoSaveSeconds = autoSaveSeconds;
+  currentOnSaved = onSaved;
+  currentOnSaveError = onSaveError;
 
   const note = await readNote(relPath);
   currentRelPath = relPath;
@@ -42,6 +70,15 @@ export async function openNoteInEditor({
 
   function updatePreview(text) {
     if (previewContainer) previewContainer.innerHTML = renderPreview(text, { noteIndex: getNoteIndex?.() || [], projectPath: currentProjectPath });
+  }
+  // Entprellter Aufruf für Tastatureingaben (Nutzer-Feature) — exakt das
+  // gleiche Prinzip wie scheduleAutosave weiter unten: Timer wird bei jeder
+  // Änderung zurückgesetzt, updatePreview() selbst bleibt unverändert und
+  // liefert dasselbe Render-Ergebnis wie vorher, nur eben leicht verzögert
+  // statt bei jedem einzelnen Tastendruck.
+  function schedulePreviewUpdate(text) {
+    clearTimeout(previewDebounceTimer);
+    previewDebounceTimer = setTimeout(() => updatePreview(text), 180);
   }
   updatePreview(note.body);
 
@@ -51,10 +88,10 @@ export async function openNoteInEditor({
     tabSize,
     getNoteIndex,
     onChange: (text) => {
-      updatePreview(text);
+      schedulePreviewUpdate(text);
       dirty = true;
       onChange?.(true, text);
-      scheduleAutosave(autoSaveSeconds, onSaved, onSaveError);
+      scheduleAutosave(onSaved, onSaveError);
     },
     onCursorActivity,
     onSave: () => saveNow(onSaved, onSaveError),
@@ -72,10 +109,10 @@ export async function openNoteInEditor({
   return { frontmatter: note.frontmatter, body: note.body };
 }
 
-function scheduleAutosave(autoSaveSeconds, onSaved, onSaveError) {
+function scheduleAutosave(onSaved, onSaveError) {
   clearTimeout(autosaveTimer);
-  if (!autoSaveSeconds) return; // 0 = "Aus" (siehe Wizard-Konfiguration, Schritt 2)
-  autosaveTimer = setTimeout(() => saveNow(onSaved, onSaveError), autoSaveSeconds * 1000);
+  if (!currentAutoSaveSeconds) { autosaveTimer = null; return; } // 0 = "Aus" (siehe Wizard-Konfiguration, Schritt 2)
+  autosaveTimer = setTimeout(() => { autosaveTimer = null; saveNow(onSaved, onSaveError); }, currentAutoSaveSeconds * 1000);
 }
 
 // Manuelles Speichern (Ctrl/Cmd+S oder Auto-Save-Timer). Tut nichts, wenn
@@ -162,6 +199,7 @@ export function jumpToMatchInEditor(query) {
 
 export function closeEditor() {
   clearTimeout(autosaveTimer);
+  clearTimeout(previewDebounceTimer);
   if (currentEditor) currentEditor.destroy();
   currentEditor = null;
   currentRelPath = null;

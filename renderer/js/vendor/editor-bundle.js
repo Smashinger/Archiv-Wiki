@@ -3079,8 +3079,8 @@ var Facet = class _Facet {
   /**
   Define a new facet.
   */
-  static define(config = {}) {
-    return new _Facet(config.combine || ((a) => a), config.compareInput || ((a, b2) => a === b2), config.compare || (!config.combine ? sameArray : (a, b2) => a === b2), !!config.static, config.enables);
+  static define(config2 = {}) {
+    return new _Facet(config2.combine || ((a) => a), config2.compareInput || ((a, b2) => a === b2), config2.compare || (!config2.combine ? sameArray : (a, b2) => a === b2), !!config2.static, config2.enables);
   }
   /**
   Returns an extension that adds the given value to this facet.
@@ -3257,10 +3257,10 @@ var StateField = class _StateField {
   /**
   Define a state field.
   */
-  static define(config) {
-    let field = new _StateField(nextID++, config.create, config.update, config.compare || ((a, b2) => a === b2), config);
-    if (config.provide)
-      field.provides = config.provide(field);
+  static define(config2) {
+    let field = new _StateField(nextID++, config2.create, config2.update, config2.compare || ((a, b2) => a === b2), config2);
+    if (config2.provide)
+      field.provides = config2.provide(field);
     return field;
   }
   create(state) {
@@ -3861,12 +3861,12 @@ function makeCategorizer(wordChars) {
   };
 }
 var EditorState = class _EditorState {
-  constructor(config, doc2, selection, values2, computeSlot, tr) {
-    this.config = config;
+  constructor(config2, doc2, selection, values2, computeSlot, tr) {
+    this.config = config2;
     this.doc = doc2;
     this.selection = selection;
     this.values = values2;
-    this.status = config.statusTemplate.slice();
+    this.status = config2.statusTemplate.slice();
     this.computeSlot = computeSlot;
     if (tr)
       tr._state = this;
@@ -4037,7 +4037,7 @@ var EditorState = class _EditorState {
   to [`toJSON`](https://codemirror.net/6/docs/ref/#state.EditorState.toJSON) when serializing as
   third argument.
   */
-  static fromJSON(json2, config = {}, fields) {
+  static fromJSON(json2, config2 = {}, fields) {
     if (!json2 || typeof json2.doc != "string")
       throw new RangeError("Invalid JSON representation for EditorState");
     let fieldInit = [];
@@ -4051,7 +4051,7 @@ var EditorState = class _EditorState {
     return _EditorState.create({
       doc: json2.doc,
       selection: EditorSelection.fromJSON(json2.selection),
-      extensions: config.extensions ? fieldInit.concat([config.extensions]) : fieldInit
+      extensions: config2.extensions ? fieldInit.concat([config2.extensions]) : fieldInit
     });
   }
   /**
@@ -4059,10 +4059,10 @@ var EditorState = class _EditorState {
   initializing an editor—updated states are created by applying
   transactions.
   */
-  static create(config = {}) {
-    let configuration = Configuration.resolve(config.extensions || [], /* @__PURE__ */ new Map());
-    let doc2 = config.doc instanceof Text ? config.doc : Text.of((config.doc || "").split(configuration.staticFacet(_EditorState.lineSeparator) || DefaultSplit));
-    let selection = !config.selection ? EditorSelection.single(0) : config.selection instanceof EditorSelection ? config.selection : EditorSelection.single(config.selection.anchor, config.selection.head);
+  static create(config2 = {}) {
+    let configuration = Configuration.resolve(config2.extensions || [], /* @__PURE__ */ new Map());
+    let doc2 = config2.doc instanceof Text ? config2.doc : Text.of((config2.doc || "").split(configuration.staticFacet(_EditorState.lineSeparator) || DefaultSplit));
+    let selection = !config2.selection ? EditorSelection.single(0) : config2.selection instanceof EditorSelection ? config2.selection : EditorSelection.single(config2.selection.anchor, config2.selection.head);
     checkSelection(selection, doc2.length);
     if (!configuration.staticFacet(allowMultipleSelections))
       selection = selection.asSingle();
@@ -4197,11 +4197,11 @@ EditorState.changeFilter = changeFilter;
 EditorState.transactionFilter = transactionFilter;
 EditorState.transactionExtender = transactionExtender;
 Compartment.reconfigure = /* @__PURE__ */ StateEffect.define();
-function combineConfig(configs, defaults, combine = {}) {
+function combineConfig(configs, defaults2, combine = {}) {
   let result = {};
-  for (let config of configs)
-    for (let key of Object.keys(config)) {
-      let value = config[key], current = result[key];
+  for (let config2 of configs)
+    for (let key of Object.keys(config2)) {
+      let value = config2[key], current = result[key];
       if (current === void 0)
         result[key] = value;
       else if (current === value || value === void 0) ;
@@ -4210,9 +4210,9 @@ function combineConfig(configs, defaults, combine = {}) {
       else
         throw new Error("Config merge conflict for field " + key);
     }
-  for (let key in defaults)
+  for (let key in defaults2)
     if (result[key] === void 0)
-      result[key] = defaults[key];
+      result[key] = defaults2[key];
   return result;
 }
 var RangeValue = class {
@@ -12516,7 +12516,7 @@ var EditorView = class _EditorView {
   option, or put `view.dom` into your document after creating a
   view, so that the user can see the editor.
   */
-  constructor(config = {}) {
+  constructor(config2 = {}) {
     var _a2;
     this.plugins = [];
     this.pluginMap = /* @__PURE__ */ new Map();
@@ -12538,15 +12538,15 @@ var EditorView = class _EditorView {
     this.dom = document.createElement("div");
     this.dom.appendChild(this.announceDOM);
     this.dom.appendChild(this.scrollDOM);
-    if (config.parent)
-      config.parent.appendChild(this.dom);
-    let { dispatch } = config;
-    this.dispatchTransactions = config.dispatchTransactions || dispatch && ((trs) => trs.forEach((tr) => dispatch(tr, this))) || ((trs) => this.update(trs));
+    if (config2.parent)
+      config2.parent.appendChild(this.dom);
+    let { dispatch } = config2;
+    this.dispatchTransactions = config2.dispatchTransactions || dispatch && ((trs) => trs.forEach((tr) => dispatch(tr, this))) || ((trs) => this.update(trs));
     this.dispatch = this.dispatch.bind(this);
-    this._root = config.root || getRoot(config.parent) || document;
-    this.viewState = new ViewState(this, config.state || EditorState.create(config));
-    if (config.scrollTo && config.scrollTo.is(scrollIntoView))
-      this.viewState.scrollTarget = config.scrollTo.value.clip(this.viewState.state);
+    this._root = config2.root || getRoot(config2.parent) || document;
+    this.viewState = new ViewState(this, config2.state || EditorState.create(config2));
+    if (config2.scrollTo && config2.scrollTo.is(scrollIntoView))
+      this.viewState.scrollTarget = config2.scrollTo.value.clip(this.viewState.state);
     this.plugins = this.state.facet(viewPlugin).map((spec) => new PluginInstance(spec));
     for (let plugin of this.plugins)
       plugin.update(this);
@@ -13756,9 +13756,9 @@ var tooltipPlugin = /* @__PURE__ */ ViewPlugin.fromClass(class {
     this.madeAbsolute = false;
     this.lastTransaction = 0;
     this.measureTimeout = -1;
-    let config = view.state.facet(tooltipConfig);
-    this.position = config.position;
-    this.parent = config.parent;
+    let config2 = view.state.facet(tooltipConfig);
+    this.position = config2.position;
+    this.parent = config2.parent;
     this.classes = view.themeClasses;
     this.createContainer();
     this.measureReq = { read: this.readMeasure.bind(this), write: this.writeMeasure.bind(this), key: this };
@@ -14213,10 +14213,10 @@ function rm(node) {
 var showPanel = /* @__PURE__ */ Facet.define({
   enables: panelPlugin
 });
-function showDialog(view, config) {
+function showDialog(view, config2) {
   let resolve;
   let promise = new Promise((r) => resolve = r);
-  let panelCtor = (view2) => createDialog(view2, config, resolve);
+  let panelCtor = (view2) => createDialog(view2, config2, resolve);
   if (view.state.field(dialogField, false)) {
     view.dispatch({ effects: openDialogEffect.of(panelCtor) });
   } else {
@@ -14249,22 +14249,22 @@ var dialogField = /* @__PURE__ */ StateField.define({
 });
 var openDialogEffect = /* @__PURE__ */ StateEffect.define();
 var closeDialogEffect = /* @__PURE__ */ StateEffect.define();
-function createDialog(view, config, result) {
-  let content2 = config.content ? config.content(view, () => done(null)) : null;
+function createDialog(view, config2, result) {
+  let content2 = config2.content ? config2.content(view, () => done(null)) : null;
   if (!content2) {
     content2 = crelt("form");
-    if (config.input) {
-      let input = crelt("input", config.input);
+    if (config2.input) {
+      let input = crelt("input", config2.input);
       if (/^(text|password|number|email|tel|url)$/.test(input.type))
         input.classList.add("cm-textfield");
       if (!input.name)
         input.name = "input";
-      content2.appendChild(crelt("label", (config.label || "") + ": ", input));
+      content2.appendChild(crelt("label", (config2.label || "") + ": ", input));
     } else {
-      content2.appendChild(document.createTextNode(config.label || ""));
+      content2.appendChild(document.createTextNode(config2.label || ""));
     }
     content2.appendChild(document.createTextNode(" "));
-    content2.appendChild(crelt("button", { class: "cm-button", type: "submit" }, config.submitLabel || "OK"));
+    content2.appendChild(crelt("button", { class: "cm-button", type: "submit" }, config2.submitLabel || "OK"));
   }
   let forms = content2.nodeName == "FORM" ? [content2] : content2.querySelectorAll("form");
   for (let i3 = 0; i3 < forms.length; i3++) {
@@ -14289,8 +14289,8 @@ function createDialog(view, config, result) {
     class: "cm-dialog-close",
     type: "button"
   }, ["\xD7"]));
-  if (config.class)
-    panel.className = config.class;
+  if (config2.class)
+    panel.className = config2.class;
   panel.classList.add("cm-dialog");
   function done(form) {
     if (panel.contains(panel.ownerDocument.activeElement))
@@ -14299,12 +14299,12 @@ function createDialog(view, config, result) {
   }
   return {
     dom: panel,
-    top: config.top,
+    top: config2.top,
     mount: () => {
-      if (config.focus) {
+      if (config2.focus) {
         let focus;
-        if (typeof config.focus == "string")
-          focus = content2.querySelector(config.focus);
+        if (typeof config2.focus == "string")
+          focus = content2.querySelector(config2.focus);
         else
           focus = content2.querySelector("input") || content2.querySelector("button");
         if (focus && "select" in focus)
@@ -14346,11 +14346,11 @@ var activeGutters = /* @__PURE__ */ Facet.define();
 var unfixGutters = /* @__PURE__ */ Facet.define({
   combine: (values2) => values2.some((x2) => x2)
 });
-function gutters(config) {
+function gutters(config2) {
   let result = [
     gutterView
   ];
-  if (config && config.fixed === false)
+  if (config2 && config2.fixed === false)
     result.push(unfixGutters.of(true));
   return result;
 }
@@ -14563,14 +14563,14 @@ var UpdateContext = class {
   }
 };
 var SingleGutterView = class {
-  constructor(view, config) {
+  constructor(view, config2) {
     this.view = view;
-    this.config = config;
+    this.config = config2;
     this.elements = [];
     this.spacer = null;
     this.dom = document.createElement("div");
     this.dom.className = "cm-gutter" + (this.config.class ? " " + this.config.class : "");
-    for (let prop in config.domEventHandlers) {
+    for (let prop in config2.domEventHandlers) {
       this.dom.addEventListener(prop, (event) => {
         let target = event.target, y2;
         if (target != this.dom && this.dom.contains(target)) {
@@ -14582,13 +14582,13 @@ var SingleGutterView = class {
           y2 = event.clientY;
         }
         let line = view.lineBlockAtHeight(y2 - view.documentTop);
-        if (config.domEventHandlers[prop](view, line, event))
+        if (config2.domEventHandlers[prop](view, line, event))
           event.preventDefault();
       });
     }
-    this.markers = asArray2(config.markers(view));
-    if (config.initialSpacer) {
-      this.spacer = new GutterElement(view, 0, 0, [config.initialSpacer(view)]);
+    this.markers = asArray2(config2.markers(view));
+    if (config2.initialSpacer) {
+      this.spacer = new GutterElement(view, 0, 0, [config2.initialSpacer(view)]);
       this.dom.appendChild(this.spacer.dom);
       this.spacer.dom.style.cssText += "visibility: hidden; pointer-events: none";
     }
@@ -14741,9 +14741,9 @@ var lineNumberGutter = /* @__PURE__ */ activeGutters.compute([lineNumberConfig],
   domEventHandlers: state.facet(lineNumberConfig).domEventHandlers,
   side: "before"
 }));
-function lineNumbers(config = {}) {
+function lineNumbers(config2 = {}) {
   return [
-    lineNumberConfig.of(config),
+    lineNumberConfig.of(config2),
     gutters(),
     lineNumberGutter
   ];
@@ -14768,13 +14768,13 @@ var NodeProp = class {
   /**
   Create a new node prop type.
   */
-  constructor(config = {}) {
+  constructor(config2 = {}) {
     this.id = nextPropID++;
-    this.perNode = !!config.perNode;
-    this.deserialize = config.deserialize || (() => {
+    this.perNode = !!config2.perNode;
+    this.deserialize = config2.deserialize || (() => {
       throw new Error("This node type doesn't define a deserialize function");
     });
-    this.combine = config.combine || null;
+    this.combine = config2.combine || null;
   }
   /**
   This is meant to be used with
@@ -15122,8 +15122,8 @@ var Tree = class _Tree {
   which may have children grouped into subtrees with type
   [`NodeType.none`](#common.NodeType^none).
   */
-  balance(config = {}) {
-    return this.children.length <= 8 ? this : balanceRange(NodeType.none, this.children, this.positions, 0, this.children.length, 0, this.length, (children, positions, length) => new _Tree(this.type, children, positions, length, this.propValues), config.makeTree || ((children, positions, length) => new _Tree(NodeType.none, children, positions, length)));
+  balance(config2 = {}) {
+    return this.children.length <= 8 ? this : balanceRange(NodeType.none, this.children, this.positions, 0, this.children.length, 0, this.length, (children, positions, length) => new _Tree(this.type, children, positions, length, this.propValues), config2.makeTree || ((children, positions, length) => new _Tree(NodeType.none, children, positions, length)));
   }
   /**
   Build a tree from a postfix-ordered buffer of node information,
@@ -16147,7 +16147,7 @@ function buildTree(data2) {
       if (nodeSize2 < 0 || startPos < minPos || fork.start < minStart)
         break;
       let localSkipped = fork.id >= minRepeatType ? 4 : 0;
-      let nodeStart = fork.start;
+      let nodeStart2 = fork.start;
       fork.next();
       while (fork.pos > startPos) {
         if (fork.size < 0) {
@@ -16160,7 +16160,7 @@ function buildTree(data2) {
         }
         fork.next();
       }
-      start = nodeStart;
+      start = nodeStart2;
       size += nodeSize2;
       skip += localSkipped;
     }
@@ -16879,8 +16879,8 @@ var Modifier = class _Modifier {
     let configs = powerSet(mods);
     for (let parent of base2.set)
       if (!parent.modified.length)
-        for (let config of configs)
-          set.push(_Modifier.get(parent, config));
+        for (let config2 of configs)
+          set.push(_Modifier.get(parent, config2));
     return tag;
   }
 };
@@ -18382,12 +18382,12 @@ function bracketedAligned(context) {
     pos = next.to;
   }
 }
-function delimitedIndent({ closing, align = true, units = 1 }) {
-  return (context) => delimitedStrategy(context, align, units, closing);
+function delimitedIndent({ closing: closing2, align = true, units = 1 }) {
+  return (context) => delimitedStrategy(context, align, units, closing2);
 }
-function delimitedStrategy(context, align, units, closing, closedAt) {
+function delimitedStrategy(context, align, units, closing2, closedAt) {
   let after = context.textAfter, space4 = after.match(/^\s*/)[0].length;
-  let closed = closing && after.slice(space4, space4 + closing.length) == closing || closedAt == context.pos + space4;
+  let closed = closing2 && after.slice(space4, space4 + closing2.length) == closing2 || closedAt == context.pos + space4;
   let aligned = align ? bracketedAligned(context) : null;
   if (aligned)
     return closed ? context.column(aligned.from) : context.column(aligned.to);
@@ -18605,8 +18605,8 @@ function findHandle(node) {
   let hasHandle = node.type.prop(bracketMatchingHandle);
   return hasHandle ? hasHandle(node.node) : node;
 }
-function matchBrackets(state, pos, dir, config = {}) {
-  let maxScanDistance = config.maxScanDistance || DefaultScanDist, brackets = config.brackets || DefaultBrackets;
+function matchBrackets(state, pos, dir, config2 = {}) {
+  let maxScanDistance = config2.maxScanDistance || DefaultScanDist, brackets = config2.brackets || DefaultBrackets;
   let tree = syntaxTree(state), node = tree.resolveInner(pos, dir);
   for (let cur2 = node; cur2; cur2 = cur2.parent) {
     let matches = matchingNodes(cur2.type, dir, brackets);
@@ -18746,8 +18746,8 @@ var marks = {
 
 // node_modules/@codemirror/commands/dist/index.js
 var toggleComment = (target) => {
-  let { state } = target, line = state.doc.lineAt(state.selection.main.from), config = getConfig(target.state, line.from);
-  return config.line ? toggleLineComment(target) : config.block ? toggleBlockCommentByLine(target) : false;
+  let { state } = target, line = state.doc.lineAt(state.selection.main.from), config2 = getConfig(target.state, line.from);
+  return config2.line ? toggleLineComment(target) : config2.block ? toggleBlockCommentByLine(target) : false;
 };
 function command(f, option) {
   return ({ state, dispatch }) => {
@@ -18923,13 +18923,13 @@ var historyField_ = /* @__PURE__ */ StateField.define({
     return HistoryState.empty;
   },
   update(state, tr) {
-    let config = tr.state.facet(historyConfig);
+    let config2 = tr.state.facet(historyConfig);
     let fromHist = tr.annotation(fromHistory);
     if (fromHist) {
       let item = HistEvent.fromTransaction(tr, fromHist.selection), from = fromHist.side;
       let other = from == 0 ? state.undone : state.done;
       if (item)
-        other = updateBranch(other, other.length, config.minDepth, item);
+        other = updateBranch(other, other.length, config2.minDepth, item);
       else
         other = addSelection(other, tr.startState.selection);
       return new HistoryState(from == 0 ? fromHist.rest : other, from == 0 ? other : fromHist.rest);
@@ -18942,9 +18942,9 @@ var historyField_ = /* @__PURE__ */ StateField.define({
     let event = HistEvent.fromTransaction(tr);
     let time = tr.annotation(Transaction.time), userEvent = tr.annotation(Transaction.userEvent);
     if (event)
-      state = state.addChanges(event, time, userEvent, config, tr);
+      state = state.addChanges(event, time, userEvent, config2, tr);
     else if (tr.selection)
-      state = state.addSelection(tr.startState.selection, time, userEvent, config.newGroupDelay);
+      state = state.addSelection(tr.startState.selection, time, userEvent, config2.newGroupDelay);
     if (isolate == "full" || isolate == "after")
       state = state.isolate();
     return state;
@@ -18956,10 +18956,10 @@ var historyField_ = /* @__PURE__ */ StateField.define({
     return new HistoryState(json2.done.map(HistEvent.fromJSON), json2.undone.map(HistEvent.fromJSON));
   }
 });
-function history(config = {}) {
+function history(config2 = {}) {
   return [
     historyField_,
-    historyConfig.of(config),
+    historyConfig.of(config2),
     EditorView.domEventHandlers({
       beforeinput(e, view) {
         let command2 = e.inputType == "historyUndo" ? undo : e.inputType == "historyRedo" ? redo : null;
@@ -19111,13 +19111,13 @@ var HistoryState = class _HistoryState {
   isolate() {
     return this.prevTime ? new _HistoryState(this.done, this.undone) : this;
   }
-  addChanges(event, time, userEvent, config, tr) {
+  addChanges(event, time, userEvent, config2, tr) {
     let done = this.done, lastEvent = done[done.length - 1];
-    if (lastEvent && lastEvent.changes && !lastEvent.changes.empty && event.changes && (!userEvent || joinableUserEvent.test(userEvent)) && (!lastEvent.selectionsAfter.length && time - this.prevTime < config.newGroupDelay && config.joinToEvent(tr, isAdjacent(lastEvent.changes, event.changes)) || // For compose (but not compose.start) events, always join with previous event
+    if (lastEvent && lastEvent.changes && !lastEvent.changes.empty && event.changes && (!userEvent || joinableUserEvent.test(userEvent)) && (!lastEvent.selectionsAfter.length && time - this.prevTime < config2.newGroupDelay && config2.joinToEvent(tr, isAdjacent(lastEvent.changes, event.changes)) || // For compose (but not compose.start) events, always join with previous event
     userEvent == "input.type.compose")) {
-      done = updateBranch(done, done.length - 1, config.minDepth, new HistEvent(event.changes.compose(lastEvent.changes), conc(StateEffect.mapEffects(event.effects, lastEvent.changes), lastEvent.effects), lastEvent.mapped, lastEvent.startSelection, none2));
+      done = updateBranch(done, done.length - 1, config2.minDepth, new HistEvent(event.changes.compose(lastEvent.changes), conc(StateEffect.mapEffects(event.effects, lastEvent.changes), lastEvent.effects), lastEvent.mapped, lastEvent.startSelection, none2));
     } else {
-      done = updateBranch(done, done.length, config.minDepth, event);
+      done = updateBranch(done, done.length, config2.minDepth, event);
     }
     return new _HistoryState(done, none2, time, userEvent);
   }
@@ -19513,11 +19513,11 @@ var deleteByGroup = (target, forward) => deleteBy(target, (range) => {
       break;
     }
     let next = findClusterBreak2(line.text, pos - line.from, forward) + line.from;
-    let nextChar = line.text.slice(Math.min(pos, next) - line.from, Math.max(pos, next) - line.from);
-    let nextCat = categorize(nextChar);
+    let nextChar2 = line.text.slice(Math.min(pos, next) - line.from, Math.max(pos, next) - line.from);
+    let nextCat = categorize(nextChar2);
     if (cat != null && nextCat != cat)
       break;
-    if (nextChar != " " || pos != range.head)
+    if (nextChar2 != " " || pos != range.head)
       cat = nextCat;
     pos = next;
   }
@@ -20197,9 +20197,9 @@ function defaultPositionInfo(view, list, option, info, space4, tooltip) {
   };
 }
 var setSelectedEffect = /* @__PURE__ */ StateEffect.define();
-function optionContent(config) {
-  let content2 = config.addToOptions.slice();
-  if (config.icons)
+function optionContent(config2) {
+  let content2 = config2.addToOptions.slice();
+  if (config2.icons)
     content2.push({
       render(completion) {
         let icon = document.createElement("div");
@@ -20271,11 +20271,11 @@ var CompletionTooltip = class {
     this.currentClass = "";
     let cState = view.state.field(stateField);
     let { options, selected } = cState.open;
-    let config = view.state.facet(completionConfig);
-    this.optionContent = optionContent(config);
-    this.optionClass = config.optionClass;
-    this.tooltipClass = config.tooltipClass;
-    this.range = rangeAroundSelected(options.length, selected, config.maxRenderedOptions);
+    let config2 = view.state.facet(completionConfig);
+    this.optionContent = optionContent(config2);
+    this.optionClass = config2.optionClass;
+    this.tooltipClass = config2.tooltipClass;
+    this.range = rangeAroundSelected(options.length, selected, config2.maxRenderedOptions);
     this.dom = document.createElement("div");
     this.dom.className = "cm-tooltip-autocomplete";
     this.updateTooltipClass(view.state);
@@ -21404,16 +21404,240 @@ var snippetPointerHandler = /* @__PURE__ */ EditorView.domEventHandlers({
     return true;
   }
 });
+var defaults = {
+  brackets: ["(", "[", "{", "'", '"'],
+  before: ")]}:;>",
+  stringPrefixes: []
+};
+var closeBracketEffect = /* @__PURE__ */ StateEffect.define({
+  map(value, mapping) {
+    let mapped = mapping.mapPos(value, -1, MapMode.TrackAfter);
+    return mapped == null ? void 0 : mapped;
+  }
+});
 var closedBracket = /* @__PURE__ */ new class extends RangeValue {
 }();
 closedBracket.startSide = 1;
 closedBracket.endSide = -1;
+var bracketState = /* @__PURE__ */ StateField.define({
+  create() {
+    return RangeSet.empty;
+  },
+  update(value, tr) {
+    value = value.map(tr.changes);
+    if (tr.selection) {
+      let line = tr.state.doc.lineAt(tr.selection.main.head);
+      value = value.update({ filter: (from) => from >= line.from && from <= line.to });
+    }
+    for (let effect of tr.effects)
+      if (effect.is(closeBracketEffect))
+        value = value.update({ add: [closedBracket.range(effect.value, effect.value + 1)] });
+    return value;
+  }
+});
+function closeBrackets() {
+  return [inputHandler2, bracketState];
+}
+var definedClosing = "()[]{}<>\xAB\xBB\xBB\xAB\uFF3B\uFF3D\uFF5B\uFF5D";
+function closing(ch2) {
+  for (let i3 = 0; i3 < definedClosing.length; i3 += 2)
+    if (definedClosing.charCodeAt(i3) == ch2)
+      return definedClosing.charAt(i3 + 1);
+  return fromCodePoint(ch2 < 128 ? ch2 : ch2 + 1);
+}
+function config(state, pos) {
+  return state.languageDataAt("closeBrackets", pos)[0] || defaults;
+}
 var android = typeof navigator == "object" && /* @__PURE__ */ /Android\b/.test(navigator.userAgent);
-function autocompletion(config = {}) {
+var inputHandler2 = /* @__PURE__ */ EditorView.inputHandler.of((view, from, to, insert2) => {
+  if ((android ? view.composing : view.compositionStarted) || view.state.readOnly)
+    return false;
+  let sel = view.state.selection.main;
+  if (insert2.length > 2 || insert2.length == 2 && codePointSize2(codePointAt2(insert2, 0)) == 1 || from != sel.from || to != sel.to)
+    return false;
+  let tr = insertBracket(view.state, insert2);
+  if (!tr)
+    return false;
+  view.dispatch(tr);
+  return true;
+});
+var deleteBracketPair = ({ state, dispatch }) => {
+  if (state.readOnly)
+    return false;
+  let conf = config(state, state.selection.main.head);
+  let tokens = conf.brackets || defaults.brackets;
+  let dont = null, changes = state.changeByRange((range) => {
+    if (range.empty) {
+      let before = prevChar(state.doc, range.head);
+      for (let token of tokens) {
+        if (token == before && nextChar(state.doc, range.head) == closing(codePointAt2(token, 0)))
+          return {
+            changes: { from: range.head - token.length, to: range.head + token.length },
+            range: EditorSelection.cursor(range.head - token.length)
+          };
+      }
+    }
+    return { range: dont = range };
+  });
+  if (!dont)
+    dispatch(state.update(changes, { scrollIntoView: true, userEvent: "delete.backward" }));
+  return !dont;
+};
+var closeBracketsKeymap = [
+  { key: "Backspace", run: deleteBracketPair }
+];
+function insertBracket(state, bracket2) {
+  let conf = config(state, state.selection.main.head);
+  let tokens = conf.brackets || defaults.brackets;
+  for (let tok of tokens) {
+    let closed = closing(codePointAt2(tok, 0));
+    if (bracket2 == tok)
+      return closed == tok ? handleSame(state, tok, tokens.indexOf(tok + tok + tok) > -1, conf) : handleOpen(state, tok, closed, conf.before || defaults.before);
+    if (bracket2 == closed && closedBracketAt(state, state.selection.main.from))
+      return handleClose(state, tok, closed);
+  }
+  return null;
+}
+function closedBracketAt(state, pos) {
+  let found = false;
+  state.field(bracketState).between(0, state.doc.length, (from) => {
+    if (from == pos)
+      found = true;
+  });
+  return found;
+}
+function nextChar(doc2, pos) {
+  let next = doc2.sliceString(pos, pos + 2);
+  return next.slice(0, codePointSize2(codePointAt2(next, 0)));
+}
+function prevChar(doc2, pos) {
+  let prev = doc2.sliceString(pos - 2, pos);
+  return codePointSize2(codePointAt2(prev, 0)) == prev.length ? prev : prev.slice(1);
+}
+function handleOpen(state, open2, close2, closeBefore) {
+  let dont = null, changes = state.changeByRange((range) => {
+    if (!range.empty)
+      return {
+        changes: [{ insert: open2, from: range.from }, { insert: close2, from: range.to }],
+        effects: closeBracketEffect.of(range.to + open2.length),
+        range: EditorSelection.range(range.anchor + open2.length, range.head + open2.length)
+      };
+    let next = nextChar(state.doc, range.head);
+    if (!next || /\s/.test(next) || closeBefore.indexOf(next) > -1)
+      return {
+        changes: { insert: open2 + close2, from: range.head },
+        effects: closeBracketEffect.of(range.head + open2.length),
+        range: EditorSelection.cursor(range.head + open2.length)
+      };
+    return { range: dont = range };
+  });
+  return dont ? null : state.update(changes, {
+    scrollIntoView: true,
+    userEvent: "input.type"
+  });
+}
+function handleClose(state, _open, close2) {
+  let dont = null, changes = state.changeByRange((range) => {
+    if (range.empty && nextChar(state.doc, range.head) == close2)
+      return {
+        changes: { from: range.head, to: range.head + close2.length, insert: close2 },
+        range: EditorSelection.cursor(range.head + close2.length)
+      };
+    return dont = { range };
+  });
+  return dont ? null : state.update(changes, {
+    scrollIntoView: true,
+    userEvent: "input.type"
+  });
+}
+function handleSame(state, token, allowTriple, config2) {
+  let stringPrefixes = config2.stringPrefixes || defaults.stringPrefixes;
+  let dont = null, changes = state.changeByRange((range) => {
+    if (!range.empty)
+      return {
+        changes: [{ insert: token, from: range.from }, { insert: token, from: range.to }],
+        effects: closeBracketEffect.of(range.to + token.length),
+        range: EditorSelection.range(range.anchor + token.length, range.head + token.length)
+      };
+    let pos = range.head, next = nextChar(state.doc, pos), start;
+    if (next == token) {
+      if (nodeStart(state, pos)) {
+        return {
+          changes: { insert: token + token, from: pos },
+          effects: closeBracketEffect.of(pos + token.length),
+          range: EditorSelection.cursor(pos + token.length)
+        };
+      } else if (closedBracketAt(state, pos)) {
+        let isTriple = allowTriple && state.sliceDoc(pos, pos + token.length * 3) == token + token + token;
+        let content2 = isTriple ? token + token + token : token;
+        return {
+          changes: { from: pos, to: pos + content2.length, insert: content2 },
+          range: EditorSelection.cursor(pos + content2.length)
+        };
+      }
+    } else if (allowTriple && state.sliceDoc(pos - 2 * token.length, pos) == token + token && (start = canStartStringAt(state, pos - 2 * token.length, stringPrefixes)) > -1 && nodeStart(state, start)) {
+      return {
+        changes: { insert: token + token + token + token, from: pos },
+        effects: closeBracketEffect.of(pos + token.length),
+        range: EditorSelection.cursor(pos + token.length)
+      };
+    } else if (state.charCategorizer(pos)(next) != CharCategory.Word) {
+      if (canStartStringAt(state, pos, stringPrefixes) > -1 && !probablyInString(state, pos, token, stringPrefixes))
+        return {
+          changes: { insert: token + token, from: pos },
+          effects: closeBracketEffect.of(pos + token.length),
+          range: EditorSelection.cursor(pos + token.length)
+        };
+    }
+    return { range: dont = range };
+  });
+  return dont ? null : state.update(changes, {
+    scrollIntoView: true,
+    userEvent: "input.type"
+  });
+}
+function nodeStart(state, pos) {
+  let tree = syntaxTree(state).resolveInner(pos + 1);
+  return tree.parent && tree.from == pos;
+}
+function probablyInString(state, pos, quoteToken, prefixes) {
+  let node = syntaxTree(state).resolveInner(pos, -1);
+  let maxPrefix = prefixes.reduce((m2, p) => Math.max(m2, p.length), 0);
+  for (let i3 = 0; i3 < 5; i3++) {
+    let start = state.sliceDoc(node.from, Math.min(node.to, node.from + quoteToken.length + maxPrefix));
+    let quotePos = start.indexOf(quoteToken);
+    if (!quotePos || quotePos > -1 && prefixes.indexOf(start.slice(0, quotePos)) > -1) {
+      let first = node.firstChild;
+      while (first && first.from == node.from && first.to - first.from > quoteToken.length + quotePos) {
+        if (state.sliceDoc(first.to - quoteToken.length, first.to) == quoteToken)
+          return false;
+        first = first.firstChild;
+      }
+      return true;
+    }
+    let parent = node.to == pos && node.parent;
+    if (!parent)
+      break;
+    node = parent;
+  }
+  return false;
+}
+function canStartStringAt(state, pos, prefixes) {
+  let charCat = state.charCategorizer(pos);
+  if (charCat(state.sliceDoc(pos - 1, pos)) != CharCategory.Word)
+    return pos;
+  for (let prefix of prefixes) {
+    let start = pos - prefix.length;
+    if (state.sliceDoc(start, pos) == prefix && charCat(state.sliceDoc(start - 1, start)) != CharCategory.Word)
+      return start;
+  }
+  return -1;
+}
+function autocompletion(config2 = {}) {
   return [
     commitCharacters,
     completionState,
-    completionConfig.of(config),
+    completionConfig.of(config2),
     completionPlugin,
     completionKeymapExt,
     baseTheme2
@@ -22418,15 +22642,15 @@ var MarkdownParser = class _MarkdownParser extends Parser {
   Reconfigure the parser.
   */
   configure(spec) {
-    let config = resolveConfig(spec);
-    if (!config)
+    let config2 = resolveConfig(spec);
+    if (!config2)
       return this;
     let { nodeSet, skipContextMarkup } = this;
     let blockParsers = this.blockParsers.slice(), leafBlockParsers = this.leafBlockParsers.slice(), blockNames = this.blockNames.slice(), inlineParsers = this.inlineParsers.slice(), inlineNames = this.inlineNames.slice(), endLeafBlock = this.endLeafBlock.slice(), wrappers = this.wrappers;
-    if (nonEmpty(config.defineNodes)) {
+    if (nonEmpty(config2.defineNodes)) {
       skipContextMarkup = Object.assign({}, skipContextMarkup);
       let nodeTypes2 = nodeSet.types.slice(), styles2;
-      for (let s of config.defineNodes) {
+      for (let s of config2.defineNodes) {
         let { name: name2, block, composite, style } = typeof s == "string" ? { name: s } : s;
         if (nodeTypes2.some((t2) => t2.name == name2))
           continue;
@@ -22452,10 +22676,10 @@ var MarkdownParser = class _MarkdownParser extends Parser {
       if (styles2)
         nodeSet = nodeSet.extend(styleTags(styles2));
     }
-    if (nonEmpty(config.props))
-      nodeSet = nodeSet.extend(...config.props);
-    if (nonEmpty(config.remove)) {
-      for (let rm2 of config.remove) {
+    if (nonEmpty(config2.props))
+      nodeSet = nodeSet.extend(...config2.props);
+    if (nonEmpty(config2.remove)) {
+      for (let rm2 of config2.remove) {
         let block = this.blockNames.indexOf(rm2), inline = this.inlineNames.indexOf(rm2);
         if (block > -1)
           blockParsers[block] = leafBlockParsers[block] = void 0;
@@ -22463,8 +22687,8 @@ var MarkdownParser = class _MarkdownParser extends Parser {
           inlineParsers[inline] = void 0;
       }
     }
-    if (nonEmpty(config.parseBlock)) {
-      for (let spec2 of config.parseBlock) {
+    if (nonEmpty(config2.parseBlock)) {
+      for (let spec2 of config2.parseBlock) {
         let found = blockNames.indexOf(spec2.name);
         if (found > -1) {
           blockParsers[found] = spec2.parse;
@@ -22479,8 +22703,8 @@ var MarkdownParser = class _MarkdownParser extends Parser {
           endLeafBlock.push(spec2.endLeaf);
       }
     }
-    if (nonEmpty(config.parseInline)) {
-      for (let spec2 of config.parseInline) {
+    if (nonEmpty(config2.parseInline)) {
+      for (let spec2 of config2.parseInline) {
         let found = inlineNames.indexOf(spec2.name);
         if (found > -1) {
           inlineParsers[found] = spec2.parse;
@@ -22491,8 +22715,8 @@ var MarkdownParser = class _MarkdownParser extends Parser {
         }
       }
     }
-    if (config.wrap)
-      wrappers = wrappers.concat(config.wrap);
+    if (config2.wrap)
+      wrappers = wrappers.concat(config2.wrap);
     return new _MarkdownParser(nodeSet, blockParsers, leafBlockParsers, blockNames, endLeafBlock, skipContextMarkup, inlineParsers, inlineNames, wrappers);
   }
   /**
@@ -23211,8 +23435,8 @@ function leftOverSpace(node, from, to) {
   }
   return ranges;
 }
-function parseCode(config) {
-  let { codeParser, htmlParser } = config;
+function parseCode(config2) {
+  let { codeParser, htmlParser } = config2;
   let wrap = parseMixed((node, input) => {
     let id2 = node.type.id;
     if (codeParser && (id2 == Type.CodeBlock || id2 == Type.FencedCode)) {
@@ -25133,25 +25357,25 @@ var LRParser = class _LRParser extends Parser {
   given settings modified. Settings not provided in `config` are
   kept from the original parser.
   */
-  configure(config) {
+  configure(config2) {
     let copy = Object.assign(Object.create(_LRParser.prototype), this);
-    if (config.props)
-      copy.nodeSet = this.nodeSet.extend(...config.props);
-    if (config.top) {
-      let info = this.topRules[config.top];
+    if (config2.props)
+      copy.nodeSet = this.nodeSet.extend(...config2.props);
+    if (config2.top) {
+      let info = this.topRules[config2.top];
       if (!info)
-        throw new RangeError(`Invalid top rule name ${config.top}`);
+        throw new RangeError(`Invalid top rule name ${config2.top}`);
       copy.top = info;
     }
-    if (config.tokenizers)
+    if (config2.tokenizers)
       copy.tokenizers = this.tokenizers.map((t2) => {
-        let found = config.tokenizers.find((r) => r.from == t2);
+        let found = config2.tokenizers.find((r) => r.from == t2);
         return found ? found.to : t2;
       });
-    if (config.specializers) {
+    if (config2.specializers) {
       copy.specializers = this.specializers.slice();
       copy.specializerSpecs = this.specializerSpecs.map((s, i3) => {
-        let found = config.specializers.find((r) => r.from == s.external);
+        let found = config2.specializers.find((r) => r.from == s.external);
         if (!found)
           return s;
         let spec = Object.assign(Object.assign({}, s), { external: found.to });
@@ -25159,16 +25383,16 @@ var LRParser = class _LRParser extends Parser {
         return spec;
       });
     }
-    if (config.contextTracker)
-      copy.context = config.contextTracker;
-    if (config.dialect)
-      copy.dialect = this.parseDialect(config.dialect);
-    if (config.strict != null)
-      copy.strict = config.strict;
-    if (config.wrap)
-      copy.wrappers = copy.wrappers.concat(config.wrap);
-    if (config.bufferLength != null)
-      copy.bufferLength = config.bufferLength;
+    if (config2.contextTracker)
+      copy.context = config2.contextTracker;
+    if (config2.dialect)
+      copy.dialect = this.parseDialect(config2.dialect);
+    if (config2.strict != null)
+      copy.strict = config2.strict;
+    if (config2.wrap)
+      copy.wrappers = copy.wrappers.concat(config2.wrap);
+    if (config2.bufferLength != null)
+      copy.bufferLength = config2.bufferLength;
     return copy;
   }
   /**
@@ -25603,12 +25827,12 @@ function configureNesting(tags3 = [], attributes = []) {
 }
 
 // node_modules/@lezer/css/dist/index.js
-var descendantOp = 145;
+var descendantOp = 148;
 var Unit = 1;
-var identifier = 146;
-var callee = 147;
+var identifier = 149;
+var callee = 150;
 var VariableName = 2;
-var queryIdentifier = 148;
+var queryIdentifier = 151;
 var queryVariableName = 3;
 var QueryCallee = 4;
 var space2 = [
@@ -25749,32 +25973,32 @@ var cssHighlighting = styleTags({
   "[ ]": tags.squareBracket,
   "{ }": tags.brace
 });
-var spec_callee = { __proto__: null, lang: 44, "nth-child": 44, "nth-last-child": 44, "nth-of-type": 44, "nth-last-of-type": 44, dir: 44, "host-context": 44, if: 90, url: 152, "url-prefix": 152, domain: 152, regexp: 152 };
-var spec_queryIdentifier = { __proto__: null, or: 104, and: 104, not: 112, only: 112, layer: 206 };
-var spec_QueryCallee = { __proto__: null, selector: 118, style: 124, layer: 202 };
-var spec_AtKeyword = { __proto__: null, "@import": 198, "@media": 210, "@charset": 214, "@namespace": 218, "@keyframes": 224, "@supports": 236, "@scope": 240, "@font-feature-values": 246 };
-var spec_identifier = { __proto__: null, to: 243 };
+var spec_callee = { __proto__: null, lang: 44, "nth-child": 44, "nth-last-child": 44, "nth-of-type": 44, "nth-last-of-type": 44, dir: 44, "host-context": 44, if: 90, url: 158, "url-prefix": 158, domain: 158, regexp: 158 };
+var spec_queryIdentifier = { __proto__: null, or: 104, and: 104, not: 112, only: 112, layer: 212 };
+var spec_QueryCallee = { __proto__: null, selector: 118, style: 124, layer: 208 };
+var spec_AtKeyword = { __proto__: null, "@import": 204, "@media": 216, "@charset": 220, "@namespace": 224, "@keyframes": 230, "@supports": 242, "@scope": 246, "@font-feature-values": 252 };
+var spec_identifier = { __proto__: null, to: 249 };
 var parser3 = LRParser.deserialize({
   version: 14,
-  states: "MlQYQdOOO#}QdOOP$UO`OOO%OQaO'#CfOOQP'#Ce'#CeO%VQdO'#CgO%[Q`O'#CgO%aQaO'#FnO&XQdO'#CkO&xQaO'#CcO'SQdO'#CnO'_QdO'#EOO'dQdO'#EQO'oQdO'#EXO'oQdO'#E[OOQP'#Fn'#FnO)RQhO'#E}OOQS'#Fm'#FmOOQS'#FQ'#FQQYQdOOO)YQdO'#EbO*iQhO'#EhO)YQdO'#EjO*pQdO'#ElO*{QdO'#EoO)}QhO'#EuO+TQdO'#EwO+`QdO'#EzO+eQaO'#CfO+lQ`O'#E_O+qQ`O'#F{O+|QdO'#F{QOQ`OOP,WO&jO'#CaPOOO)CA])CA]OOQP'#Ci'#CiOOQP,59R,59RO%VQdO,59ROOQP'#Cm'#CmOOQP,59V,59VO&XQdO,59VO,cQdO,59YO'_QdO,5:jO'dQdO,5:lO'oQdO,5:sO'oQdO,5:uO'oQdO,5:vO'oQdO'#FXO,nQ`O,58}O,vQdO'#E^OOQS,58},58}OOQP'#Cq'#CqOOQO'#D|'#D|OOQP,59Y,59YO,}Q`O,59YO-SQ`O,59YOOQP'#EP'#EPOOQP,5:j,5:jO-XQpO'#ERO-dQdO'#ESO-iQ`O'#ESO-nQpO,5:lO.XQaO,5:sO.oQaO,5:vOOQW'#D^'#D^O/nQhO'#DgO0RQhO,5;iO)}QhO'#DeO0`Q`O'#DnO0eQhO'#DxOOQW'#Ft'#FtOOQS,5;i,5;iO0jQ`O'#DhO0oQ`O'#DkOOQS-E9O-E9OOOQ['#Cv'#CvO0tQdO'#CwO1[QdO'#C}O1rQdO'#DQO2YQ!pO'#DSO4fQ!jO,5:|OOQO'#DX'#DXO-SQ`O'#DWO4vQ!nO'#FqO6|Q`O'#DYO7RQ`O'#DyOOQ['#Fq'#FqO7WQhO'#GOO7fQ`O,5;SO7kQ!bO,5;UOOQS'#En'#EnO7sQ`O,5;WO7xQdO,5;WOOQO'#Eq'#EqO8QQ`O,5;ZO8VQhO,5;aO'oQdO'#DjOOQS,5;c,5;cO0jQ`O,5;cO8_QdO,5;cOOQS'#F`'#F`O8gQdO'#E|O7fQ`O,5;fO8oQdO,5:yO9PQdO'#FZO9^Q`O,5<gO9^Q`O,5<gPOOO'#FP'#FPP9iO&jO,58{POOO,58{,58{OOQP1G.m1G.mOOQP1G.q1G.qOOQP1G.t1G.tO,}Q`O1G.tO-SQ`O1G.tOOQP1G0U1G0UO9tQpO1G0WO9|QaO1G0_O:dQaO1G0aO:zQaO1G0bO;bQaO,5;sOOQO-E9V-E9VOOQS1G.i1G.iO;lQ`O,5:xO;qQdO'#D}O;xQdO'#CuOOQO'#EU'#EUOOQO,5:n,5:nO-dQdO,5:nOOQP1G0W1G0WO)YQdO1G0WO<PQ!jO'#D^O<_Q!bO,59yO<gQhO,5:ROOQO'#Fu'#FuO<bQ!bO,59}O<oQhO'#FaO)}QhO,59{O)}QhO'#FaO=gQhO1G1TOOQS1G1T1G1TO=qQhO,5:PO>lQhO'#DoOOQW,5:Y,5:YOOQW,5:d,5:dOOQW,5:S,5:SO>vQhO,5:VO?bQ!fO'#FrOOQS'#Fr'#FrOOQS'#FS'#FSO@rQdO,59cOOQ[,59c,59cOAYQdO,59iOOQ[,59i,59iOApQdO,59lOOQ[,59l,59lOOQ[,59n,59nO)YQdO,59pOBWQhO'#EdOOQW'#Ed'#EdOBuQ`O1G0hO4oQhO1G0hOOQ[,59r,59rO)}QhO'#D[OOQ[,59t,59tOBzQ#tO,5:eOCVQhO'#F]OCdQ`O,5<jOOQS1G0n1G0nOOQS1G0p1G0pOOQS1G0r1G0rOCoQ`O1G0rOCtQdO'#ErOOQS1G0u1G0uOOQS1G0{1G0{ODPQaO,5:UO7fQ`O1G0}OOQS1G0}1G0}O0jQ`O1G0}OOQS-E9^-E9^OOQS1G1Q1G1QODWQ!fO1G0eODnQ`O'#EaOOQO1G0e1G0eOOQO,5;u,5;uODsQdO,5;uOOQO-E9X-E9XOEQQ`O1G2RPOOO-E8}-E8}POOO1G.g1G.gOOQP7+$`7+$`OOQP7+%r7+%rO)YQdO7+%rOOQS1G0d1G0dOE]QaO'#FzOEgQ`O,5:iOElQ!fO'#FROFjQdO'#FpOFtQ`O,59aOOQO1G0Y1G0YOFyQ!bO7+%rO)YQdO1G/eOGUQhO1G/iOOQW1G/m1G/mOOQW1G/g1G/gOGgQhO,5;{OOQW-E9_-E9_OOQS7+&o7+&oOH_QhO'#D^OHmQhO'#FxOHxQ`O'#FxOH}Q`O,5:ZOISQ!bO'#D`O>vQhO'#DmOI_QhO'#DqOIgQhO'#DsOIlQhO'#FwOOQO'#Fw'#FwOItQ!bO'#DwOOQO'#Fy'#FyOOQO'#Fv'#FvOIyQ`O1G/qOOQS-E9Q-E9QOOQ[1G.}1G.}OOQ[1G/T1G/TOOQ[1G/W1G/WOOQ[1G/[1G/[OJOQdO,5;OOOQS7+&S7+&SOJTQ`O7+&SOJYQhO'#D]OJbQ`O,59vO)}QhO,59vOOQ[1G0P1G0POJjQ`O1G0POJoQhO,5;wOOQO-E9Z-E9ZOOQS7+&^7+&^OJ}QbO'#DSOOQO'#Et'#EtOK]Q`O'#EsOOQO'#Es'#EsOKhQ`O'#F^OKpQdO,5;^OOQS,5;^,5;^OOQ[1G/p1G/pOOQS7+&i7+&iO7fQ`O7+&iOK{Q!fO'#FYO)YQdO'#FYOMSQdO7+&POOQO7+&P7+&POOQO,5:{,5:{OOQO1G1a1G1aOMgQ!bO<<I^OMrQdO'#FWOM|Q`O,5<fOOQP1G0T1G0TOOQS-E9P-E9PONUQdO'#FVON`Q`O,5<[OOQ]1G.{1G.{OOQP<<I^<<I^ONhQ`O<<I^ONmQdO7+%POOQO'#D`'#D`ONtQ!bO7+%TON|QhO'#FUO! ZQ`O,5<dO)YQdO,5<dOOQW1G/u1G/uO)YQdO,5:bO! cQ`O,5:XO>vQhO'#DrOOQO,5:],5:]O! hQhO,5:_OGUQhO,5:cOOQW7+%]7+%]OOQO'#Ef'#EfO! pQ`O1G0jOOQS<<In<<InO)YQdO,59wO!!dQhO1G/bOOQ[1G/b1G/bO!!kQ`O1G/bOOQW-E9R-E9ROOQ[7+%k7+%kOOQO,5;_,5;_OCwQdO'#F_OKhQ`O,5;xOOQS,5;x,5;xOOQS-E9[-E9[OOQS1G0x1G0xOOQS<<JT<<JTO!!sQ!fO,5;tOOQS-E9W-E9WOOQO<<Ik<<IkOOQPAN>xAN>xO!#zQ`OAN>xO!$PQaO,5;rOOQO-E9U-E9UO!$ZQdO,5;qOOQO-E9T-E9TOOQW<<Hk<<HkOOQW<<Ho<<HoO!$eQhO<<HoO!$vQhO,5;pO!%RQ`O,5;pOOQO-E9S-E9SO!%WQdO1G2OO!%bQdO1G/|O!%iQhO1G/sO!%qQ`O,5:^O>vQhO'#DuOOQO1G/y1G/yO!%vQ!bO1G/}OJOQdO'#F[O!&OQ`O7+&UOOQW7+&U7+&UO!&WQ!bO1G/cOOQ[7+$|7+$|O!&cQhO7+$|P!&jQ`O'#FTOOQO,5;y,5;yOOQO-E9]-E9]OOQS1G1d1G1dOOQPG24dG24dO!&oQ`OAN>ZO)YQdO1G1[O!&tQ`O7+'jOOQO1G/x1G/xO!&|Q`O,5:aO!$eQhO7+%iOOQO,5;v,5;vOOQO-E9Y-E9YOOQW<<Ip<<IpOOQ[<<Hh<<HhPOQW,5;o,5;oOOQWG23uG23uO!'RQdO7+&vOOQO1G/{1G/{OOQO<<IT<<IT",
-  stateData: "!'f~O$[OS$]QQ~OWVO^_O`WOcYOdYOl`OmZOp[O!|]O#P^O#VdO#]eO#_fO#agO#dhO#jiO#ljO#okO$WRO$cTO~OQmOWVO^_O`WOcYOdYOl`OmZOp[O!|]O#P^O#VdO#]eO#_fO#agO#dhO#jiO#ljO#okO$WlO$cTO~O$U$oP~P!jO$]qO~O`YXcYXdYXmYXpYXsYX!dYX!|YX#PYX$VYX$c[X~OgYX~P$ZO$WsO~O$cuO~O$cuO`$bXc$bXd$bXm$bXp$bXs$bX!d$bX!|$bX#P$bX$V$bXg$bX~O$WvO~O`xOcyOdyOmzOp{O!||O#P!OO$V}O~Os!RO!d!PO~P&^Of!XO$W!TO$X!UO~O$W!YO~OW!^O$W![O$c!]O~OWVO^_O`WOcYOdYOmZOp[O!|]O#P^O$WRO$cTO~OS!fOc!gOd!gOh!cOs!RO!Y!eO!]!jO!`!kO$Y!bO~On!iO~P(dOQ!uOh!nOp!oOs!pOu!xOw!xO}!vO!n!wO$W!mO$X!sO$g!qO~OS!fOc!gOd!gOh!cO!Y!eO!]!jO!`!kO$Y!bO~Os$rP~P)}Ow!}O!n!wO$W!|O~Ow#PO$W#PO~Oh#SOs!RO#m#UO~O$W#WO~Oc#SX~P$ZOc#ZO~On#[O$U$oXr$oX~O$U$oXr$oX~P!jO$^#_O$_#_O$`#aO~Of#fO$W!TO$X!UO~Os!RO!d!PO~Or$oP~P!jOh#pO~Oh#qO~Oo!uX!y!uX$c!wX~O$W#rO~O$c#tO~Oo#uO!y#vO~O`xOcyOdyOmzOp{O~Os!{a!d!{a!|!{a#P!{a$V!{ag!{a~P-vOs#Oa!d#Oa!|#Oa#P#Oa$V#Oag#Oa~P-vOS!fOc!gOd!gOh!cO!Y!eO!]!jO!`!kO~OR#zOu#zOw#zO$Y#wO$g!qO~P/VOn$QO!U#}O!d$OO~P(dOh$SO~O$Y$UO~Oh#SO~Oh$WO~O`$YOc$YOg$]Ol$YOm$YOn$YO~P)YO`$YOc$YOl$YOm$YOn$YOo$_O~P)YO`$YOc$YOl$YOm$YOn$YOr$aO~P)YOP$bOSvXcvXdvXhvXnvXyvX!YvX!]vX!`vX#XvX#ZvX$YvX!WvXQvX`vXgvXlvXmvXpvXsvXuvXwvX}vX!nvX$WvX$XvX$gvXovXrvX!dvX$UvX$qvX!zvX~Oy$cO#X$dO#Z$eOn$rP~P)}Oh#qOS$eXc$eXd$eXn$eXy$eX!Y$eX!]$eX!`$eX#X$eX#Z$eX$Y$eXQ$eX`$eXg$eXl$eXm$eXp$eXs$eXu$eXw$eX}$eX!n$eX$W$eX$X$eX$g$eXo$eXr$eX!d$eX$U$eX$q$eX!z$eX~Oh$iO~Oh$kO~O!U#}O!d$lOs$rXn$rX~Os!RO~On$oOy$cO~On$pO~Ow$qO!n!wO~Os$rO~Os!RO!U#}O~Os!RO#m$xO~O$W#WOs#pX~O$q$|On#Ra$U#Rar#Ra~P)YOn#}X$U#}Xr#}X~P!jOn#[O$U$oar$oa~O$^#_O$_#_O$`%TO~Oo%VO!y%WO~Os!{i!d!{i!|!{i#P!{i$V!{ig!{i~P-vOs!}i!d!}i!|!}i#P!}i$V!}ig!}i~P-vOs#Oi!d#Oi!|#Oi#P#Oi$V#Oig#Oi~P-vOs#{a!d#{a~P&^Or%XO~Og$nP~P'oOg$dP~P)YOc!SXg!QX!U!QX!W!SX~Oc%aO!W%bO~Og%cO!U#}O~O!U#}OS$TXc$TXd$TXh$TXn$TXs$TX!Y$TX!]$TX!`$TX!d$TX$Y$TX~On%gO!d$OO~P(dO!U#}OS!Xac!Xad!Xah!Xan!Xas!Xa!Y!Xa!]!Xa!`!Xa!d!Xa$Y!Xag!Xa~O$Y%hOg$lP~P/VOR#zOS!fOh%mOu#zOw#zO!Y%nO$Y%lO$g!qO~Oy$cOQ$fX`$fXc$fXg$fXh$fXl$fXm$fXn$fXp$fXs$fXu$fXw$fX}$fX!n$fX$W$fX$X$fX$g$fXo$fXr$fX~O`$YOc$YOg%wOl$YOm$YOn$YO~P)YO`$YOc$YOl$YOm$YOn$YOo%xO~P)YO`$YOc$YOl$YOm$YOn$YOr%yO~P)YOh%{OS#WXc#WXd#WXn#WX!Y#WX!]#WX!`#WX$Y#WX~On%|O~Og&ROw&SO!o&SO~Os$PX!d$PXn$PX~P)}O!d$lOs$ran$ra~On&VO~Or&^O$W&XO$g&WO~Og&_O~P&^Oy$cO!d&cO$q$|On#Ri$U#Rir#Ri~P)YO$p&fO~On#}a$U#}ar#}a~P!jOn#[O$U$oir$oi~O!d&iOg$nX~P&^Og&kO~Oy$cOQ#uXg#uXh#uXp#uXs#uXu#uXw#uX}#uX!d#uX!n#uX$W#uX$X#uX$g#uX~O!d&mOg$dX~P)YOg&oO~Oo&pOy$cO!z&qO~OR#zOu#zOw#zO$Y&sO$g!qO~O!U#}OS$Tac$Tad$Tah$Tan$Tas$Ta!Y$Ta!]$Ta!`$Ta!d$Ta$Y$Ta~Oc!SXg!QX!U!QX!d!QX~O!U#}O!d&uOg$lX~Oc&wO~Og&xO~Oc&yOg!jX!W!SX~OS!fOh&{O~O!U&}O~O!U&}Og$kX~O!W'OO~Og'PO~O$W'QO~On'SO~Oc'TO!U#}O~Og'VOn'UO~Og'YO~O!U#}Os$Pa!d$Pan$Pa~OP$bOsvX!dvXgvX~O$g&WOs#gX!d#gX~Os!RO!d'[O~Or'`O$W&XO$g&WO~Oy$cOQ#|Xh#|Xn#|Xp#|Xs#|Xu#|Xw#|X}#|X!d#|X!n#|X$U#|X$W#|X$X#|X$g#|X$q#|Xr#|X~O!d&cO$q$|On#Rq$U#Rqr#Rq~P)YOo'eOy$cO!z'fO~Og#zX!d#zX~P'oO!d&iOg$na~Og#yX!d#yX~P)YO!d&mOg$da~Oo'eO~Og'kO~P)YOg'lO!W'mO~O$Y%hOg#xX!d#xX~P/VO!d&uOg$la~Og'sO~OS!fOh'uO~O`'xOg'zO~OS#wac#wad#wah#wa!Y#wa!]#wa!`#wa$Y#wa~Og'|O~P! xOg'|On'}O~Oy$cOQ#|ah#|an#|ap#|as#|au#|aw#|a}#|a!d#|a!n#|a$U#|a$W#|a$X#|a$g#|a$q#|ar#|a~Oo(SO~Og#za!d#za~P&^Og#ya!d#ya~P)YOR#zOu#zOw#zO$Y&sO$g&WO~O!U#}Og#xa!d#xa~Oc(UO~O!d&uOg$li~P)YOg!ji~P)YOg!ai!U!hi~Og(WO~O!W(YOg!ki~O`'xOg(]O~Oy$cOg!Pin!Pi~Og(^O~P! xOn(_O~Og(`O~O!d&uOg$lq~Og(bO~Og#xq!d#xq~P)YO$[!o$]$g`$gy#P~",
-  goto: "7[$sPPPPP$tP$wP%Q%d%Q%v&YP%QP&`%QPP&fPPP&l&v&vPPPPP&vPP&vP'fP&vP&v(i&vP)X)[)b)b)t)bP)bP)bP)b)bP*a)bP*m*s+cP*m+f*m+i+`+o+o)b+uPP,k,q%Q,w%Q,},}-T-XPP%QP%Q%QP-_.Z.h.o$wP.xP.{P$wP$wP$wP/R$wP/U/X/[/c$wP$wPP$wP/h$wP/k/q0Q0l0z1Q1[1b1h1n1t2O2U2[2b2h2nPPPPPPPPPPP2t2}P3s3v4zP5S5|6c6o6u6o6x6{PP7RRrQ_aOPco!R#[%Pq_OP]^co|}!O!P!R#S#[#p%P&iqSOP]^co|}!O!P!R#S#[#p%P&iqUOP]^co|}!O!P!R#S#[#p%P&iQtTR#buQwWR#cxQ!VYR#dyQ#d!XS$h!t!uR%U#f!Z!xdf!n!o!p#Z#q#v$[$^$`$c${%W%]%a&c&d&m&r&w&y'T'i'q'r(U(a!Y!xdf!n!o!p#Z#q#v$[$^$`$c${%W%]%a&c&d&m&r&w&y'T'i'q'r(U(ab#z!c$W%b%m&{'O'm'u(YU&Z$r&]'[R'Z&Y!Z!tdf!n!o!p#Z#q#v$[$^$`$c${%W%]%a&c&d&m&r&w&y'T'i'q'r(U(aR$j!vQ&P$iR'W&Qq!h`ei!c!d!e!r#}$O$P$S$g$i$l&Q&uQ#x!cQ%j$SW%r$W%m&{'uQ&t%bQ'o&uQ'w'OQ(T'mR(c(YQ#VjQ$V!jQ$v#UR&a$xX%q$W%m&{'up!h`ei!c!d!e!r#}$O$P$S$g$i$l&Q&uW%p$W%m&{'uQ&|%nR'v&}R$T!fR&|%nX%o$W%m&{'uX%s$W%m&{'u!Y!xdf!n!o!p#Z#q#v$[$^$`$c${%W%]%a&c&d&m&r&w&y'T'i'q'r(U(aQ!}gR$q#OQ!WYR#eyQ#d!WR%U#eQ!ZZR#gzQ!_[R#h{T!^[{Q#s!]R%_#tQ!SXQ!i`Q#TjQ#n!QQ$Q!dQ$n!zQ$t#RQ$w#VQ$z#YQ%g$PQ&`$vQ'^&[Q'a&aR(R']SnP!RQ#^oQ%O#[R&g%PZmPo!R#[%PQ$}#ZQ&e${R'd&dR$g!rQ'R%{R(Z'xR#OgR#QhR$s#QS&[$r&]R(P'[V&Y$r&]'[R#YkQ#`qR%S#`QcOSoP!RU!lco%PR%P#[Q%]#q[&l%]&r'i'q'r(aQ&r%aQ'i&mQ'q&wQ'r&yR(a(UQ$[!nQ$^!oQ$`!pV%v$[$^$`Q&Q$iR'X&QQ&v%iS'p&v(VR(V'qQ&n%]R'j&nQ&j%YR'h&jQ!QXR#m!QQ&d${R'c&dQ#]nS%Q#]%RR%R#^Q'y'RR(['yQ$m!yR&U$mQ&]$rR'_&]Q']&[R(Q']Q#XkR$y#XQ$P!dR%f$P_bOPco!R#[%P^XOPco!R#[%PQ!`]Q!a^Q#i|Q#j}Q#k!OQ#l!PQ$u#SQ%Y#pR'g&iR%^#qQ!rdQ!{f[$X!n!o!p$[$^$`Q${#Zh%[#q%]%a&m&r&w&y'i'q'r(U(aQ%`#vQ%z$cS&b${&dQ&h%WQ'b&cR'{'T]$Z!n!o!p$[$^$`Q!d`U!ye!r$gQ#RiQ#y!cS#|!d$PQ$R!eQ%d#}Q%e$OQ%i$SS&O$i&QQ&T$lR'n&uQ#{!cW%r$W%m&{'uQ&t%bQ'w'OQ(T'mR(c(YQ%u$WQ&z%mQ't&{R(X'uX%t$W%m&{'uR%k$SR%Z#pQpPR#o!RQ!zeQ$f!rR%}$g",
-  nodeNames: "\u26A0 Unit VariableName VariableName QueryCallee Comment StyleSheet RuleSet UniversalSelector TagSelector TagName NamespacedTagSelector NamespaceName TagName NestingSelector ClassSelector . ClassName PseudoClassSelector : :: PseudoClassName PseudoClassName ) ( ArgList ValueName ParenthesizedValue AtKeyword # ; ] [ BracketedValue } { BracedValue ColorLiteral NumberLiteral StringLiteral BinaryExpression BinOp CallExpression Callee IfExpression if ArgList IfBranch KeywordQuery FeatureQuery FeatureName BinaryQuery LogicOp ComparisonQuery CompareOp UnaryQuery UnaryQueryOp ParenthesizedQuery SelectorQuery selector ParenthesizedSelector StyleQuery style ParenthesedQuery CallQuery ArgList , UnaryQuery ParenthesedQuery BinaryQuery ParenthesedQuery ParenthesedQuery StyleFeature StyleRange PseudoQuery CallLiteral CallTag ParenthesizedContent PseudoClassName ArgList IdSelector IdName AttributeSelector AttributeName NamespacedAttribute NamespaceName AttributeName MatchOp MatchFlag ChildSelector ChildOp DescendantSelector SiblingSelector SiblingOp Block Declaration PropertyName Important ImportStatement import Layer layer LayerName layer MediaStatement media CharsetStatement charset NamespaceStatement namespace NamespaceName KeyframesStatement keyframes KeyframeName KeyframeList KeyframeSelector KeyframeRangeName SupportsStatement supports ScopeStatement scope to FontFeatureStatement font-feature-values FontName AtRule Styles",
-  maxTerm: 172,
+  states: "MrQYQdOOO#}QdOOP$UO`OOO%OQaO'#CfOOQP'#Ce'#CeO%VQdO'#CgO%[Q`O'#CgO%aQaO'#FqO&XQdO'#CkO&xQaO'#CcO'SQdO'#CnO'_QdO'#ERO'dQdO'#ETO'oQdO'#E[O'oQdO'#E_OOQP'#Fq'#FqO)RQhO'#FQOOQS'#Fp'#FpOOQS'#FT'#FTQYQdOOO)YQdO'#EeO*iQhO'#EkO)YQdO'#EmO*pQdO'#EoO*{QdO'#ErO)}QhO'#ExO+TQdO'#EzO+`QdO'#E}O+eQaO'#CfO+lQ`O'#EbO+qQ`O'#F}O+|QdO'#F}QOQ`OOP,WO&jO'#CaPOOO)CA`)CA`OOQP'#Ci'#CiOOQP,59R,59RO%VQdO,59ROOQP'#Cm'#CmOOQP,59V,59VO&XQdO,59VO,cQdO,59YO'_QdO,5:mO'dQdO,5:oO'oQdO,5:vO'oQdO,5:xO'oQdO,5:yO'oQdO'#F[O,nQ`O,58}O,vQdO'#EaOOQS,58},58}OOQP'#Cq'#CqOOQO'#EP'#EPOOQP,59Y,59YO,}Q`O,59YO-SQ`O,59YOOQP'#ES'#ESOOQP,5:m,5:mO-XQpO'#EUO-dQdO'#EVO-iQ`O'#EVO-nQpO,5:oO.XQaO,5:vO.oQaO,5:yOOQW'#D^'#D^O/nQhO'#DgO0RQhO,5;lO)}QhO'#DeO0`Q`O'#DnO0eQhO'#D{OOQW'#Fw'#FwOOQS,5;l,5;lO0jQ`O'#DhO0oQ`O'#DkOOQS-E9R-E9ROOQ['#Cv'#CvO0tQdO'#CwO1[QdO'#C}O1rQdO'#DQO2YQ!pO'#DSO4fQ!jO,5;POOQO'#DX'#DXO-SQ`O'#DWO4vQ!nO'#FtO6|Q`O'#DYO7RQ`O'#D|OOQ['#Ft'#FtO7WQhO'#GQO7fQ`O,5;VO7kQ!bO,5;XOOQS'#Eq'#EqO7sQ`O,5;ZO7xQdO,5;ZOOQO'#Et'#EtO8QQ`O,5;^O8VQhO,5;dO'oQdO'#DjOOQS,5;f,5;fO0jQ`O,5;fO8_QdO,5;fOOQS'#Fc'#FcO8gQdO'#FPO7fQ`O,5;iO8oQdO,5:|O9PQdO'#F^O9^Q`O,5<iO9^Q`O,5<iPOOO'#FS'#FSP9iO&jO,58{POOO,58{,58{OOQP1G.m1G.mOOQP1G.q1G.qOOQP1G.t1G.tO,}Q`O1G.tO-SQ`O1G.tOOQP1G0X1G0XO9tQpO1G0ZO9|QaO1G0bO:dQaO1G0dO:zQaO1G0eO;bQaO,5;vOOQO-E9Y-E9YOOQS1G.i1G.iO;lQ`O,5:{O;qQdO'#EQO;xQdO'#CuOOQO'#EX'#EXOOQO,5:q,5:qO-dQdO,5:qOOQP1G0Z1G0ZO)YQdO1G0ZO<PQ!jO'#D^O<_Q!bO,59yO<gQhO,5:ROOQO'#Fx'#FxO<bQ!bO,59}O<oQhO'#FdO)}QhO,59{O)}QhO'#FdO=gQhO1G1WOOQS1G1W1G1WO=qQhO,5:PO>lQhO'#DoOOQW,5:Y,5:YOOQW,5:g,5:gOOQW,5:S,5:SO>vQhO,5:VO?bQ!fO'#FuOOQS'#Fu'#FuOOQS'#FV'#FVO@rQdO,59cOOQ[,59c,59cOAYQdO,59iOOQ[,59i,59iOApQdO,59lOOQ[,59l,59lOOQ[,59n,59nO)YQdO,59pOBWQhO'#EgOOQW'#Eg'#EgOBuQ`O1G0kO4oQhO1G0kOOQ[,59r,59rO)}QhO'#D[OOQ[,59t,59tOBzQ#tO,5:hOCVQhO'#F`OCdQ`O,5<lOOQS1G0q1G0qOOQS1G0s1G0sOOQS1G0u1G0uOCoQ`O1G0uOCtQdO'#EuOOQS1G0x1G0xOOQS1G1O1G1OODPQaO,5:UO7fQ`O1G1QOOQS1G1Q1G1QO0jQ`O1G1QOOQS-E9a-E9aOOQS1G1T1G1TODWQ!fO1G0hODnQ`O'#EdOOQO1G0h1G0hOOQO,5;x,5;xODsQdO,5;xOOQO-E9[-E9[OEQQ`O1G2TPOOO-E9Q-E9QPOOO1G.g1G.gOOQP7+$`7+$`OOQP7+%u7+%uO)YQdO7+%uOOQS1G0g1G0gOE]QaO'#F|OEgQ`O,5:lOElQ!fO'#FUOFjQdO'#FsOFtQ`O,59aOOQO1G0]1G0]OFyQ!bO7+%uO)YQdO1G/eOGUQhO1G/iOOQW1G/m1G/mOOQW1G/g1G/gOGgQhO,5<OOOQW-E9b-E9bOOQS7+&r7+&rOH_QhO'#D^OHmQhO'#F{OHxQ`O'#F{OH}Q`O,5:ZOISQ!bO'#D`O>vQhO'#DmOI_QhO'#DsOIgQhO'#DuOIlQ!jO'#FzOOQO'#Fz'#FzOIwQ`O'#DxOJPQ!bO'#DzOOQO'#Fy'#FyOJUQ`O1G/qOOQS-E9T-E9TOOQ[1G.}1G.}OOQ[1G/T1G/TOOQ[1G/W1G/WOOQ[1G/[1G/[OJZQdO,5;ROOQS7+&V7+&VOJ`Q`O7+&VOJeQhO'#D]OJmQ`O,59vO)}QhO,59vOOQ[1G0S1G0SOJuQ`O1G0SOJzQhO,5;zOOQO-E9^-E9^OOQS7+&a7+&aOKYQbO'#DSOOQO'#Ew'#EwOKhQ`O'#EvOOQO'#Ev'#EvOKsQ`O'#FaOK{QdO,5;aOOQS,5;a,5;aOOQ[1G/p1G/pOOQS7+&l7+&lO7fQ`O7+&lOLWQ!fO'#F]O)YQdO'#F]OM_QdO7+&SOOQO7+&S7+&SOOQO,5;O,5;OOOQO1G1d1G1dOMrQ!bO<<IaOM}QdO'#FZONXQ`O,5<hOOQP1G0W1G0WOOQS-E9S-E9SONaQdO'#FYONkQ`O,5<_OOQ]1G.{1G.{OOQP<<Ia<<IaONsQ`O<<IaONxQdO7+%POOQO'#D`'#D`O! PQ!bO7+%TO! XQhO'#FXO! fQ`O,5<gO)YQdO,5<gOOQW1G/u1G/uO! nQ`O,5:XO>vQhO'#DtOOQO,5:_,5:_O! sQhO,5:aO! {QhO,5:fO)YQdO,5:dOOQW7+%]7+%]OOQO'#Ei'#EiO!!SQ`O1G0mOOQS<<Iq<<IqO)YQdO,59wO!!vQhO1G/bOOQ[1G/b1G/bO!!}Q`O1G/bOOQW-E9U-E9UOOQ[7+%n7+%nOOQO,5;b,5;bOCwQdO'#FbOKsQ`O,5;{OOQS,5;{,5;{OOQS-E9_-E9_OOQS1G0{1G0{OOQS<<JW<<JWO!#VQ!fO,5;wOOQS-E9Z-E9ZOOQO<<In<<InOOQPAN>{AN>{O!$^Q`OAN>{O!$cQaO,5;uOOQO-E9X-E9XO!$mQdO,5;tOOQO-E9W-E9WOOQW<<Hk<<HkOOQW<<Ho<<HoO!$wQhO<<HoO!%YQhO'#D^O!%hQhO,5;sO!%sQ`O,5;sOOQO-E9V-E9VO!%xQdO1G2RO!&SQhO1G/sO!&[Q`O,5:`O>vQhO'#DwOOQO1G/{1G/{O!&aQ!bO1G0QO!&iQdO1G0OOJZQdO'#F_O!&pQ`O7+&XOOQW7+&X7+&XO!&xQ!bO1G/cOOQ[7+$|7+$|O!'TQhO7+$|P!'[Q`O'#FWOOQO,5;|,5;|OOQO-E9`-E9`OOQS1G1g1G1gOOQPG24gG24gO!'aQ`OAN>ZO)YQdO1G1_O!'fQ`O7+'mOOQO1G/z1G/zO!'nQ`O,5:cO!'sQhO7+%lOOQO,5;y,5;yOOQO-E9]-E9]OOQW<<Is<<IsOOQ[<<Hh<<HhPOQW,5;r,5;rOOQWG23uG23uO!'zQdO7+&yOOQO1G/}1G/}OOQO<<IW<<IW",
+  stateData: "!(_~O$_OS$`QQ~OWVO^_O`WOcYOdYOl`OmZOp[O#P]O#S^O#YdO#`eO#bfO#dgO#ghO#miO#ojO#rkO$ZRO$fTO~OQmOWVO^_O`WOcYOdYOl`OmZOp[O#P]O#S^O#YdO#`eO#bfO#dgO#ghO#miO#ojO#rkO$ZlO$fTO~O$X$qP~P!jO$`qO~O`YXcYXdYXmYXpYXsYX!eYX#PYX#SYX$YYX$f[X~OgYX~P$ZO$ZsO~O$fuO~O$fuO`$eXc$eXd$eXm$eXp$eXs$eX!e$eX#P$eX#S$eX$Y$eXg$eX~O$ZvO~O`xOcyOdyOmzOp{O#P|O#S!OO$Y}O~Os!RO!e!PO~P&^Of!XO$Z!TO$[!UO~O$Z!YO~OW!^O$Z![O$f!]O~OWVO^_O`WOcYOdYOmZOp[O#P]O#S^O$ZRO$fTO~OS!fOc!gOd!gOh!cOs!RO!Y!eO!]!jO!`!kO$]!bO~On!iO~P(dOQ!uOh!nOp!oOs!pOu!xOw!xO}!vO!q!wO$Z!mO$[!sO$j!qO~OS!fOc!gOd!gOh!cO!Y!eO!]!jO!`!kO$]!bO~Os$tP~P)}Ow!}O!q!wO$Z!|O~Ow#PO$Z#PO~Oh#SOs!RO#p#UO~O$Z#WO~Oc#VX~P$ZOc#ZO~On#[O$X$qXr$qX~O$X$qXr$qX~P!jO$a#_O$b#_O$c#aO~Of#fO$Z!TO$[!UO~Os!RO!e!PO~Or$qP~P!jOh#pO~Oh#qO~Oo!xX!|!xX$f!zX~O$Z#rO~O$f#tO~Oo#uO!|#vO~O`xOcyOdyOmzOp{O~Os#Oa!e#Oa#P#Oa#S#Oa$Y#Oag#Oa~P-vOs#Ra!e#Ra#P#Ra#S#Ra$Y#Rag#Ra~P-vOS!fOc!gOd!gOh!cO!Y!eO!]!jO!`!kO~OR#zOu#zOw#zO$]#wO$j!qO~P/VOn$QO!U#}O!e$OO~P(dOh$SO~O$]$UO~Oh#SO~Oh$WO~O`$YOc$YOg$]Ol$YOm$YOn$YO~P)YO`$YOc$YOl$YOm$YOn$YOo$_O~P)YO`$YOc$YOl$YOm$YOn$YOr$aO~P)YOP$bOSvXcvXdvXhvXnvXyvX!YvX!]vX!`vX#[vX#^vX$]vX!WvXQvX`vXgvXlvXmvXpvXsvXuvXwvX}vX!qvX$ZvX$[vX$jvXovXrvX!evX$XvX$svX!}vX~Oy$cO#[$dO#^$eOn$tP~P)}Oh#qOS$hXc$hXd$hXn$hXy$hX!Y$hX!]$hX!`$hX#[$hX#^$hX$]$hXQ$hX`$hXg$hXl$hXm$hXp$hXs$hXu$hXw$hX}$hX!q$hX$Z$hX$[$hX$j$hXo$hXr$hX!e$hX$X$hX$s$hX!}$hX~Oh$iO~Oh$kO~O!U#}O!e$lOs$tXn$tX~Os!RO~On$oOy$cO~On$pO~Ow$qO!q!wO~Os$rO~Os!RO!U#}O~Os!RO#p$xO~O$Z#WOs#sX~O$s$|On#Ua$X#Uar#Ua~P)YOn$QX$X$QXr$QX~P!jOn#[O$X$qar$qa~O$a#_O$b#_O$c%TO~Oo%VO!|%WO~Os#Oi!e#Oi#P#Oi#S#Oi$Y#Oig#Oi~P-vOs#Qi!e#Qi#P#Qi#S#Qi$Y#Qig#Qi~P-vOs#Ri!e#Ri#P#Ri#S#Ri$Y#Rig#Ri~P-vOs$Oa!e$Oa~P&^Or%XO~Og$pP~P'oOg$gP~P)YOc!SXg!QX!U!QX!W!SX~Oc%aO!W%bO~Og%cO!U#}O~O!U#}OS$WXc$WXd$WXh$WXn$WXs$WX!Y$WX!]$WX!`$WX!e$WX$]$WX~On%gO!e$OO~P(dO!U#}OS!Xac!Xad!Xah!Xan!Xas!Xa!Y!Xa!]!Xa!`!Xa!e!Xa$]!Xag!Xa~O$]%hOg$oP~P/VOR#zOS!fOh%mOu#zOw#zO!Y%nO$]%lO$j!qO~Oy$cOQ$iX`$iXc$iXg$iXh$iXl$iXm$iXn$iXp$iXs$iXu$iXw$iX}$iX!q$iX$Z$iX$[$iX$j$iXo$iXr$iX~O`$YOc$YOg%wOl$YOm$YOn$YO~P)YO`$YOc$YOl$YOm$YOn$YOo%xO~P)YO`$YOc$YOl$YOm$YOn$YOr%yO~P)YOh%{OS#ZXc#ZXd#ZXn#ZX!Y#ZX!]#ZX!`#ZX$]#ZX~On%|O~Og&ROw&SO!r&SO~Os$SX!e$SXn$SX~P)}O!e$lOs$tan$ta~On&VO~Or&^O$Z&XO$j&WO~Og&_O~P&^Oy$cO!e&cO$s$|On#Ui$X#Uir#Ui~P)YO$r&fO~On$Qa$X$Qar$Qa~P!jOn#[O$X$qir$qi~O!e&iOg$pX~P&^Og&kO~Oy$cOQ#xXg#xXh#xXp#xXs#xXu#xXw#xX}#xX!e#xX!q#xX$Z#xX$[#xX$j#xX~O!e&mOg$gX~P)YOg&oO~Oo&pOy$cO!}&qO~OR#zOu#zOw#zO$]&sO$j!qO~O!U#}OS$Wac$Wad$Wah$Wan$Was$Wa!Y$Wa!]$Wa!`$Wa!e$Wa$]$Wa~Oc!dXg!QX!U!QX!e!QX~O!U#}O!e&uOg$oX~Oc&wO~Og&xO~Oc!mXg!mX!W!SX~OS!fOh&zO~O!U&|O~O!U&|O!W&}Og$nX~Oc'OOg!lX~O!W&}O~Og'PO~O$Z'QO~On'SO~Oc'TO!U#}O~Og'VOn'UO~Og'YO~O!U#}Os$Sa!e$San$Sa~OP$bOsvX!evXgvX~O$j&WOs#jX!e#jX~Os!RO!e'[O~Or'`O$Z&XO$j&WO~Oy$cOQ$PXh$PXn$PXp$PXs$PXu$PXw$PX}$PX!e$PX!q$PX$X$PX$Z$PX$[$PX$j$PX$s$PXr$PX~O!e&cO$s$|On#Uq$X#Uqr#Uq~P)YOo'eOy$cO!}'fO~Og#}X!e#}X~P'oO!e&iOg$pa~Og#|X!e#|X~P)YO!e&mOg$ga~Oo'eO~Og'kO~P)YOg'lO!W'mO~O$]'nOg#{X!e#{X~P/VO!e&uOg$oa~Og'sO~OS!fOh'uO~OS!fO~PGUO`'yOg'{O~OS#zac#zad#zah#za!Y#za!]#za!`#za$]#za~Og'}O~P!![Og'}On(OO~Oy$cOQ$Pah$Pan$Pap$Pas$Pau$Paw$Pa}$Pa!e$Pa!q$Pa$X$Pa$Z$Pa$[$Pa$j$Pa$s$Par$Pa~Oo(TO~Og#}a!e#}a~P&^Og#|a!e#|a~P)YOR#zOu#zOw#zO$]&sO$j&WO~Oc!fXg!QX!U!QX!e!QX~O!U#}Og#{a!e#{a~Oc(VO~O!e&uOg$oi~P)YOg!ai!U!ji~Og(XO~O!W(ZOg!ni~Og!li~P)YO`'yOg(^O~Oy$cOg!Pin!Pi~Og(_O~P!![On(`O~Og(aO~O!e&uOg$oq~Og(cO~OS!fO~P!$wOg#{q!e#{q~P)YO$_!r$`$j`$jy#S~",
+  goto: "7g$uPPPPP$vP$yP%S%f%S%x&[P%SP&b%SPP&hPPP&n&x&xPPPPP&xPP&xP'hP&xP&x(k&xP)Z)^)d)d)v)dP)dP)dP)d)dP*])dP*i*o+e+hP+k*i+n*i+q+w+z,Q+z)d,WPP,|-S%S-Y%S-`-`-f-jPP%SP%S%SP-p.l.y/Q$yP/ZP/^P$yP$yP$yP/d$yP/g/j/m/t$yP$yPP$yP/y$yP/|0S0c0}1]1c1m1s1y2P2V2a2g2m2s2y3PPPPPPPPPPPP3V3`P4U4X5]P5e6_6t+z7Q7T7WPP7^RrQ_aOPco!R#[%Pq_OP]^co|}!O!P!R#S#[#p%P&iqSOP]^co|}!O!P!R#S#[#p%P&iqUOP]^co|}!O!P!R#S#[#p%P&iQtTR#buQwWR#cxQ!VYR#dyQ#d!XS$h!t!uR%U#f!Z!xdf!n!o!p#Z#q#v$[$^$`$c${%W%]%a&c&d&m&r&w'O'T'i'r'x(V(b!Y!xdf!n!o!p#Z#q#v$[$^$`$c${%W%]%a&c&d&m&r&w'O'T'i'r'x(V(bb#z!c$W%b%m&z&}'m'u(ZU&Z$r&]'[R'Z&Y!Z!tdf!n!o!p#Z#q#v$[$^$`$c${%W%]%a&c&d&m&r&w'O'T'i'r'x(V(bR$j!vQ&P$iR'W&Qq!h`ei!c!d!e!r#}$O$P$S$g$i$l&Q&uQ#x!cW%s$W%m&z'uQ&t%bQ'w&}Q(U'mR(d(ZQ#VjQ$V!jQ$v#UR&a$xX%q$W%m&z'up!h`ei!c!d!e!r#}$O$P$S$g$i$l&Q&uW%p$W%m&z'uQ&{%nQ'v&|Q'w&}R(d(ZR$T!fR%j$SR'p&uR&{%nX%o$W%m&z'uR'v&|X%t$W%m&z'uX%r$W%m&z'u!Y!xdf!n!o!p#Z#q#v$[$^$`$c${%W%]%a&c&d&m&r&w'O'T'i'r'x(V(bQ!}gR$q#OQ!WYR#eyQ#d!WR%U#eQ!ZZR#gzQ!_[R#h{T!^[{Q#s!]R%_#tQ!SXQ!i`Q#TjQ#n!QQ$Q!dQ$n!zQ$t#RQ$w#VQ$z#YQ%g$PQ&`$vQ'^&[Q'a&aR(S']SnP!RQ#^oQ%O#[R&g%PZmPo!R#[%PQ$}#ZQ&e${R'd&dR$g!rQ'R%{R(['yR#OgR#QhR$s#QS&[$r&]R(Q'[V&Y$r&]'[R#YkQ#`qR%S#`QcOSoP!RU!lco%PR%P#[Q%]#q[&l%]&r'i'r'x(bQ&r%aQ'i&mQ'r&wQ'x'OR(b(VQ$[!nQ$^!oQ$`!pV%v$[$^$`Q&Q$iR'X&QQ&v%iS'q&v(WR(W'rQ&n%]R'j&nQ&j%YR'h&jQ!QXR#m!QQ&d${R'c&dQ#]nS%Q#]%RR%R#^Q'z'RR(]'zQ$m!yR&U$mQ&]$rR'_&]Q']&[R(R']Q#XkR$y#XQ$P!dR%f$P_bOPco!R#[%P^XOPco!R#[%PQ!`]Q!a^Q#i|Q#j}Q#k!OQ#l!PQ$u#SQ%Y#pR'g&iR%^#qQ!rdQ!{f[$X!n!o!p$[$^$`Q${#Zh%[#q%]%a&m&r&w'O'i'r'x(V(bQ%`#vQ%z$cS&b${&dQ&h%WQ'b&cR'|'T]$Z!n!o!p$[$^$`Q!d`U!ye!r$gQ#RiQ#y!cS#|!d$PQ$R!eQ%d#}Q%e$OQ%i$SS&O$i&QQ&T$lR'o&uQ#{!cW%s$W%m&z'uQ&t%bQ'w&}Q(U'mR(d(ZQ%u$WQ&y%mQ't&zR(Y'uR%k$SR%Z#pQpPR#o!RQ!zeQ$f!rR%}$g",
+  nodeNames: "\u26A0 Unit VariableName VariableName QueryCallee Comment StyleSheet RuleSet UniversalSelector TagSelector TagName NamespacedTagSelector NamespaceName TagName NestingSelector ClassSelector . ClassName PseudoClassSelector : :: PseudoClassName PseudoClassName ) ( ArgList ValueName ParenthesizedValue AtKeyword # ; ] [ BracketedValue } { BracedValue ColorLiteral NumberLiteral StringLiteral BinaryExpression BinOp CallExpression Callee IfExpression if ArgList IfBranch KeywordQuery FeatureQuery FeatureName BinaryQuery LogicOp ComparisonQuery CompareOp UnaryQuery UnaryQueryOp ParenthesizedQuery SelectorQuery selector ParenthesizedSelector StyleQuery style ParenthesedQuery CallQuery ArgList ProperyName , ProperyName UnaryQuery ParenthesedQuery BinaryQuery ParenthesedQuery ParenthesedQuery StyleFeature ProperyName StyleRange PseudoQuery CallLiteral CallTag ParenthesizedContent PseudoClassName ArgList IdSelector IdName AttributeSelector AttributeName NamespacedAttribute NamespaceName AttributeName MatchOp MatchFlag ChildSelector ChildOp DescendantSelector SiblingSelector SiblingOp Block Declaration PropertyName Important ImportStatement import Layer layer LayerName layer MediaStatement media CharsetStatement charset NamespaceStatement namespace NamespaceName KeyframesStatement keyframes KeyframeName KeyframeList KeyframeSelector KeyframeRangeName SupportsStatement supports ScopeStatement scope to FontFeatureStatement font-feature-values FontName AtRule Styles",
+  maxTerm: 174,
   nodeProps: [
     ["isolate", -2, 5, 39, ""],
     ["openedBy", 23, "(", 31, "[", 34, "{"],
     ["closedBy", 24, ")", 32, "]", 35, "}"]
   ],
   propSources: [cssHighlighting],
-  skippedNodes: [0, 5, 127],
+  skippedNodes: [0, 5, 130],
   repeatNodeCount: 17,
-  tokenData: "K`~R!bOX%ZX^&R^p%Zpq&Rqr)ers)vst+jtu2Xuv%Zvw3Rwx3dxy5Ryz5dz{5i{|6S|}:u}!O;W!O!P;u!P!Q<^!Q![=V![!]>Q!]!^>|!^!_?_!_!`@Z!`!a@n!a!b%Z!b!cAo!c!k%Z!k!lC|!l!u%Z!u!vC|!v!}%Z!}#OD_#O#P%Z#P#QDp#Q#R2X#R#]%Z#]#^ER#^#g%Z#g#hC|#h#o%Z#o#pIf#p#qIw#q#rJ`#r#sJq#s#y%Z#y#z&R#z$f%Z$f$g&R$g#BY%Z#BY#BZ&R#BZ$IS%Z$IS$I_&R$I_$I|%Z$I|$JO&R$JO$JT%Z$JT$JU&R$JU$KV%Z$KV$KW&R$KW&FU%Z&FU&FV&R&FV;'S%Z;'S;=`KY<%lO%Z`%^SOy%jz;'S%j;'S;=`%{<%lO%j`%oS!o`Oy%jz;'S%j;'S;=`%{<%lO%j`&OP;=`<%l%j~&Wh$[~OX%jX^'r^p%jpq'rqy%jz#y%j#y#z'r#z$f%j$f$g'r$g#BY%j#BY#BZ'r#BZ$IS%j$IS$I_'r$I_$I|%j$I|$JO'r$JO$JT%j$JT$JU'r$JU$KV%j$KV$KW'r$KW&FU%j&FU&FV'r&FV;'S%j;'S;=`%{<%lO%j~'yh$[~!o`OX%jX^'r^p%jpq'rqy%jz#y%j#y#z'r#z$f%j$f$g'r$g#BY%j#BY#BZ'r#BZ$IS%j$IS$I_'r$I_$I|%j$I|$JO'r$JO$JT%j$JT$JU'r$JU$KV%j$KV$KW'r$KW&FU%j&FU&FV'r&FV;'S%j;'S;=`%{<%lO%jj)jS$qYOy%jz;'S%j;'S;=`%{<%lO%j~)yWOY)vZr)vrs*cs#O)v#O#P*h#P;'S)v;'S;=`+d<%lO)v~*hOw~~*kRO;'S)v;'S;=`*t;=`O)v~*wXOY)vZr)vrs*cs#O)v#O#P*h#P;'S)v;'S;=`+d;=`<%l)v<%lO)v~+gP;=`<%l)vj+oYmYOy%jz!Q%j!Q![,_![!c%j!c!i,_!i#T%j#T#Z,_#Z;'S%j;'S;=`%{<%lO%jj,dY!o`Oy%jz!Q%j!Q![-S![!c%j!c!i-S!i#T%j#T#Z-S#Z;'S%j;'S;=`%{<%lO%jj-XY!o`Oy%jz!Q%j!Q![-w![!c%j!c!i-w!i#T%j#T#Z-w#Z;'S%j;'S;=`%{<%lO%jj.OYuY!o`Oy%jz!Q%j!Q![.n![!c%j!c!i.n!i#T%j#T#Z.n#Z;'S%j;'S;=`%{<%lO%jj.uYuY!o`Oy%jz!Q%j!Q![/e![!c%j!c!i/e!i#T%j#T#Z/e#Z;'S%j;'S;=`%{<%lO%jj/jY!o`Oy%jz!Q%j!Q![0Y![!c%j!c!i0Y!i#T%j#T#Z0Y#Z;'S%j;'S;=`%{<%lO%jj0aYuY!o`Oy%jz!Q%j!Q![1P![!c%j!c!i1P!i#T%j#T#Z1P#Z;'S%j;'S;=`%{<%lO%jj1UY!o`Oy%jz!Q%j!Q![1t![!c%j!c!i1t!i#T%j#T#Z1t#Z;'S%j;'S;=`%{<%lO%jj1{SuY!o`Oy%jz;'S%j;'S;=`%{<%lO%jd2[UOy%jz!_%j!_!`2n!`;'S%j;'S;=`%{<%lO%jd2uS!yS!o`Oy%jz;'S%j;'S;=`%{<%lO%jb3WS^QOy%jz;'S%j;'S;=`%{<%lO%j~3gWOY3dZw3dwx*cx#O3d#O#P4P#P;'S3d;'S;=`4{<%lO3d~4SRO;'S3d;'S;=`4];=`O3d~4`XOY3dZw3dwx*cx#O3d#O#P4P#P;'S3d;'S;=`4{;=`<%l3d<%lO3d~5OP;=`<%l3dj5WShYOy%jz;'S%j;'S;=`%{<%lO%j~5iOg~n5pUWQyWOy%jz!_%j!_!`2n!`;'S%j;'S;=`%{<%lO%jj6ZWyW#PQOy%jz!O%j!O!P6s!P!Q%j!Q![9x![;'S%j;'S;=`%{<%lO%jj6xU!o`Oy%jz!Q%j!Q![7[![;'S%j;'S;=`%{<%lO%jj7cY!o`$gYOy%jz!Q%j!Q![7[![!g%j!g!h8R!h#X%j#X#Y8R#Y;'S%j;'S;=`%{<%lO%jj8WY!o`Oy%jz{%j{|8v|}%j}!O8v!O!Q%j!Q![9_![;'S%j;'S;=`%{<%lO%jj8{U!o`Oy%jz!Q%j!Q![9_![;'S%j;'S;=`%{<%lO%jj9fU!o`$gYOy%jz!Q%j!Q![9_![;'S%j;'S;=`%{<%lO%jj:P[!o`$gYOy%jz!O%j!O!P7[!P!Q%j!Q![9x![!g%j!g!h8R!h#X%j#X#Y8R#Y;'S%j;'S;=`%{<%lO%jj:zS!dYOy%jz;'S%j;'S;=`%{<%lO%jj;]WyWOy%jz!O%j!O!P6s!P!Q%j!Q![9x![;'S%j;'S;=`%{<%lO%jj;zU`YOy%jz!Q%j!Q![7[![;'S%j;'S;=`%{<%lO%j~<cTyWOy%jz{<r{;'S%j;'S;=`%{<%lO%j~<yS!o`$]~Oy%jz;'S%j;'S;=`%{<%lO%jj=[[$gYOy%jz!O%j!O!P7[!P!Q%j!Q![9x![!g%j!g!h8R!h#X%j#X#Y8R#Y;'S%j;'S;=`%{<%lO%jj>VUcYOy%jz![%j![!]>i!];'S%j;'S;=`%{<%lO%jj>pSdY!o`Oy%jz;'S%j;'S;=`%{<%lO%jj?RSnYOy%jz;'S%j;'S;=`%{<%lO%jh?dU!WWOy%jz!_%j!_!`?v!`;'S%j;'S;=`%{<%lO%jh?}S!WW!o`Oy%jz;'S%j;'S;=`%{<%lO%jl@bS!WW!ySOy%jz;'S%j;'S;=`%{<%lO%jj@uV!|Q!WWOy%jz!_%j!_!`?v!`!aA[!a;'S%j;'S;=`%{<%lO%jbAcS!|Q!o`Oy%jz;'S%j;'S;=`%{<%lO%jjArYOy%jz}%j}!OBb!O!c%j!c!}CP!}#T%j#T#oCP#o;'S%j;'S;=`%{<%lO%jjBgW!o`Oy%jz!c%j!c!}CP!}#T%j#T#oCP#o;'S%j;'S;=`%{<%lO%jjCW[lY!o`Oy%jz}%j}!OCP!O!Q%j!Q![CP![!c%j!c!}CP!}#T%j#T#oCP#o;'S%j;'S;=`%{<%lO%jhDRS!zWOy%jz;'S%j;'S;=`%{<%lO%jjDdSpYOy%jz;'S%j;'S;=`%{<%lO%jnDuSo^Oy%jz;'S%j;'S;=`%{<%lO%jjEWU!zWOy%jz#a%j#a#bEj#b;'S%j;'S;=`%{<%lO%jbEoU!o`Oy%jz#d%j#d#eFR#e;'S%j;'S;=`%{<%lO%jbFWU!o`Oy%jz#c%j#c#dFj#d;'S%j;'S;=`%{<%lO%jbFoU!o`Oy%jz#f%j#f#gGR#g;'S%j;'S;=`%{<%lO%jbGWU!o`Oy%jz#h%j#h#iGj#i;'S%j;'S;=`%{<%lO%jbGoU!o`Oy%jz#T%j#T#UHR#U;'S%j;'S;=`%{<%lO%jbHWU!o`Oy%jz#b%j#b#cHj#c;'S%j;'S;=`%{<%lO%jbHoU!o`Oy%jz#h%j#h#iIR#i;'S%j;'S;=`%{<%lO%jbIYS$pQ!o`Oy%jz;'S%j;'S;=`%{<%lO%jjIkSsYOy%jz;'S%j;'S;=`%{<%lO%jfI|U$cUOy%jz!_%j!_!`2n!`;'S%j;'S;=`%{<%lO%jjJeSrYOy%jz;'S%j;'S;=`%{<%lO%jfJvU#PQOy%jz!_%j!_!`2n!`;'S%j;'S;=`%{<%lO%j`K]P;=`<%l%Z",
-  tokenizers: [descendant, unitToken, identifiers, queryIdentifiers, 1, 2, 3, 4, new LocalTokenGroup("m~RRYZ[z{a~~g~aO$_~~dP!P!Qg~lO$`~~", 28, 152)],
-  topRules: { "StyleSheet": [0, 6], "Styles": [1, 126] },
-  dynamicPrecedences: { "94": 1 },
-  specialized: [{ term: 147, get: (value) => spec_callee[value] || -1 }, { term: 148, get: (value) => spec_queryIdentifier[value] || -1 }, { term: 4, get: (value) => spec_QueryCallee[value] || -1 }, { term: 28, get: (value) => spec_AtKeyword[value] || -1 }, { term: 146, get: (value) => spec_identifier[value] || -1 }],
-  tokenPrec: 2405
+  tokenData: "K`~R!bOX%ZX^&R^p%Zpq&Rqr)ers)vst+jtu2Xuv%Zvw3Rwx3dxy5Ryz5dz{5i{|6S|}:u}!O;W!O!P;u!P!Q<^!Q![=V![!]>Q!]!^>|!^!_?_!_!`@Z!`!a@n!a!b%Z!b!cAo!c!k%Z!k!lC|!l!u%Z!u!vC|!v!}%Z!}#OD_#O#P%Z#P#QDp#Q#R2X#R#]%Z#]#^ER#^#g%Z#g#hC|#h#o%Z#o#pIf#p#qIw#q#rJ`#r#sJq#s#y%Z#y#z&R#z$f%Z$f$g&R$g#BY%Z#BY#BZ&R#BZ$IS%Z$IS$I_&R$I_$I|%Z$I|$JO&R$JO$JT%Z$JT$JU&R$JU$KV%Z$KV$KW&R$KW&FU%Z&FU&FV&R&FV;'S%Z;'S;=`KY<%lO%Z`%^SOy%jz;'S%j;'S;=`%{<%lO%j`%oS!r`Oy%jz;'S%j;'S;=`%{<%lO%j`&OP;=`<%l%j~&Wh$_~OX%jX^'r^p%jpq'rqy%jz#y%j#y#z'r#z$f%j$f$g'r$g#BY%j#BY#BZ'r#BZ$IS%j$IS$I_'r$I_$I|%j$I|$JO'r$JO$JT%j$JT$JU'r$JU$KV%j$KV$KW'r$KW&FU%j&FU&FV'r&FV;'S%j;'S;=`%{<%lO%j~'yh$_~!r`OX%jX^'r^p%jpq'rqy%jz#y%j#y#z'r#z$f%j$f$g'r$g#BY%j#BY#BZ'r#BZ$IS%j$IS$I_'r$I_$I|%j$I|$JO'r$JO$JT%j$JT$JU'r$JU$KV%j$KV$KW'r$KW&FU%j&FU&FV'r&FV;'S%j;'S;=`%{<%lO%jj)jS$sYOy%jz;'S%j;'S;=`%{<%lO%j~)yWOY)vZr)vrs*cs#O)v#O#P*h#P;'S)v;'S;=`+d<%lO)v~*hOw~~*kRO;'S)v;'S;=`*t;=`O)v~*wXOY)vZr)vrs*cs#O)v#O#P*h#P;'S)v;'S;=`+d;=`<%l)v<%lO)v~+gP;=`<%l)vj+oYmYOy%jz!Q%j!Q![,_![!c%j!c!i,_!i#T%j#T#Z,_#Z;'S%j;'S;=`%{<%lO%jj,dY!r`Oy%jz!Q%j!Q![-S![!c%j!c!i-S!i#T%j#T#Z-S#Z;'S%j;'S;=`%{<%lO%jj-XY!r`Oy%jz!Q%j!Q![-w![!c%j!c!i-w!i#T%j#T#Z-w#Z;'S%j;'S;=`%{<%lO%jj.OYuY!r`Oy%jz!Q%j!Q![.n![!c%j!c!i.n!i#T%j#T#Z.n#Z;'S%j;'S;=`%{<%lO%jj.uYuY!r`Oy%jz!Q%j!Q![/e![!c%j!c!i/e!i#T%j#T#Z/e#Z;'S%j;'S;=`%{<%lO%jj/jY!r`Oy%jz!Q%j!Q![0Y![!c%j!c!i0Y!i#T%j#T#Z0Y#Z;'S%j;'S;=`%{<%lO%jj0aYuY!r`Oy%jz!Q%j!Q![1P![!c%j!c!i1P!i#T%j#T#Z1P#Z;'S%j;'S;=`%{<%lO%jj1UY!r`Oy%jz!Q%j!Q![1t![!c%j!c!i1t!i#T%j#T#Z1t#Z;'S%j;'S;=`%{<%lO%jj1{SuY!r`Oy%jz;'S%j;'S;=`%{<%lO%jd2[UOy%jz!_%j!_!`2n!`;'S%j;'S;=`%{<%lO%jd2uS!|S!r`Oy%jz;'S%j;'S;=`%{<%lO%jb3WS^QOy%jz;'S%j;'S;=`%{<%lO%j~3gWOY3dZw3dwx*cx#O3d#O#P4P#P;'S3d;'S;=`4{<%lO3d~4SRO;'S3d;'S;=`4];=`O3d~4`XOY3dZw3dwx*cx#O3d#O#P4P#P;'S3d;'S;=`4{;=`<%l3d<%lO3d~5OP;=`<%l3dj5WShYOy%jz;'S%j;'S;=`%{<%lO%j~5iOg~n5pUWQyWOy%jz!_%j!_!`2n!`;'S%j;'S;=`%{<%lO%jj6ZWyW#SQOy%jz!O%j!O!P6s!P!Q%j!Q![9x![;'S%j;'S;=`%{<%lO%jj6xU!r`Oy%jz!Q%j!Q![7[![;'S%j;'S;=`%{<%lO%jj7cY!r`$jYOy%jz!Q%j!Q![7[![!g%j!g!h8R!h#X%j#X#Y8R#Y;'S%j;'S;=`%{<%lO%jj8WY!r`Oy%jz{%j{|8v|}%j}!O8v!O!Q%j!Q![9_![;'S%j;'S;=`%{<%lO%jj8{U!r`Oy%jz!Q%j!Q![9_![;'S%j;'S;=`%{<%lO%jj9fU!r`$jYOy%jz!Q%j!Q![9_![;'S%j;'S;=`%{<%lO%jj:P[!r`$jYOy%jz!O%j!O!P7[!P!Q%j!Q![9x![!g%j!g!h8R!h#X%j#X#Y8R#Y;'S%j;'S;=`%{<%lO%jj:zS!eYOy%jz;'S%j;'S;=`%{<%lO%jj;]WyWOy%jz!O%j!O!P6s!P!Q%j!Q![9x![;'S%j;'S;=`%{<%lO%jj;zU`YOy%jz!Q%j!Q![7[![;'S%j;'S;=`%{<%lO%j~<cTyWOy%jz{<r{;'S%j;'S;=`%{<%lO%j~<yS!r`$`~Oy%jz;'S%j;'S;=`%{<%lO%jj=[[$jYOy%jz!O%j!O!P7[!P!Q%j!Q![9x![!g%j!g!h8R!h#X%j#X#Y8R#Y;'S%j;'S;=`%{<%lO%jj>VUcYOy%jz![%j![!]>i!];'S%j;'S;=`%{<%lO%jj>pSdY!r`Oy%jz;'S%j;'S;=`%{<%lO%jj?RSnYOy%jz;'S%j;'S;=`%{<%lO%jh?dU!WWOy%jz!_%j!_!`?v!`;'S%j;'S;=`%{<%lO%jh?}S!WW!r`Oy%jz;'S%j;'S;=`%{<%lO%jl@bS!WW!|SOy%jz;'S%j;'S;=`%{<%lO%jj@uV#PQ!WWOy%jz!_%j!_!`?v!`!aA[!a;'S%j;'S;=`%{<%lO%jbAcS#PQ!r`Oy%jz;'S%j;'S;=`%{<%lO%jjArYOy%jz}%j}!OBb!O!c%j!c!}CP!}#T%j#T#oCP#o;'S%j;'S;=`%{<%lO%jjBgW!r`Oy%jz!c%j!c!}CP!}#T%j#T#oCP#o;'S%j;'S;=`%{<%lO%jjCW[lY!r`Oy%jz}%j}!OCP!O!Q%j!Q![CP![!c%j!c!}CP!}#T%j#T#oCP#o;'S%j;'S;=`%{<%lO%jhDRS!}WOy%jz;'S%j;'S;=`%{<%lO%jjDdSpYOy%jz;'S%j;'S;=`%{<%lO%jnDuSo^Oy%jz;'S%j;'S;=`%{<%lO%jjEWU!}WOy%jz#a%j#a#bEj#b;'S%j;'S;=`%{<%lO%jbEoU!r`Oy%jz#d%j#d#eFR#e;'S%j;'S;=`%{<%lO%jbFWU!r`Oy%jz#c%j#c#dFj#d;'S%j;'S;=`%{<%lO%jbFoU!r`Oy%jz#f%j#f#gGR#g;'S%j;'S;=`%{<%lO%jbGWU!r`Oy%jz#h%j#h#iGj#i;'S%j;'S;=`%{<%lO%jbGoU!r`Oy%jz#T%j#T#UHR#U;'S%j;'S;=`%{<%lO%jbHWU!r`Oy%jz#b%j#b#cHj#c;'S%j;'S;=`%{<%lO%jbHoU!r`Oy%jz#h%j#h#iIR#i;'S%j;'S;=`%{<%lO%jbIYS$rQ!r`Oy%jz;'S%j;'S;=`%{<%lO%jjIkSsYOy%jz;'S%j;'S;=`%{<%lO%jfI|U$fUOy%jz!_%j!_!`2n!`;'S%j;'S;=`%{<%lO%jjJeSrYOy%jz;'S%j;'S;=`%{<%lO%jfJvU#SQOy%jz!_%j!_!`2n!`;'S%j;'S;=`%{<%lO%j`K]P;=`<%l%Z",
+  tokenizers: [descendant, unitToken, identifiers, queryIdentifiers, 1, 2, 3, 4, new LocalTokenGroup("m~RRYZ[z{a~~g~aO$b~~dP!P!Qg~lO$c~~", 28, 155)],
+  topRules: { "StyleSheet": [0, 6], "Styles": [1, 129] },
+  dynamicPrecedences: { "97": 1 },
+  specialized: [{ term: 150, get: (value) => spec_callee[value] || -1 }, { term: 151, get: (value) => spec_queryIdentifier[value] || -1 }, { term: 4, get: (value) => spec_QueryCallee[value] || -1 }, { term: 28, get: (value) => spec_AtKeyword[value] || -1 }, { term: 149, get: (value) => spec_identifier[value] || -1 }],
+  tokenPrec: 2444
 });
 
 // node_modules/@codemirror/lang-css/dist/index.js
@@ -27098,9 +27322,9 @@ var tsxLanguage = /* @__PURE__ */ javascriptLanguage.configure({
 var kwCompletion = (name2) => ({ label: name2, type: "keyword" });
 var keywords = /* @__PURE__ */ "break case const continue default delete export extends false finally in instanceof let new return static super switch this throw true typeof var yield".split(" ").map(kwCompletion);
 var typescriptKeywords = /* @__PURE__ */ keywords.concat(/* @__PURE__ */ ["declare", "implements", "private", "protected", "public"].map(kwCompletion));
-function javascript(config = {}) {
-  let lang = config.jsx ? config.typescript ? tsxLanguage : jsxLanguage : config.typescript ? typescriptLanguage : javascriptLanguage;
-  let completions = config.typescript ? typescriptSnippets.concat(typescriptKeywords) : snippets.concat(keywords);
+function javascript(config2 = {}) {
+  let lang = config2.jsx ? config2.typescript ? tsxLanguage : jsxLanguage : config2.typescript ? typescriptLanguage : javascriptLanguage;
+  let completions = config2.typescript ? typescriptSnippets.concat(typescriptKeywords) : snippets.concat(keywords);
   return new LanguageSupport(lang, [
     javascriptLanguage.data.of({
       autocomplete: ifNotIn(dontComplete, completeFromList(completions))
@@ -27108,7 +27332,7 @@ function javascript(config = {}) {
     javascriptLanguage.data.of({
       autocomplete: localCompletionSource
     }),
-    config.jsx ? autoCloseTags : []
+    config2.jsx ? autoCloseTags : []
   ]);
 }
 function findOpenTag(node) {
@@ -27733,8 +27957,8 @@ function htmlCompletionFor(schema, context) {
 function htmlCompletionSource(context) {
   return htmlCompletionFor(Schema.default, context);
 }
-function htmlCompletionSourceWith(config) {
-  let { extraTags, extraGlobalAttributes: extraAttrs } = config;
+function htmlCompletionSourceWith(config2) {
+  let { extraTags, extraGlobalAttributes: extraAttrs } = config2;
   let schema = extraAttrs || extraTags ? new Schema(extraTags, extraAttrs) : Schema.default;
   return (context) => htmlCompletionFor(schema, context);
 }
@@ -27834,18 +28058,18 @@ var htmlPlain = /* @__PURE__ */ LRLanguage.define({
 var htmlLanguage = /* @__PURE__ */ htmlPlain.configure({
   wrap: /* @__PURE__ */ configureNesting(defaultNesting, defaultAttrs)
 });
-function html(config = {}) {
+function html(config2 = {}) {
   let dialect = "", wrap;
-  if (config.matchClosingTags === false)
+  if (config2.matchClosingTags === false)
     dialect = "noMatch";
-  if (config.selfClosingTags === true)
+  if (config2.selfClosingTags === true)
     dialect = (dialect ? dialect + " " : "") + "selfClosing";
-  if (config.nestedLanguages && config.nestedLanguages.length || config.nestedAttributes && config.nestedAttributes.length)
-    wrap = configureNesting((config.nestedLanguages || []).concat(defaultNesting), (config.nestedAttributes || []).concat(defaultAttrs));
+  if (config2.nestedLanguages && config2.nestedLanguages.length || config2.nestedAttributes && config2.nestedAttributes.length)
+    wrap = configureNesting((config2.nestedLanguages || []).concat(defaultNesting), (config2.nestedAttributes || []).concat(defaultAttrs));
   let lang = wrap ? htmlPlain.configure({ wrap, dialect }) : dialect ? htmlLanguage.configure({ dialect }) : htmlLanguage;
   return new LanguageSupport(lang, [
-    htmlLanguage.data.of({ autocomplete: htmlCompletionSourceWith(config) }),
-    config.autoCloseTags !== false ? autoCloseTags2 : [],
+    htmlLanguage.data.of({ autocomplete: htmlCompletionSourceWith(config2) }),
+    config2.autoCloseTags !== false ? autoCloseTags2 : [],
     javascript().support,
     css().support
   ]);
@@ -28066,7 +28290,7 @@ function normalizeIndent(content2, state) {
   }
   return space4 + content2.slice(blank);
 }
-var insertNewlineContinueMarkupCommand = (config = {}) => ({ state, dispatch }) => {
+var insertNewlineContinueMarkupCommand = (config2 = {}) => ({ state, dispatch }) => {
   let tree = syntaxTree(state), { doc: doc2 } = state;
   let dont = null, changes = state.changeByRange((range) => {
     if (!range.empty || !markdownLanguage.isActiveAt(state, range.from, -1) && !markdownLanguage.isActiveAt(state, range.from, 1))
@@ -28083,7 +28307,7 @@ var insertNewlineContinueMarkupCommand = (config = {}) => ({ state, dispatch }) 
     let emptyLine = pos >= inner2.to - inner2.spaceAfter.length && !/\S/.test(line.text.slice(inner2.to));
     if (inner2.item && emptyLine) {
       let first = inner2.node.firstChild, second = inner2.node.getChild("ListItem", "ListItem");
-      if (first.to >= pos || second && second.to < pos || line.from > 0 && !/[^\s>]/.test(doc2.lineAt(line.from - 1).text) || config.nonTightLists === false) {
+      if (first.to >= pos || second && second.to < pos || line.from > 0 && !/[^\s>]/.test(doc2.lineAt(line.from - 1).text) || config2.nonTightLists === false) {
         let next = context.length > 1 ? context[context.length - 2] : null;
         let delTo, insert3 = "";
         if (next && next.item) {
@@ -28225,11 +28449,11 @@ var markdownKeymap = [
   { key: "Backspace", run: deleteMarkupBackward }
 ];
 var htmlNoMatch = /* @__PURE__ */ html({ matchClosingTags: false });
-function markdown(config = {}) {
-  let { codeLanguages, defaultCodeLanguage, addKeymap = true, base: { parser: parser5 } = commonmarkLanguage, completeHTMLTags = true, pasteURLAsLink: pasteURL = true, htmlTagLanguage = htmlNoMatch } = config;
+function markdown(config2 = {}) {
+  let { codeLanguages, defaultCodeLanguage, addKeymap = true, base: { parser: parser5 } = commonmarkLanguage, completeHTMLTags = true, pasteURLAsLink: pasteURL = true, htmlTagLanguage = htmlNoMatch } = config2;
   if (!(parser5 instanceof MarkdownParser))
     throw new RangeError("Base parser provided to `markdown` should be a Markdown parser");
-  let extensions = config.extensions ? [config.extensions] : [];
+  let extensions = config2.extensions ? [config2.extensions] : [];
   let support = [htmlTagLanguage.support, headerIndent], defaultCode;
   if (pasteURL)
     support.push(pasteURLAsLink);
@@ -28679,23 +28903,23 @@ var searchConfigFacet = /* @__PURE__ */ Facet.define({
     });
   }
 });
-function search(config) {
-  return config ? [searchConfigFacet.of(config), searchExtensions] : searchExtensions;
+function search(config2) {
+  return config2 ? [searchConfigFacet.of(config2), searchExtensions] : searchExtensions;
 }
 var SearchQuery = class {
   /**
   Create a query object.
   */
-  constructor(config) {
-    this.search = config.search;
-    this.caseSensitive = !!config.caseSensitive;
-    this.literal = !!config.literal;
-    this.regexp = !!config.regexp;
-    this.replace = config.replace || "";
+  constructor(config2) {
+    this.search = config2.search;
+    this.caseSensitive = !!config2.caseSensitive;
+    this.literal = !!config2.literal;
+    this.regexp = !!config2.regexp;
+    this.replace = config2.replace || "";
     this.valid = !!this.search && (!this.regexp || validRegExp(this.search));
     this.unquoted = this.unquote(this.search);
-    this.wholeWord = !!config.wholeWord;
-    this.test = config.test;
+    this.wholeWord = !!config2.wholeWord;
+    this.test = config2.test;
   }
   /**
   @internal
@@ -28954,10 +29178,10 @@ var findNext = /* @__PURE__ */ searchCommand((view, { query }) => {
   if (!next)
     return false;
   let selection = EditorSelection.single(next.from, next.to);
-  let config = view.state.facet(searchConfigFacet);
+  let config2 = view.state.facet(searchConfigFacet);
   view.dispatch({
     selection,
-    effects: [announceMatch(view, next), config.scrollToMatch(selection.main, view)],
+    effects: [announceMatch(view, next), config2.scrollToMatch(selection.main, view)],
     userEvent: "select.search"
   });
   selectSearchInput(view);
@@ -28969,10 +29193,10 @@ var findPrevious = /* @__PURE__ */ searchCommand((view, { query }) => {
   if (!prev)
     return false;
   let selection = EditorSelection.single(prev.from, prev.to);
-  let config = view.state.facet(searchConfigFacet);
+  let config2 = view.state.facet(searchConfigFacet);
   view.dispatch({
     selection,
-    effects: [announceMatch(view, prev), config.scrollToMatch(selection.main, view)],
+    effects: [announceMatch(view, prev), config2.scrollToMatch(selection.main, view)],
     userEvent: "select.search"
   });
   selectSearchInput(view);
@@ -29067,13 +29291,13 @@ function defaultQuery(state, fallback) {
   let selText = sel.empty || sel.to > sel.from + 100 ? "" : state.sliceDoc(sel.from, sel.to);
   if (fallback && !selText)
     return fallback;
-  let config = state.facet(searchConfigFacet);
+  let config2 = state.facet(searchConfigFacet);
   return new SearchQuery({
-    search: ((_a2 = fallback === null || fallback === void 0 ? void 0 : fallback.literal) !== null && _a2 !== void 0 ? _a2 : config.literal) ? selText : selText.replace(/\n/g, "\\n"),
-    caseSensitive: (_b = fallback === null || fallback === void 0 ? void 0 : fallback.caseSensitive) !== null && _b !== void 0 ? _b : config.caseSensitive,
-    literal: (_c = fallback === null || fallback === void 0 ? void 0 : fallback.literal) !== null && _c !== void 0 ? _c : config.literal,
-    regexp: (_d = fallback === null || fallback === void 0 ? void 0 : fallback.regexp) !== null && _d !== void 0 ? _d : config.regexp,
-    wholeWord: (_e2 = fallback === null || fallback === void 0 ? void 0 : fallback.wholeWord) !== null && _e2 !== void 0 ? _e2 : config.wholeWord
+    search: ((_a2 = fallback === null || fallback === void 0 ? void 0 : fallback.literal) !== null && _a2 !== void 0 ? _a2 : config2.literal) ? selText : selText.replace(/\n/g, "\\n"),
+    caseSensitive: (_b = fallback === null || fallback === void 0 ? void 0 : fallback.caseSensitive) !== null && _b !== void 0 ? _b : config2.caseSensitive,
+    literal: (_c = fallback === null || fallback === void 0 ? void 0 : fallback.literal) !== null && _c !== void 0 ? _c : config2.literal,
+    regexp: (_d = fallback === null || fallback === void 0 ? void 0 : fallback.regexp) !== null && _d !== void 0 ? _d : config2.regexp,
+    wholeWord: (_e2 = fallback === null || fallback === void 0 ? void 0 : fallback.wholeWord) !== null && _e2 !== void 0 ? _e2 : config2.wholeWord
   });
 }
 function getSearchInput(view) {
@@ -30726,19 +30950,19 @@ function javascript2(hljs) {
      */
     isTrulyOpeningTag: (match, response) => {
       const afterMatchIndex = match[0].length + match.index;
-      const nextChar = match.input[afterMatchIndex];
+      const nextChar2 = match.input[afterMatchIndex];
       if (
         // HTML should not include another raw `<` inside a tag
         // nested type?
         // `<Array<Array<number>>`, etc.
-        nextChar === "<" || // the , gives away that this is not HTML
+        nextChar2 === "<" || // the , gives away that this is not HTML
         // `<T, A extends keyof T, V>`
-        nextChar === ","
+        nextChar2 === ","
       ) {
         response.ignoreMatch();
         return;
       }
-      if (nextChar === ">") {
+      if (nextChar2 === ">") {
         if (!hasClosingTag(match, { after: afterMatchIndex })) {
           response.ignoreMatch();
         }
@@ -47937,12 +48161,31 @@ function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, onChange, o
       saveKeymap,
       search({ top: true }),
       keymap.of([...markdownKeymap, indentWithTab, ...defaultKeymap, ...historyKeymap, ...completionKeymap, ...searchKeymap]),
-      markdown({ base: markdownLanguage }),
+      markdown({ base: markdownLanguage, extensions: [GFM] }),
       autocompletion({ override: [wikiLinkCompletionSource(getNoteIndex)] }),
       syntaxHighlighting(highlightStyle),
       editorTheme,
       EditorState.tabSize.of(tabSize),
+      // Bugfix (Editor-Audit Phase 10): tabSize allein steuert nur die
+      // visuelle Breite eines bereits vorhandenen Tab-Zeichens, NICHT wie
+      // viele Leerzeichen indentWithTab beim Drücken der Tab-Taste
+      // tatsächlich einfügt — dafür ist diese separate Facet zuständig.
+      indentUnit.of(" ".repeat(tabSize)),
+      closeBrackets(),
+      keymap.of(closeBracketsKeymap),
+      // Automatische Zeichenpaar-Ergänzung (Nutzer-Feature): CodeMirrors
+      // eigener closeBrackets-Baustein, um Backtick (Inline-Code) und
+      // Sternchen (Betonung) erweitert — zusätzlich zu den Standard-Klammern
+      // und Anführungszeichen, die closeBrackets() bereits von Haus aus
+      // abdeckt. Bei markiertem Text umschließt closeBrackets die Auswahl
+      // automatisch (z. B. Text markieren, * drücken → *Text*), statt nur
+      // ein leeres Paar einzufügen. Echtes **fett** über ein einziges
+      // Tastenpaar bräuchte eine eigene, spezifisch für Markdown-Doppel-
+      // zeichen geschriebene Lösung, bewusst nicht umgesetzt — hier kommt
+      // ausschließlich CodeMirrors eigener Mechanismus zum Einsatz.
+      EditorState.languageData.of(() => [{ closeBrackets: { brackets: ["(", "[", "{", "'", '"', "`", "*"] } }]),
       EditorView.lineWrapping,
+      readingWidthNowrapPlugin,
       // Bugfix (Nutzer-Meldung: Rechtschreibprüfung funktioniert nicht):
       // CodeMirror setzt als Code-Editor SELBST standardmäßig
       // spellcheck="false" auf sein eigenes Textfeld — unabhängig von
@@ -48094,6 +48337,39 @@ g.use({
     }
   }
 });
+var NOWRAP_NODE_TYPES = /* @__PURE__ */ new Set(["FencedCode", "CodeBlock", "Table"]);
+function lineHasNowrapNode(state, line) {
+  let node = syntaxTree(state).resolve(line.from, 1);
+  while (node) {
+    if (NOWRAP_NODE_TYPES.has(node.type.name)) return true;
+    node = node.parent;
+  }
+  return false;
+}
+var readingWidthNowrapPlugin = ViewPlugin.fromClass(class {
+  constructor(view) {
+    this.decorations = this.buildDecorations(view);
+  }
+  update(update) {
+    if (update.docChanged || update.viewportChanged) {
+      this.decorations = this.buildDecorations(update.view);
+    }
+  }
+  buildDecorations(view) {
+    const builder = new RangeSetBuilder();
+    for (const { from, to } of view.visibleRanges) {
+      let pos = from;
+      while (pos <= to) {
+        const line = view.state.doc.lineAt(pos);
+        if (lineHasNowrapNode(view.state, line)) {
+          builder.add(line.from, line.from, Decoration.line({ class: "cm-line-nowrap" }));
+        }
+        pos = line.to + 1;
+      }
+    }
+    return builder.finish();
+  }
+}, { decorations: (v2) => v2.decorations });
 function protectCodeRegions(text2) {
   const store = [];
   function stash(match) {
@@ -48202,11 +48478,13 @@ function renderPreview(markdownText, options = {}) {
   let imgIndex = 0;
   html2 = html2.replace(/<img\b([^>]*)>/g, (match, attrs) => {
     if (/\bclass="[^"]*preview-lib-icon/.test(attrs)) return match;
+    const titleWidthMatch = attrs.match(/\btitle\s*=\s*"width:(\d+)%"/);
+    const finalAttrs = titleWidthMatch ? attrs.replace(/\s*title\s*=\s*"width:\d+%"/, "") + ` style="width:${titleWidthMatch[1]}%"` : attrs;
     const idx = imgIndex++;
     const buttons = [25, 50, 75, 100].map((p) => `<button type="button" data-img-pct="${p}">${p}%</button>`).join("");
-    return `<span class="img-size-wrap" data-img-index="${idx}"><img${attrs}><span class="img-size-buttons">${buttons}</span></span>`;
+    return `<span class="img-size-wrap" data-img-index="${idx}"><img${finalAttrs}><span class="img-size-buttons">${buttons}</span></span>`;
   });
-  return html2;
+  return `<div class="preview-content">${html2}</div>`;
 }
 export {
   createMarkdownEditor,

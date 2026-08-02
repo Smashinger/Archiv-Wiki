@@ -10,7 +10,7 @@ import { fetchUpdateStatus, renderUpdateStatus } from './update-check.js';
 import { showSettingsWindow } from './settings-window.js';
 import { animateIn, animateOut } from './motion.js';
 import { initEllipsisTooltips } from './tooltip.js';
-import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor, setSyncScrollEnabled } from './editor.js';
+import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor, setSyncScrollEnabled, setAutoSaveSeconds } from './editor.js';
 import { rebuildIndex, search as searchNotes, searchWithDetails } from './search.js';
 
 // ---------------------------------------------------------------------------
@@ -21,7 +21,6 @@ const state = {
   config: null,
   tree: [],
   collapsedGroups: new Set(),
-  editMode: false,
   viewMode: 'split', // 'split' | 'editor' | 'preview'
 };
 
@@ -30,7 +29,6 @@ const els = {
   updateDot: document.getElementById('updateDot'),
   updateStatusLabel: document.getElementById('updateStatusLabel'),
   updateStatusCurrent: document.getElementById('updateStatusCurrent'),
-  btnEditMode: document.getElementById('btnEditMode'),
   navSearch: document.getElementById('navSearch'),
   searchDropdown: document.getElementById('searchDropdown'),
   searchClear: document.getElementById('searchClear'),
@@ -285,54 +283,109 @@ function currentSlug() {
 // ---------------------------------------------------------------------------
 function openSidebar() { els.sidebar.classList.add('open'); els.overlay.classList.add('show'); }
 function closeSidebar() { els.sidebar.classList.remove('open'); els.overlay.classList.remove('show'); }
-els.burgerBtn.addEventListener('click', () => els.sidebar.classList.contains('open') ? closeSidebar() : openSidebar());
+
+// Sidebar ein-/ausklappen (Nutzer-Feature, Desktop, breites Fenster): eigene,
+// vom Mobile-Overlay oben komplett unabhängige Funktion — gibt den Platz
+// wirklich frei, statt nur über den Inhalt zu schieben. Zustand pro Projekt
+// gespeichert, exakt dasselbe Muster wie bei den Dashboard-Einstellungen.
+async function setSidebarCollapsed(collapsed) {
+  document.body.classList.toggle('sidebar-collapsed', collapsed);
+  els.burgerBtn.title = collapsed ? 'Sidebar einblenden' : 'Sidebar ausblenden';
+  await fs.setProjectSetting('sidebarCollapsed', collapsed);
+  if (state.project?.config) state.project.config.sidebarCollapsed = collapsed;
+}
+els.burgerBtn.addEventListener('click', () => {
+  // Unterhalb von 901px gilt weiterhin ausschließlich die bestehende,
+  // unveränderte Mobile-Logik (Overlay über den Inhalt) — die beiden
+  // Mechanismen dürfen sich nicht überschneiden.
+  if (window.innerWidth <= 900) {
+    els.sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+  } else {
+    setSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed'));
+  }
+});
 els.overlay.addEventListener('click', closeSidebar);
 
-// ---------------------------------------------------------------------------
-// Bearbeiten-Modus (Sidebar): zeigt Ziehen-Griffe (⠿) an jeder Notiz/Kategorie
-// zum Verschieben/Umsortieren. Standardmäßig ausgeblendet für eine ruhigere
-// Sidebar — Löschen bleibt davon unberührt (das läuft weiterhin immer über
-// das ⋮-Kontextmenü, unabhängig von diesem Modus).
-// ---------------------------------------------------------------------------
-els.btnEditMode.addEventListener('click', (e) => {
-  e.stopPropagation();
-  showSidebarFootMenu(els.btnEditMode);
-});
+// Sidebar-Breite frei einstellbar (Nutzer-Feature): Standardbreite (292px,
+// siehe --sidebar-w in styles.css) bleibt bewusst unverändert der Standard —
+// hier kommt nur die Möglichkeit dazu, sie per Ziehen anzupassen und diese
+// Wahl dauerhaft zu merken. Bewusst UNABHÄNGIG von der Ein-/Ausklapp-Logik
+// oben: Ein-/Ausklappen rührt --sidebar-w selbst nie an (nur transform/
+// margin), wodurch nach dem Wiederausklappen automatisch die zuletzt
+// gewählte Breite erhalten bleibt, ganz ohne zusätzlichen Code dafür.
+const DEFAULT_SIDEBAR_WIDTH = 292;
+const MIN_SIDEBAR_WIDTH = 220;
+const MAX_SIDEBAR_WIDTH = 480;
 
-// Sidebar-Fuß-Menü ("⋮"): vorher direkter Umschalter NUR für den
-// Bearbeiten-Modus — jetzt ein echtes kleines Menü, das auch "Akzentfarben
-// ändern" anbietet (bisher nur einmalig im Wizard änderbar, siehe Bug-Analyse).
-function showSidebarFootMenu(anchorEl) {
-  document.querySelectorAll('.context-menu, .prompt-overlay').forEach(m => m.remove());
-  const menu = document.createElement('div');
-  menu.className = 'context-menu';
-  menu.innerHTML = `
-    <button type="button" data-action="edit-mode">✎ Bearbeiten-Modus${state.editMode ? ' (verlassen)' : ''}</button>
-  `;
-  document.body.appendChild(menu);
-  const rect = anchorEl.getBoundingClientRect();
-  const menuRect = menu.getBoundingClientRect();
-  // Dieselbe Viewport-Begrenzung wie beim Icon-Picker-Fix — bleibt immer
-  // sichtbar, weicht bei Bedarf nach oben statt unten aus.
-  const top = Math.min(rect.top - menuRect.height - 4, window.innerHeight - menuRect.height - 8);
-  menu.style.top = Math.max(4, top) + 'px';
-  menu.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
-
-  menu.addEventListener('click', (e) => {
-    const btn = e.target.closest('button');
-    if (!btn) return;
-    menu.remove();
-    if (btn.dataset.action === 'edit-mode') {
-      state.editMode = !state.editMode;
-      els.sidebar.classList.toggle('edit-mode', state.editMode);
-      els.btnEditMode.classList.toggle('active', state.editMode);
-    }
-  });
-  setTimeout(() => document.addEventListener('click', function closeOnce() {
-    menu.remove();
-    document.removeEventListener('click', closeOnce);
-  }), 0);
+async function setSidebarWidth(px) {
+  const clamped = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, px));
+  document.documentElement.style.setProperty('--sidebar-w', clamped + 'px');
+  await fs.setProjectSetting('sidebarWidth', clamped);
+  if (state.project?.config) state.project.config.sidebarWidth = clamped;
 }
+
+(function initSidebarResize() {
+  const handle = document.getElementById('sidebarResizeHandle');
+  let startX = 0, startWidth = 0, dragging = false;
+
+  handle.addEventListener('mousedown', (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startWidth = els.sidebar.getBoundingClientRect().width;
+    document.body.classList.add('sidebar-resizing');
+    handle.classList.add('resizing');
+    e.preventDefault(); // verhindert Text-Markierung während des Ziehens
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const next = startWidth + (e.clientX - startX);
+    const clamped = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, next));
+    document.documentElement.style.setProperty('--sidebar-w', clamped + 'px');
+  });
+
+  document.addEventListener('mouseup', async () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove('sidebar-resizing');
+    handle.classList.remove('resizing');
+    const finalWidth = Math.round(els.sidebar.getBoundingClientRect().width);
+    await setSidebarWidth(finalWidth);
+  });
+
+  // Doppelklick auf den Ziehbereich: schnell zurück zur Standardbreite,
+  // ein gängiges, erwartbares Muster für Ziehgriffe dieser Art.
+  handle.addEventListener('dblclick', () => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH));
+
+  // Rechtsklick (Nutzer-Feature): dieselbe Standardbreite-Wiederherstellung
+  // auch besser auffindbar über ein Kontextmenü, nicht nur per (weniger
+  // offensichtlichem) Doppelklick auf den schmalen Ziehbereich.
+  handle.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    document.querySelectorAll('.context-menu').forEach(m => m.remove());
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.innerHTML = `<button type="button" data-action="reset-width">↺ Standardbreite wiederherstellen</button>`;
+    document.body.appendChild(menu);
+    menu.style.top = e.clientY + 4 + 'px';
+    menu.style.left = Math.min(e.clientX, window.innerWidth - 240) + 'px';
+    menu.addEventListener('click', (ev) => {
+      if (ev.target.closest('[data-action="reset-width"]')) setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+      menu.remove();
+    });
+    setTimeout(() => document.addEventListener('click', function closeOnce() {
+      menu.remove(); document.removeEventListener('click', closeOnce);
+    }, { once: true }), 0);
+  });
+})();
+
+// ---------------------------------------------------------------------------
+// Ziehen-Griffe (⠿) für Notizen/Kategorien: erscheinen jetzt automatisch
+// beim Überfahren einer Zeile mit der Maus (siehe .row-handle-CSS) — der
+// frühere, extra Bearbeiten-Modus-Knopf ist dadurch überflüssig geworden
+// und wurde entfernt. Löschen läuft weiterhin immer über das eigene
+// ⋮-Kontextmenü, unabhängig davon.
+// ---------------------------------------------------------------------------
 
 // Akzentfarben nachträglich ändern (bisher nur einmalig im Wizard möglich).
 // Wendet die Wahl sofort live an (wie im Wizard) und speichert sie dauerhaft
@@ -484,7 +537,10 @@ els.btnAbout.addEventListener('click', async () => {
 function openSettingsWindow() {
   showSettingsWindow({
     projectPath: state.project?.path,
-    onConfigChange: (newConfig) => { if (state.project) state.project.config = newConfig; },
+    onConfigChange: (newConfig) => {
+      if (state.project) state.project.config = newConfig;
+      setAutoSaveSeconds(newConfig?.editor?.autoSave ?? 30);
+    },
     onProjectPathChange: (newPath) => { if (state.project) state.project.path = newPath; }
   });
 }
@@ -502,7 +558,7 @@ window.archivAPI.onOpenSettingsRequested(() => openSettingsWindow());
 // aufeinanderfolgende Zustände derselben Sache, keine drei gleichzeitigen
 // Meldungen), daher wird ein evtl. vorhandener Toast bei jedem neuen Aufruf
 // zuerst entfernt.
-function showUpdateToast({ message, primaryLabel, onPrimary, showProgress = false }) {
+function showUpdateToast({ message, primaryLabel, onPrimary, showProgress = false, dismissLabel = 'Später' }) {
   document.querySelectorAll('.update-toast').forEach(el => el.remove());
   const toast = document.createElement('div');
   toast.className = 'update-toast';
@@ -510,7 +566,7 @@ function showUpdateToast({ message, primaryLabel, onPrimary, showProgress = fals
     <div class="update-toast-message">${escapeHtml(message)}</div>
     ${showProgress ? '<div class="update-toast-progress"><div class="update-toast-progress-bar" id="updateToastProgressBar"></div></div>' : ''}
     <div class="update-toast-actions">
-      <button type="button" class="btn ghost small" data-action="dismiss">Später</button>
+      <button type="button" class="btn ghost small" data-action="dismiss">${escapeHtml(dismissLabel)}</button>
       ${primaryLabel ? `<button type="button" class="btn small" data-action="primary">${escapeHtml(primaryLabel)}</button>` : ''}
     </div>
   `;
@@ -520,6 +576,64 @@ function showUpdateToast({ message, primaryLabel, onPrimary, showProgress = fals
     toast.querySelector('[data-action="primary"]').addEventListener('click', () => { onPrimary?.(); toast.remove(); });
   }
   return toast;
+}
+
+// Kurze, dezente Rückmeldung ohne Buttons (Nutzer-Feature: z. B. "Dashboard
+// gesperrt") — verschwindet nach 1.8s von selbst, kein Zutun nötig.
+// Bild-Lightbox (Nutzer-Feature): eigenes Overlay statt Browserfunktion
+// (kein neuer Tab, kein natives Vollbild). ESC und Klick auf den
+// abgedunkelten Hintergrund schließen beide die Ansicht — ein Klick auf
+// das Bild selbst nicht (e.target === overlay prüft genau das).
+function showImageLightbox(src, alt) {
+  document.querySelectorAll('.image-lightbox-overlay').forEach(el => el.remove());
+  const overlay = document.createElement('div');
+  overlay.className = 'image-lightbox-overlay';
+  const img = document.createElement('img');
+  img.src = src;
+  if (alt) img.alt = alt;
+  overlay.appendChild(img);
+  document.body.appendChild(overlay);
+  function close() {
+    overlay.remove();
+    document.removeEventListener('keydown', onKeyDown);
+  }
+  function onKeyDown(e) {
+    if (e.key === 'Escape') close();
+  }
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', onKeyDown);
+}
+
+function showQuickFeedback(message) {
+  document.querySelectorAll('.quick-feedback-toast').forEach(el => el.remove());
+  const toast = document.createElement('div');
+  toast.className = 'quick-feedback-toast';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 1800);
+}
+
+// Rückgängig für Verschiebungen (Nutzer-Feature): zeigt nach jedem ECHTEN
+// Ortswechsel (Kategorie hat sich geändert, nicht nur die Position
+// innerhalb derselben Kategorie) eine klare Textmeldung mit Rückgängig-
+// Knopf — verhindert, dass eine unbeabsichtigte Verschiebung unbemerkt
+// bleibt (Nutzeranliegen: "aus Versehen verschoben, weiß nicht wohin").
+// Wiederverwendet die bestehende showUpdateToast() statt eine eigene
+// Toast-Variante extra dafür zu bauen.
+function showMoveUndoToast(originalRelPath, moved) {
+  const originalParent = originalRelPath.includes('/') ? originalRelPath.split('/').slice(0, -1).join('/') : '';
+  const targetParent = moved.relPath.includes('/') ? moved.relPath.split('/').slice(0, -1).join('/') : '';
+  const itemName = moved.relPath.split('/').pop().replace(/\.md$/, '');
+  const targetName = targetParent.split('/').pop() || 'oberste Ebene';
+  showUpdateToast({
+    message: `„${itemName}" nach „${targetName}" verschoben.`,
+    primaryLabel: 'Rückgängig',
+    dismissLabel: 'Schließen',
+    onPrimary: async () => {
+      await fs.moveEntry(moved.relPath, originalParent);
+      await refreshAll();
+    }
+  });
 }
 
 // "Vor dem Herunterladen nachfragen" (Standard: aus) UND "Updates automatisch
@@ -1006,9 +1120,41 @@ function wireNavInteractions() {
     btn.addEventListener('click', (e) => {
       const relPath = btn.dataset.toggle;
       const group = btn.closest('.nav-group');
+      const groupList = group.querySelector(':scope > .group-list');
       if (state.collapsedGroups.has(relPath)) state.collapsedGroups.delete(relPath);
       else state.collapsedGroups.add(relPath);
-      group.classList.toggle('collapsed');
+
+      // Höhe wird jetzt tatsächlich GEMESSEN statt einer festen, geschätzten
+      // Obergrenze (900px) zu vertrauen — bei einer Kategorie mit sehr
+      // vielen direkten Einträgen wären sonst die Einträge oberhalb dieser
+      // Grenze beim Aufklappen unsichtbar geblieben (overflow:hidden schneidet
+      // ab, statt zu scrollen). Funktioniert dadurch unabhängig von der
+      // tatsächlichen Anzahl an Einträgen in der jeweiligen Kategorie.
+      if (groupList) {
+        if (group.classList.contains('collapsed')) {
+          // Wird jetzt geöffnet: zuerst von 0 aus starten, dann im nächsten
+          // Frame zur echten, gemessenen Höhe animieren.
+          groupList.style.maxHeight = '0px';
+          group.classList.remove('collapsed');
+          requestAnimationFrame(() => { groupList.style.maxHeight = groupList.scrollHeight + 'px'; });
+          // Nach Abschluss der Animation die Begrenzung wieder ganz aufheben,
+          // damit spätere Änderungen (z. B. eine neu angelegte Notiz) nicht
+          // durch eine "eingefrorene" alte Höhe abgeschnitten werden.
+          setTimeout(() => { if (!group.classList.contains('collapsed')) groupList.style.maxHeight = 'none'; }, 260);
+        } else {
+          // Wird jetzt geschlossen: zuerst die aktuelle, echte Höhe fixieren
+          // (statt weiterhin "none" zu haben, von dem aus sich nicht sauber
+          // animieren lässt), dann im nächsten Frame auf 0 übergehen.
+          groupList.style.maxHeight = groupList.scrollHeight + 'px';
+          requestAnimationFrame(() => {
+            group.classList.add('collapsed');
+            groupList.style.maxHeight = '0px';
+          });
+        }
+      } else {
+        group.classList.toggle('collapsed');
+      }
+
       // Nur speichern, wenn "Letzten Zustand wiederherstellen" gewählt ist —
       // bei den anderen drei Optionen bestimmt ohnehin die Einstellung selbst
       // den Start-Zustand, ein Mitschreiben wäre unnötiger Schreibaufwand.
@@ -1162,6 +1308,7 @@ function wireNavInteractions() {
         movedRow.classList.add('drop-success');
         setTimeout(() => movedRow.classList.remove('drop-success'), 500);
       }
+      showMoveUndoToast(draggedRelPath, moved);
       if (getOpenRelPath() && location.hash.includes(encodeURIComponent(getOpenRelPath())) && getOpenRelPath() === draggedRelPath) {
         location.hash = '#note/' + encodeURIComponent(moved.relPath);
       }
@@ -1209,9 +1356,10 @@ function wireNavInteractions() {
       const targetParent = targetRelPath.split('/').slice(0, -1).join('/');
 
       let finalRelPath = draggedRelPath;
+      let movedResult = null;
       if (draggedParent !== targetParent) {
-        const moved = await fs.moveEntry(draggedRelPath, targetParent);
-        finalRelPath = moved.relPath;
+        movedResult = await fs.moveEntry(draggedRelPath, targetParent);
+        finalRelPath = movedResult.relPath;
       }
 
       // Reihenfolge in der Ziel-Unterkategorie setzen: gezogene Notiz vor
@@ -1235,6 +1383,7 @@ function wireNavInteractions() {
       await refreshAll();
       const movedRow = els.navTree.querySelector(`[data-relpath="${CSS.escape(finalRelPath)}"]`);
       if (movedRow) { movedRow.classList.add('drop-success'); setTimeout(() => movedRow.classList.remove('drop-success'), 500); }
+      if (movedResult) showMoveUndoToast(draggedRelPath, movedResult);
       if (getOpenRelPath() === draggedRelPath) location.hash = '#note/' + encodeURIComponent(finalRelPath);
     });
   });
@@ -1670,14 +1819,12 @@ function showCategoryPickerModal(categories, title = 'In welcher Kategorie?') {
 // ---------------------------------------------------------------------------
 // Sidebar-Suche — echte Volltextsuche über Titel, Inhalt UND Tags via
 // FlexSearch (siehe search.js), nicht mehr nur sichtbarer Zeilentext im Baum.
+// (Der frühere, reine Baum-Filter-Mechanismus wurde entfernt — er rief zwei
+// nicht mehr existierende Funktionen auf und warf dadurch bei jeder Eingabe
+// einen stillen Fehler. Der untenstehende Dropdown-Mechanismus deckt die
+// Aufgabe bereits vollständig ab, siehe auch dessen eigener Kommentar weiter
+// unten.)
 // ---------------------------------------------------------------------------
-els.navSearch.addEventListener('input', () => {
-  const q = els.navSearch.value.trim();
-  els.navSearch.parentElement.classList.toggle('has-value', els.navSearch.value.length > 0);
-  const matched = q ? new Set(searchNotes(q)) : null; // null = kein Filter aktiv, alles zeigen
-  els.navTree.querySelectorAll(':scope > ul.nav-top > li.nav-group').forEach(group => filterGroup(group, matched));
-});
-
 els.searchClear.addEventListener('click', () => {
   els.navSearch.value = '';
   els.navSearch.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1886,6 +2033,8 @@ function cycleViewMode() {
   const order = ['split', 'editor', 'preview'];
   state.viewMode = order[(order.indexOf(state.viewMode) + 1) % order.length];
   applyViewMode();
+  fs.setProjectSetting('viewMode', state.viewMode).catch(() => {});
+  if (state.project?.config) state.project.config.viewMode = state.viewMode;
 }
 
 function jumpToAdjacentNote(dir) {
@@ -1905,6 +2054,28 @@ let currentOnSaveError = () => {};
 window.addEventListener('hashchange', render);
 
 async function render() {
+  // Scrollposition der bisher offenen Notiz merken (Nutzer-Feature) —
+  // GANZ AM ANFANG, bevor irgendein neuer Inhalt aufgebaut wird.
+  // getOpenRelPath() zeigt hier noch den alten Wert, da er erst später
+  // (in openNoteInEditor) auf das neue Ziel überschrieben wird. Dieselbe
+  // Speicher-Mechanik wie bei Split-Breite/Ansichtsmodus (ein Schlüssel in
+  // derselben Projekt-Config), hier als Objekt mit einem Eintrag pro Notiz
+  // statt eines einzigen Werts.
+  const outgoingRelPath = getOpenRelPath();
+  if (outgoingRelPath) {
+    const editorScrollEl = document.querySelector('.cm-scroller');
+    const previewScrollEl = document.getElementById('previewContainer');
+    if (editorScrollEl || previewScrollEl) {
+      const positions = { ...(state.project?.config?.noteScrollPositions || {}) };
+      positions[outgoingRelPath] = {
+        editor: editorScrollEl ? editorScrollEl.scrollTop : 0,
+        preview: previewScrollEl ? previewScrollEl.scrollTop : 0
+      };
+      fs.setProjectSetting('noteScrollPositions', positions).catch(() => {});
+      if (state.project?.config) state.project.config.noteScrollPositions = positions;
+    }
+  }
+
   closeSidebar();
   els.topbarNoteDates.textContent = ''; // wird von renderNote() neu befüllt, falls eine Notiz offen ist
   const slug = currentSlug();
@@ -1922,23 +2093,44 @@ function setBreadcrumb(text) { els.breadcrumb.textContent = text; }
 // eingeklappt sind — unabhängig von der "Kategorien beim Start"-Einstellung,
 // die nur den Zustand beim Programmstart bestimmt, nicht das Verhalten beim
 // Navigieren zu einer Notiz währenddessen (Nutzer-Anforderung).
-function expandAncestorGroups(relPath) {
-  if (!relPath) return false;
+// Liefert alle Vorfahren-Kategorie-Pfade einer Notiz, von der obersten
+// Hauptkategorie bis zur direkten Elternkategorie (kumulativ aufgebaut).
+// Gemeinsam genutzt vom Aufklappen UND der Aktiv-Markierung weiter unten —
+// keine doppelte Pfad-Aufbau-Logik an zwei Stellen.
+function getAncestorPaths(relPath) {
+  if (!relPath) return [];
   const parts = relPath.split('/');
   parts.pop(); // letztes Segment ist die Notiz-Datei selbst, keine Kategorie
-  let changed = false;
+  const paths = [];
   let cumulative = '';
   for (const part of parts) {
     cumulative = cumulative ? `${cumulative}/${part}` : part;
+    paths.push(cumulative);
+  }
+  return paths;
+}
+
+function expandAncestorGroups(relPath) {
+  let changed = false;
+  for (const cumulative of getAncestorPaths(relPath)) {
     if (state.collapsedGroups.delete(cumulative)) changed = true;
   }
   return changed;
 }
 
+// Aktive Kategorie (Nutzer-Feature): dezente Hervorhebung aller
+// Vorfahren-Kategorien der aktuell geöffneten Notiz — von der Hauptkategorie
+// bis zur direkten Elternkategorie. Bewusst zurückhaltender als die
+// bestehende Notiz-Markierung selbst (die bleibt der eigentliche visuelle
+// Fokus), dient hier nur als "hier befindest du dich"-Kontext.
 function setActiveNav(relPath) {
   if (expandAncestorGroups(relPath)) renderNavTree();
   els.homeLink.classList.toggle('active', !relPath);
   els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.toggle('active', a.dataset.relpath === relPath));
+  const ancestorPaths = new Set(getAncestorPaths(relPath));
+  els.navTree.querySelectorAll('.nav-group[data-relpath]').forEach(g => {
+    g.classList.toggle('active-ancestor', ancestorPaths.has(g.dataset.relpath));
+  });
 }
 
 // Findet die n-te "- [ ]"/"- [x]"-Checkbox im Markdown-Quelltext (n = idx,
@@ -1969,20 +2161,20 @@ function setNthCheckboxInMarkdown(text, targetIndex, checked) {
 // bereits vorhandene <img>-Tags (Breite wird dort nur aktualisiert).
 function setNthImageWidthInMarkdown(text, targetIndex, widthPercent) {
   let count = -1;
-  return text.replace(/!\[([^\]]*)\]\(([^)]+)\)|<img\b([^>]*)>/g, (match, mdAlt, mdSrc, imgAttrs) => {
+  return text.replace(/!\[([^\]]*)\]\(([^)"]+)(?:\s+"[^"]*")?\)|<img\b([^>]*)>/g, (match, mdAlt, mdSrc, imgAttrs) => {
     count++;
     if (count !== targetIndex) return match;
     if (imgAttrs !== undefined) {
-      const hasStyle = /\bstyle\s*=\s*"[^"]*"/.test(imgAttrs);
-      const newAttrs = hasStyle
-        ? imgAttrs.replace(/\bstyle\s*=\s*"([^"]*)"/, (m, existing) => {
-            const withoutWidth = existing.replace(/width\s*:\s*[^;]+;?/, '').trim();
-            return `style="width:${widthPercent}%;${withoutWidth ? ' ' + withoutWidth : ''}"`;
-          })
-        : `${imgAttrs} style="width:${widthPercent}%"`;
-      return `<img${newAttrs}>`;
+      // Rohes <img>-Tag aus einer VOR diesem Bugfix gespeicherten Notiz —
+      // src/alt extrahieren und in die neue, standardkonforme Markdown-
+      // Bildsyntax überführen, damit auch ältere Notizen beim nächsten
+      // Größenwechsel automatisch mitwandern statt weiter als HTML-Block
+      // aus dem Textfluss zu fallen.
+      const srcMatch = imgAttrs.match(/\bsrc\s*=\s*"([^"]*)"/);
+      const altMatch = imgAttrs.match(/\balt\s*=\s*"([^"]*)"/);
+      return `![${altMatch ? altMatch[1] : ''}](${srcMatch ? srcMatch[1] : ''} "width:${widthPercent}%")`;
     }
-    return `<img src="${mdSrc}" alt="${mdAlt}" style="width:${widthPercent}%">`;
+    return `![${mdAlt}](${mdSrc} "width:${widthPercent}%")`;
   });
 }
 
@@ -2131,7 +2323,51 @@ function greetingFor(wikiName) {
   return name ? `${salutation}, ${escapeHtml(name)}` : salutation;
 }
 
+// Dashboard-Personalisierung (Nutzer-Feature): Standard-Reihenfolge +
+// Aktiv-Zustand, falls der Nutzer noch nie etwas eingestellt hat. Jeder
+// Eintrag behält seine Position auch im deaktivierten Zustand bei (statt
+// beim Wiederaktivieren ganz woanders aufzutauchen).
+const DASHBOARD_SECTION_LABELS = {
+  stats: 'Statistik', pinned: 'Angepinnte Notizen', recent: 'Zuletzt bearbeitet', all: 'Alle Notizen'
+};
+const DEFAULT_DASHBOARD_SECTIONS = [
+  { key: 'stats', enabled: true }, { key: 'pinned', enabled: true },
+  { key: 'recent', enabled: true }, { key: 'all', enabled: true }
+];
+const DASHBOARD_SIZE_OPTIONS = [5, 10, 20];
+// "Zuletzt bearbeitet" bekommt bewusst eigene Größen-Optionen samt eigenem
+// Standardwert (4 statt 5) — siehe Nutzer-Anforderung zur dynamischen Höhe:
+// bis zu 4 Einträge passt sich die Höhe an den tatsächlichen Inhalt an,
+// darüber wird fest gescrollt.
+const RECENT_SIZE_OPTIONS = [4, 10, 20];
+
+// Tipps (Nutzer-Feature, überarbeitet): keine eigene Dashboard-Zeile mehr,
+// sondern ein kleines, unauffälliges Symbol im Kopfbereich neben dem
+// Personalisierungs-Zahnrad — bewusst NICHT als Widget mit fester Position
+// behandelt, da ein Tipp konzeptionell keine Nutzerdaten sind und niemand
+// eine Präferenz hat, ob er "über" oder "unter" den eigenen Notizen steht.
+// Feste, lokale Liste — kein externer Abruf, kein zusätzlicher
+// Wartungsaufwand. Bei jedem Klick auf das Symbol wird einer zufällig
+// gewählt.
+const DASHBOARD_TIPS = [
+  'Du kannst Notizen mit [[doppelten eckigen Klammern]] direkt miteinander verlinken.',
+  'Mit Strg+K öffnest du von überall aus die Schnellsuche.',
+  'Bilder lassen sich direkt per Ziehen-und-Ablegen in eine Notiz einfügen.',
+  'Angepinnte Notizen erscheinen ganz oben auf dem Dashboard — ideal für Notizen, die du oft brauchst.',
+  'Über die Einstellungen lässt sich eine eigene Akzentfarbe wählen — auch als Zufallsfarbe per Klick.',
+  'Der Fokus-Modus (Werkzeugleiste im Editor) blendet Ablenkungen für konzentriertes Schreiben aus.',
+  'Eigene Notiz-Vorlagen lassen sich speichern und für neue Notizen wiederverwenden.'
+];
+
+// Bugfix (per echtem Test gefunden): verhindert, dass ein ÄLTERER, noch
+// laufender renderHome()-Aufruf nach seinem eigenen await (Notiz-Inhalte
+// laden) in ein inzwischen vom NEUEREN Aufruf frisch erzeugtes
+// recentList/allList hineinschreibt — sonst erscheint jede Notiz doppelt.
+// Dasselbe Generation-Prinzip wie beim Rechtschreibprüfung-Kontextmenü.
+let dashboardRenderGeneration = 0;
+
 async function renderHome() {
+  const myGeneration = ++dashboardRenderGeneration;
   setBreadcrumb('Start');
   setActiveNav(null);
   const notes = fs.flattenNotes(state.tree);
@@ -2144,17 +2380,42 @@ async function renderHome() {
     return;
   }
 
+  const config = state.project?.config || {};
+  // Dashboard-Personalisierung (Nutzer-Feature): gespeicherte Reihenfolge
+  // mit den Standardwerten zusammenführen (statt sie direkt zu verwenden) —
+  // damit ein SPÄTER neu hinzugekommener Bereich (z. B. wenn diese Funktion
+  // künftig erweitert wird) bei bestehenden Nutzern automatisch mit auftaucht,
+  // statt zu fehlen, nur weil er beim letzten Speichern noch nicht existierte.
+  const savedSections = Array.isArray(config.dashboardSections) ? config.dashboardSections : null;
+  // Bugfix (per Test gefunden): die gespeicherte Reihenfolge selbst ist die
+  // Grundlage — vorher wurde immer über DEFAULT_DASHBOARD_SECTIONS iteriert,
+  // wodurch eine gespeicherte Umsortierung nie sichtbar wurde, nur der
+  // Ein/Aus-Zustand blieb erhalten. Ein evtl. später neu hinzugekommener
+  // Bereich (noch nicht im gespeicherten Stand vorhanden) wird am Ende ergänzt.
+  // Ein gespeicherter, aber jetzt nicht mehr existierender Bereich (z. B.
+  // "tips" aus der früheren Zeilen-Version, jetzt ein Kopfbereich-Symbol
+  // ohne eigene Position) wird herausgefiltert, statt als wirkungsloser
+  // Geister-Eintrag stehen zu bleiben.
+  const validKeys = new Set(DEFAULT_DASHBOARD_SECTIONS.map(d => d.key));
+  const dashboardSections = savedSections
+    ? [...savedSections.filter(s => validKeys.has(s.key)), ...DEFAULT_DASHBOARD_SECTIONS.filter(def => !savedSections.some(s => s.key === def.key))]
+    : DEFAULT_DASHBOARD_SECTIONS.map(def => ({ ...def }));
+  const recentCount = RECENT_SIZE_OPTIONS.includes(config.dashboardRecentCount) ? config.dashboardRecentCount : 4;
+  const allCount = DASHBOARD_SIZE_OPTIONS.includes(config.dashboardAllCount) ? config.dashboardAllCount : 10;
+  const pinnedCount = DASHBOARD_SIZE_OPTIONS.includes(config.dashboardPinnedCount) ? config.dashboardPinnedCount : 5;
+
   // Nach Änderungsdatum sortieren (frontmatter.modified, bei jedem Speichern
   // aktualisiert) — sowohl für "Zuletzt bearbeitet" als auch für "Alle
   // Notizen" (letzteres zeigt dieselbe Reihenfolge, nur mit absolutem statt
-  // relativem Datum und ohne Begrenzung auf 5 Einträge).
+  // relativem Datum).
   const sorted = [...notes].sort((a, b) => {
     const ta = a.frontmatter?.modified || a.frontmatter?.created || '';
     const tb = b.frontmatter?.modified || b.frontmatter?.created || '';
     return tb.localeCompare(ta);
   });
-  const recentNotes = sorted.slice(0, 5);
-  const pinnedNotes = sorted.filter(n => n.frontmatter?.pinned);
+  const recentNotes = sorted.slice(0, recentCount);
+  const pinnedNotesAll = sorted.filter(n => n.frontmatter?.pinned);
+  const pinnedNotes = pinnedNotesAll.slice(0, pinnedCount);
 
   // Notiz-Statistik-Kacheln: simple, aus schon vorhandenen Frontmatter-Daten
   // berechnet — kein zusätzlicher Speicher-/Tracking-Aufwand nötig.
@@ -2163,37 +2424,131 @@ async function renderHome() {
     const t = n.frontmatter?.modified || n.frontmatter?.created;
     return t && new Date(t).getTime() >= oneWeekAgo;
   }).length;
-  const categoryCount = new Set(notes.map(n => n.frontmatter?.category || n.frontmatter?.mainCategory).filter(Boolean)).size;
+  const categoryTally = new Map();
+  notes.forEach(n => {
+    const cat = n.frontmatter?.category || n.frontmatter?.mainCategory;
+    if (cat) categoryTally.set(cat, (categoryTally.get(cat) || 0) + 1);
+  });
+  const categoryCount = categoryTally.size;
   const tagCount = new Set(notes.flatMap(n => n.frontmatter?.tags || [])).size;
+  const mostUsedCategory = [...categoryTally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 
-  // Begrüßungs-Unterzeile erzählt jetzt kurz, was diese Woche passiert ist,
-  // statt nur die reine Notiz-Anzahl zu wiederholen (die steht ja schon in
-  // der Kachel darunter).
+  // Begrüßungs-Unterzeile erzählt kurz, was diese Woche passiert ist.
   const subLine = editedThisWeek > 0
     ? `Du hast diese Woche ${editedThisWeek} Seite${editedThisWeek === 1 ? '' : 'n'} bearbeitet.`
     : `${notes.length} Notiz${notes.length === 1 ? '' : 'en'} insgesamt.`;
 
+  // Dezenter Kontext-Hinweis (Nutzer-Feature): abwechselnd "zuletzt
+  // bearbeitet" oder "häufigste Kategorie" — beides aus bereits vorhandenen
+  // Daten abgeleitet, keine neue Datenerfassung.
+  const contextOptions = [];
+  if (recentNotes[0]) contextOptions.push(`Zuletzt gearbeitet an „${escapeHtml(recentNotes[0].frontmatter?.title || recentNotes[0].name)}"`);
+  if (mostUsedCategory) contextOptions.push(`Am häufigsten genutzt: ${escapeHtml(mostUsedCategory)}`);
+  const contextLine = contextOptions.length ? contextOptions[Math.floor(Math.random() * contextOptions.length)] : '';
+
+  const tipText = DASHBOARD_TIPS[Math.floor(Math.random() * DASHBOARD_TIPS.length)];
+
+  // --- Die einzelnen Bereichs-Blöcke, jeweils als HTML-Fragment ---
+  const statsBlockHtml = `
+    <div class="stats-widget">
+      <button type="button" class="stat-chip" id="statChipNotes">
+        <span class="stat-num">${notes.length}</span>
+        <span class="stat-label">📄 Notizen gesamt</span>
+      </button>
+      <button type="button" class="stat-chip" id="statChipWeek">
+        <span class="stat-num">${editedThisWeek}</span>
+        <span class="stat-label">✏️ diese Woche bearbeitet</span>
+      </button>
+      <button type="button" class="stat-chip" id="statChipTopics">
+        <span class="stat-num">${categoryCount}</span>
+        <span class="stat-label">📚 Themen</span>
+      </button>
+      <button type="button" class="stat-chip" id="statChipTags">
+        <span class="stat-num">${tagCount}</span>
+        <span class="stat-label">🏷 Tags</span>
+      </button>
+    </div>`;
+  const pinnedBlockHtml = pinnedNotesAll.length ? `<div class="pinned-strip" id="pinnedStrip"></div>` : '';
+
+  // "Zuletzt bearbeitet"/"Alle Notizen": bleiben als zusammengehöriges Paar
+  // bestehen (teilen sich die verbleibende Höhe), sofern beide aktiv UND
+  // unmittelbar nebeneinander in der gewählten Reihenfolge stehen — sonst
+  // bekommt jeder für sich eine eigene, feste Höhe mit eigenem Scrollbereich.
+  // Nutzer-Anforderung: Höhe richtet sich nach dem TATSÄCHLICHEN Inhalt,
+  // keine feste Prozent-Aufteilung mehr — das übernimmt fitNotesAreaHeight()
+  // weiter unten, direkt nach dem Rendern, anhand echter Zeilenhöhen.
+  const enabledKeys = dashboardSections.filter(s => s.enabled).map(s => s.key);
+  const recentIdx = enabledKeys.indexOf('recent');
+  const allIdx = enabledKeys.indexOf('all');
+  const notesArePaired = recentIdx !== -1 && allIdx !== -1 && Math.abs(recentIdx - allIdx) === 1;
+
+  function recentSectionHtml() {
+    return `
+      <div class="dashboard-section recent" id="recentSection">
+        <div class="dashboard-section-header">Zuletzt bearbeitet</div>
+        <div class="dashboard-list" id="recentList"></div>
+      </div>`;
+  }
+  function allSectionHtml() {
+    return `
+      <div class="dashboard-section all" id="allSection">
+        <div class="dashboard-section-header">Alle Notizen</div>
+        <div class="dashboard-list" id="allList"></div>
+        ${allCount < sorted.length ? `<button type="button" class="dashboard-show-more" id="allShowMore">Alle ${sorted.length} anzeigen →</button>` : ''}
+      </div>`;
+  }
+
+  const blockRenderers = {
+    stats: () => statsBlockHtml,
+    pinned: () => pinnedBlockHtml
+  };
+
+  // Reihenfolge aufbauen: recent+all werden als EIN Fragment behandelt,
+  // sobald sie direkt nebeneinander stehen (siehe notesArePaired oben) —
+  // die tatsächliche Höhenaufteilung übernimmt fitNotesAreaHeight() weiter
+  // unten, anhand des echten Inhalts.
+  const bodyParts = [];
+  const seen = new Set();
+  for (const key of enabledKeys) {
+    if (seen.has(key)) continue;
+    if (key === 'recent' || key === 'all') {
+      if (notesArePaired) {
+        seen.add('recent'); seen.add('all');
+        const first = recentIdx < allIdx ? 'recent' : 'all';
+        bodyParts.push(`<div class="dashboard-sections">${first === 'recent' ? recentSectionHtml() + allSectionHtml() : allSectionHtml() + recentSectionHtml()}</div>`);
+      } else {
+        seen.add(key);
+        bodyParts.push(key === 'recent' ? recentSectionHtml() : allSectionHtml());
+      }
+      continue;
+    }
+    seen.add(key);
+    bodyParts.push(blockRenderers[key]());
+  }
+
+  const tipsIconEnabled = config.dashboardTipsIconEnabled !== false;
+  // Sperrstatus (Nutzer-Feature): ein einziger, gemeinsamer Wert — sowohl das
+  // Kopfbereich-Symbol als auch der Einstellungen-Dialog lesen/schreiben
+  // GENAU diesen einen Wert, nie eine eigene Kopie. Dadurch können beide
+  // Stellen nie auseinanderlaufen (siehe Nutzer-Anforderung "Synchronisation").
+  const dashboardLocked = config.dashboardLocked === true;
+
   els.contentScroll.innerHTML = `
     <div class="dashboard-wrap">
-      <h1 class="home-heading">${greetingFor(state.project?.config?.wikiName)}</h1>
-      <p class="home-sub">${subLine}</p>
-      <div class="stats-widget">
-        <button type="button" class="stat-chip" id="statChipNotes"><span class="stat-num">${notes.length}</span><span class="stat-label">📄 Notizen gesamt</span></button>
-        <button type="button" class="stat-chip" id="statChipWeek"><span class="stat-num">${editedThisWeek}</span><span class="stat-label">✏️ diese Woche bearbeitet</span></button>
-        <button type="button" class="stat-chip" id="statChipTopics"><span class="stat-num">${categoryCount}</span><span class="stat-label">📚 Themen</span></button>
-        <button type="button" class="stat-chip" id="statChipTags"><span class="stat-num">${tagCount}</span><span class="stat-label">🏷 Tags</span></button>
+      <div class="home-header-row">
+        <div>
+          <h1 class="home-heading">${greetingFor(state.project?.config?.wikiName)}</h1>
+          ${contextLine ? `<p class="home-context-line">${contextLine}</p>` : ''}
+          <p class="home-sub">${subLine}</p>
+        </div>
+        <div class="dashboard-header-actions">
+          ${tipsIconEnabled ? `<button type="button" class="dashboard-tip-icon-btn" id="dashboardTipBtn" title="Tipp anzeigen">💡</button>` : ''}
+          <button type="button" class="dashboard-lock-btn${dashboardLocked ? ' locked' : ''}" id="dashboardLockBtn" title="${dashboardLocked ? 'Dashboard ist gesperrt.' : 'Dashboard kann angepasst werden.'}">${dashboardLocked ? '🔒' : '🔓'}</button>
+          <button type="button" class="dashboard-gear-btn" id="dashboardGearBtn" title="Dashboard anpassen">⚙</button>
+        </div>
       </div>
-      ${pinnedNotes.length ? `
-      <div class="pinned-strip" id="pinnedStrip"></div>` : ''}
-      <div class="dashboard-sections">
-        <div class="dashboard-section recent" id="recentSection">
-          <div class="dashboard-section-header">Zuletzt bearbeitet</div>
-          <div class="dashboard-list" id="recentList"></div>
-        </div>
-        <div class="dashboard-section all" id="allSection">
-          <div class="dashboard-section-header">Alle Notizen</div>
-          <div class="dashboard-list" id="allList"></div>
-        </div>
+      <div class="dashboard-body">
+        ${bodyParts.join('\n')}
       </div>
     </div>
   `;
@@ -2201,14 +2556,84 @@ async function renderHome() {
   // Kacheln führen zum jeweils passenden Bereich — entweder eine eigene
   // Ansicht (Themen → Statistik-Seite, Tags → Tag-Übersicht) oder ein
   // Sprung zum entsprechenden Bereich weiter unten auf demselben Dashboard.
-  document.getElementById('statChipNotes').addEventListener('click', () => {
-    document.getElementById('allSection').scrollIntoView({ behavior: 'smooth' });
+  document.getElementById('statChipNotes')?.addEventListener('click', () => {
+    document.getElementById('allSection')?.scrollIntoView({ behavior: 'smooth' });
   });
-  document.getElementById('statChipWeek').addEventListener('click', () => {
-    document.getElementById('recentSection').scrollIntoView({ behavior: 'smooth' });
+  document.getElementById('statChipWeek')?.addEventListener('click', () => {
+    document.getElementById('recentSection')?.scrollIntoView({ behavior: 'smooth' });
   });
-  document.getElementById('statChipTopics').addEventListener('click', () => { location.hash = '#stats'; });
-  document.getElementById('statChipTags').addEventListener('click', () => { location.hash = '#tags'; });
+  document.getElementById('statChipTopics')?.addEventListener('click', () => { location.hash = '#stats'; });
+  document.getElementById('statChipTags')?.addEventListener('click', () => { location.hash = '#tags'; });
+
+  // Tipps (Nutzer-Feature, überarbeitet): kein eigener Platz im Layout mehr —
+  // ein Klick auf das Symbol zeigt eine kleine, schließbare Sprechblase mit
+  // einem zufälligen Tipp direkt daneben, statt einer festen Dashboard-Zeile.
+  document.getElementById('dashboardTipBtn')?.addEventListener('click', function (e) {
+    e.stopPropagation();
+    const existing = document.querySelector('.dashboard-tip-popover');
+    if (existing) { existing.remove(); return; } // Zweiter Klick auf das Symbol schließt es wieder
+    const tip = DASHBOARD_TIPS[Math.floor(Math.random() * DASHBOARD_TIPS.length)];
+    const popover = document.createElement('div');
+    popover.className = 'dashboard-tip-popover';
+    popover.innerHTML = `<span>💡</span><span>${escapeHtml(tip)}</span>`;
+    document.body.appendChild(popover);
+    const btnRect = this.getBoundingClientRect();
+    popover.style.top = (btnRect.bottom + 8) + 'px';
+    popover.style.right = (window.innerWidth - btnRect.right) + 'px';
+    // Schließt sich auch bei jedem Klick außerhalb — ohne diesen Listener
+    // bliebe die Sprechblase sonst dauerhaft offen stehen.
+    setTimeout(() => {
+      document.addEventListener('click', function closeOnce(ev) {
+        if (!popover.contains(ev.target)) { popover.remove(); document.removeEventListener('click', closeOnce); }
+      });
+    }, 0);
+  });
+
+  // Sperr-Symbol (Nutzer-Feature): einfacher Klick togglet sofort. e.detail>1
+  // erkennt, ob dieser Klick Teil eines Doppelklicks ist (2., 3. Klick einer
+  // schnellen Folge) — wird dann bewusst ignoriert, damit ein Doppelklick
+  // NICHT zweimal umschaltet (Nutzer-Anforderung: "keine zusätzliche Funktion").
+  async function toggleDashboardLock() {
+    const newLocked = !dashboardLocked;
+    await fs.setProjectSetting('dashboardLocked', newLocked);
+    if (state.project?.config) state.project.config.dashboardLocked = newLocked;
+    await renderHome();
+    showQuickFeedback(newLocked ? 'Dashboard gesperrt' : 'Dashboard entsperrt');
+  }
+  document.getElementById('dashboardLockBtn')?.addEventListener('click', (e) => {
+    if (e.detail > 1) return;
+    toggleDashboardLock();
+  });
+  document.getElementById('dashboardLockBtn')?.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    document.querySelectorAll('.context-menu').forEach(m => m.remove());
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.innerHTML = `
+      <button type="button" data-choice="toggle">${dashboardLocked ? '🔓 Dashboard entsperren' : '🔒 Dashboard sperren'}</button>
+      <button type="button" data-choice="settings">⚙ Dashboard anpassen…</button>
+      <button type="button" data-choice="reset">↺ Standard wiederherstellen</button>
+    `;
+    document.body.appendChild(menu);
+    const rect = e.currentTarget.getBoundingClientRect();
+    menu.style.top = rect.bottom + 4 + 'px';
+    menu.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
+    menu.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('button[data-choice]');
+      if (!btn) return;
+      menu.remove();
+      if (btn.dataset.choice === 'toggle') await toggleDashboardLock();
+      else if (btn.dataset.choice === 'settings') showDashboardSettings(dashboardSections, { recentCount, allCount, pinnedCount, tipsIconEnabled, locked: dashboardLocked });
+      else if (btn.dataset.choice === 'reset') resetDashboardToDefaults();
+    });
+    setTimeout(() => document.addEventListener('click', function closeOnce() {
+      menu.remove(); document.removeEventListener('click', closeOnce);
+    }, { once: true }), 0);
+  });
+
+  document.getElementById('dashboardGearBtn')?.addEventListener('click', () => {
+    showDashboardSettings(dashboardSections, { recentCount, allCount, pinnedCount, tipsIconEnabled, locked: dashboardLocked });
+  });
 
   // Ein einziger Abruf für alle Notiz-Inhalte (statt pro Zeile einzeln
   // fs.readNote aufzurufen) — dieselben Daten, die auch die Volltextsuche nutzt.
@@ -2221,27 +2646,28 @@ async function renderHome() {
   // Bugfix (Absturz per Konsole gemeldet): Während des obigen await kann der
   // Nutzer bereits zu einer anderen Ansicht gewechselt haben (z. B. Papierkorb,
   // während schnell hintereinander mehrere Notizen gelöscht werden — jede
-  // löst ein refreshAll() → render() aus). #recentList existiert dann nicht
+  // löst ein refreshAll() → render() aus). Container existieren dann nicht
   // mehr, weiter unten würde .appendChild auf null krachen. Hier sauber
   // abbrechen statt gegen eine nicht mehr vorhandene Ansicht zu rendern.
-  if (!document.getElementById('recentList')) return;
+  if (myGeneration !== dashboardRenderGeneration || !document.getElementById('dashboardGearBtn')) return;
 
   function excerptFor(note) {
     return stripMarkdownSyntax(bodyByRelPath.get(note.relPath)).slice(0, 60);
   }
 
-  if (pinnedNotes.length) {
+  if (pinnedNotesAll.length) {
     const strip = document.getElementById('pinnedStrip');
+    if (strip) {
     pinnedNotes.forEach(note => {
       const title = note.frontmatter?.title || note.name;
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'pinned-chip';
       chip.innerHTML = `<span class="pinned-chip-icon">${renderIconHtml(note.icon, '★')}</span><span class="pinned-chip-title">${escapeHtml(title)}</span>`;
-      chip.title = title;
       chip.addEventListener('click', () => { location.hash = '#note/' + encodeURIComponent(note.relPath); });
       strip.appendChild(chip);
     });
+    }
   }
 
   const recentList = document.getElementById('recentList');
@@ -2251,11 +2677,174 @@ async function renderHome() {
   });
 
   const allList = document.getElementById('allList');
-  sorted.forEach(note => {
+  sorted.slice(0, allCount).forEach(note => {
     const dateLabel = formatAbsoluteDate(note.frontmatter?.modified || note.frontmatter?.created);
     allList.appendChild(buildDashboardRow(note, excerptFor(note), dateLabel, false));
   });
+
+  // Nutzer-Anforderung: dynamische Höhe statt fester Prozent-Aufteilung —
+  // bis zu 4 sichtbaren Zeilen passt sich die Höhe an den TATSÄCHLICHEN
+  // Inhalt an (kein Leerraum darunter), erst darüber wird fest gescrollt.
+  // Bewusst als eigene, wiederverwendbare Funktion für BEIDE Listen (statt
+  // nur für "Zuletzt bearbeitet") — dieselbe Regel gilt jetzt einheitlich
+  // auch für "Alle Notizen", wo genau dasselbe unnötige Leerraum-Problem
+  // bestehen würde. Wirkt rein auf die innere, scrollende Liste — der
+  // äußere Rahmen (.dashboard-section) hat bewusst KEINE eigene Höhe mehr
+  // und wächst dadurch automatisch mit seinem Inhalt mit.
+  const MAX_VISIBLE_ROWS = 4;
+  function fitNoteListHeight(listEl, totalRows) {
+    if (!listEl) return;
+    const sampleRow = listEl.querySelector('.dashboard-row');
+    if (!sampleRow || totalRows <= MAX_VISIBLE_ROWS) {
+      listEl.style.maxHeight = 'none';
+      return;
+    }
+    const rowHeight = sampleRow.getBoundingClientRect().height;
+    listEl.style.maxHeight = (rowHeight * MAX_VISIBLE_ROWS) + 'px';
+  }
+  fitNoteListHeight(recentList, recentNotes.length);
+  fitNoteListHeight(allList, Math.min(allCount, sorted.length));
+  document.getElementById('allShowMore')?.addEventListener('click', function () {
+    sorted.slice(allCount).forEach(note => {
+      const dateLabel = formatAbsoluteDate(note.frontmatter?.modified || note.frontmatter?.created);
+      allList.appendChild(buildDashboardRow(note, excerptFor(note), dateLabel, false));
+    });
+    fitNoteListHeight(allList, sorted.length); // nach "Alle anzeigen" ggf. neu bewerten (jetzt sicher > 4)
+    this.remove();
+  });
 }
+
+// Dashboard-Personalisierung (Nutzer-Feature): kompaktes Overlay zum
+// Ein-/Ausblenden und Umsortieren der Bereiche, sowie die Größen-Auswahl für
+// "Zuletzt bearbeitet"/"Alle Notizen"/"Angepinnte Notizen" — alles über
+// denselben generischen fs.setProjectSetting-Mechanismus gespeichert wie
+// jede andere Einstellung in dieser App.
+// Dashboard zurücksetzen (Nutzer-Feature): stellt Reihenfolge, Ein/Aus-
+// Zustand, Größen und Tipp-Symbol auf die Standardwerte zurück. Der
+// Sperrstatus selbst wird bewusst NICHT verändert — auch wenn das Dashboard
+// gesperrt ist, funktioniert Zurücksetzen weiterhin, und bleibt danach genauso
+// gesperrt wie vorher (siehe Nutzer-Anforderung "Dashboard gesperrt + Zurücksetzen").
+async function resetDashboardToDefaults() {
+  if (!confirm('Dashboard wirklich auf die Standardansicht zurücksetzen?')) return;
+  await fs.setProjectSetting('dashboardSections', DEFAULT_DASHBOARD_SECTIONS.map(def => ({ ...def })));
+  await fs.setProjectSetting('dashboardRecentCount', 4);
+  await fs.setProjectSetting('dashboardAllCount', 10);
+  await fs.setProjectSetting('dashboardPinnedCount', 5);
+  await fs.setProjectSetting('dashboardTipsIconEnabled', true);
+  if (state.project?.config) {
+    state.project.config.dashboardSections = DEFAULT_DASHBOARD_SECTIONS.map(def => ({ ...def }));
+    state.project.config.dashboardRecentCount = 4;
+    state.project.config.dashboardAllCount = 10;
+    state.project.config.dashboardPinnedCount = 5;
+    state.project.config.dashboardTipsIconEnabled = true;
+  }
+  document.querySelectorAll('.dashboard-settings-overlay').forEach(el => el.remove());
+  await renderHome();
+  showQuickFeedback('Dashboard zurückgesetzt');
+}
+
+function showDashboardSettings(sections, sizes) {
+  document.querySelectorAll('.dashboard-settings-overlay').forEach(el => el.remove());
+  const list = [...sections];
+  let locked = sizes.locked === true;
+  const overlay = document.createElement('div');
+  overlay.className = 'dashboard-settings-overlay';
+  overlay.innerHTML = `
+    <div class="dashboard-settings-panel">
+      <h3>Dashboard anpassen</h3>
+      <div class="dashboard-settings-row" style="padding-bottom:11px; border-bottom:1px solid var(--border-soft);">
+        <label><input type="checkbox" id="dsLocked" ${locked ? 'checked' : ''}> 🔒 Dashboard sperren</label>
+      </div>
+      <div id="dsRows"></div>
+      <div class="dashboard-settings-size-block">
+        <span>Zuletzt bearbeitet</span>
+        <div class="density-option-row" id="dsRecentSize"></div>
+      </div>
+      <div class="dashboard-settings-size-block">
+        <span>Alle Notizen (Vorschau)</span>
+        <div class="density-option-row" id="dsAllSize"></div>
+      </div>
+      <div class="dashboard-settings-size-block">
+        <span>Angepinnte Notizen</span>
+        <div class="density-option-row" id="dsPinnedSize"></div>
+      </div>
+      <div class="dashboard-settings-row" style="border-top:1px solid var(--border-soft); margin-top:4px; padding-top:11px;">
+        <label><input type="checkbox" id="dsTipsIcon" ${sizes.tipsIconEnabled ? 'checked' : ''}> 💡 Tipp-Symbol anzeigen</label>
+      </div>
+      <button type="button" class="dashboard-show-more" id="dsResetBtn" style="margin-top:8px; border-top:none; border:1px solid var(--border-soft); border-radius:var(--radius-md);">↺ Standard wiederherstellen</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.querySelector('#dsLocked').addEventListener('change', async (e) => {
+    locked = e.target.checked;
+    await fs.setProjectSetting('dashboardLocked', locked);
+    if (state.project?.config) state.project.config.dashboardLocked = locked;
+    await renderHome();
+    showQuickFeedback(locked ? 'Dashboard gesperrt' : 'Dashboard entsperrt');
+    renderRows(); // Pfeile sofort sperren/entsperren, ohne den Dialog neu zu öffnen
+  });
+  overlay.querySelector('#dsResetBtn').addEventListener('click', () => resetDashboardToDefaults());
+
+  function renderRows() {
+    const rowsEl = overlay.querySelector('#dsRows');
+    rowsEl.innerHTML = list.map((s, i) => `
+      <div class="dashboard-settings-row${s.enabled ? '' : ' disabled'}">
+        <label><input type="checkbox" data-toggle="${s.key}" ${s.enabled ? 'checked' : ''}> ${escapeHtml(DASHBOARD_SECTION_LABELS[s.key])}</label>
+        <div class="dashboard-settings-reorder">
+          <button type="button" data-up="${s.key}" ${(locked || i === 0) ? 'disabled' : ''} title="${locked ? 'Dashboard ist gesperrt. Zum Bearbeiten bitte zuerst entsperren.' : ''}">↑</button>
+          <button type="button" data-down="${s.key}" ${(locked || i === list.length - 1) ? 'disabled' : ''} title="${locked ? 'Dashboard ist gesperrt. Zum Bearbeiten bitte zuerst entsperren.' : ''}">↓</button>
+        </div>
+      </div>`).join('');
+    rowsEl.querySelectorAll('[data-toggle]').forEach(cb => cb.addEventListener('change', async (e) => {
+      const item = list.find(s => s.key === e.target.dataset.toggle);
+      item.enabled = e.target.checked;
+      await persist();
+      renderRows();
+    }));
+    rowsEl.querySelectorAll('[data-up]').forEach(btn => btn.addEventListener('click', async () => {
+      if (locked) return;
+      const i = list.findIndex(s => s.key === btn.dataset.up);
+      if (i > 0) { [list[i - 1], list[i]] = [list[i], list[i - 1]]; await persist(); renderRows(); }
+    }));
+    rowsEl.querySelectorAll('[data-down]').forEach(btn => btn.addEventListener('click', async () => {
+      if (locked) return;
+      const i = list.findIndex(s => s.key === btn.dataset.down);
+      if (i < list.length - 1) { [list[i], list[i + 1]] = [list[i + 1], list[i]]; await persist(); renderRows(); }
+    }));
+  }
+  async function persist() {
+    await fs.setProjectSetting('dashboardSections', list);
+    if (state.project?.config) state.project.config.dashboardSections = list;
+    await renderHome();
+  }
+  function renderSizeRow(containerId, settingKey, current, options = DASHBOARD_SIZE_OPTIONS) {
+    const el = overlay.querySelector(containerId);
+    el.innerHTML = options.map(n =>
+      `<button type="button" class="density-option ${n === current ? 'active' : ''}" data-size="${n}">${n}</button>`
+    ).join('');
+    el.querySelectorAll('button').forEach(btn => btn.addEventListener('click', async () => {
+      const n = Number(btn.dataset.size);
+      await fs.setProjectSetting(settingKey, n);
+      if (state.project?.config) state.project.config[settingKey] = n;
+      el.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      await renderHome();
+    }));
+  }
+  renderRows();
+  renderSizeRow('#dsRecentSize', 'dashboardRecentCount', sizes.recentCount, RECENT_SIZE_OPTIONS);
+  renderSizeRow('#dsAllSize', 'dashboardAllCount', sizes.allCount);
+  renderSizeRow('#dsPinnedSize', 'dashboardPinnedCount', sizes.pinnedCount);
+  // Tipp-Symbol (Nutzer-Feature): bewusst eigenständig, nicht Teil der
+  // Reihenfolge-Liste oben — es hat keine Position im Layout, für die eine
+  // Reihenfolge überhaupt Sinn ergäbe, nur ein Ein/Aus.
+  overlay.querySelector('#dsTipsIcon').addEventListener('change', async (e) => {
+    await fs.setProjectSetting('dashboardTipsIconEnabled', e.target.checked);
+    if (state.project?.config) state.project.config.dashboardTipsIconEnabled = e.target.checked;
+    await renderHome();
+  });
+}
+
 
 // --- Notiz-Ansicht ---
 // Echte Backlinks (nicht zu verwechseln mit der manuellen "gehört zu →"-
@@ -2320,6 +2909,17 @@ function wireSplitResizer() {
   splitResizerState.editorPane = editorPane;
   splitResizerState.previewPane = previewPane;
   splitResizerState.dragging = false;
+  // Gespeicherte Split-Breite wiederherstellen (Nutzer-Feature) — bei jedem
+  // Notiz-Rendern neu angewendet, da editorContainer/previewContainer jedes
+  // Mal frisch erzeugt werden (anders als z. B. die Sidebar, die dauerhaft
+  // dasselbe DOM-Element bleibt). Nur anwenden, wenn tatsächlich ein
+  // abweichender Wert gespeichert wurde, sonst bleibt es bei der normalen
+  // 50/50-Aufteilung.
+  const savedWidth = state.project?.config?.splitEditorWidth;
+  if (typeof savedWidth === 'number' && savedWidth > 0) {
+    editorPane.style.flex = `0 0 ${savedWidth}px`;
+    previewPane.style.flex = '1 1 0';
+  }
   resizer.addEventListener('mousedown', (e) => {
     e.preventDefault();
     splitResizerState.dragging = true;
@@ -2347,6 +2947,13 @@ document.addEventListener('mouseup', () => {
   s.dragging = false;
   s.resizer.classList.remove('dragging');
   document.body.style.cursor = '';
+  // Split-Breite dauerhaft speichern (Nutzer-Feature) — dasselbe Muster wie
+  // bei Sidebar-Breite/Sync-Scroll: projektbezogen speichern, lokale Config
+  // sofort mitführen, damit spätere wireSplitResizer()-Aufrufe in dieser
+  // Sitzung den aktuellen Wert sehen, ohne neu von der Festplatte zu lesen.
+  const finalWidth = Math.round(s.editorPane.getBoundingClientRect().width);
+  fs.setProjectSetting('splitEditorWidth', finalWidth).catch(() => {});
+  if (state.project?.config) state.project.config.splitEditorWidth = finalWidth;
 });
 
 async function renderNote(relPath) {
@@ -2387,12 +2994,12 @@ async function renderNote(relPath) {
         <button type="button" data-fmt="italic" title="Kursiv (*Text*)"><em>K</em></button>
         <button type="button" data-fmt="strike" title="Durchgestrichen (~~Text~~)"><s>D</s></button>
         <button type="button" data-fmt="underline" title="Unterstrichen (&lt;u&gt;Text&lt;/u&gt;)"><u>U</u></button>
-        <button type="button" data-fmt="link" title="Link ([Text](URL))">🔗</button>
+        <button type="button" data-fmt="link" title="Link ([Text](URL))">↗</button>
         <button type="button" data-fmt="code" title="Code-Block (dreifache Backticks)">{ }</button>
         <button type="button" data-fmt="ul" title="Aufzählung (- Punkt)">•</button>
         <button type="button" data-fmt="ol" title="Nummerierte Liste (1. Punkt)">1.</button>
         <button type="button" data-fmt="checklist" title="Checkliste (- [ ] Aufgabe)">☑</button>
-        <button type="button" id="btnCallout" title="Callout einfügen">💬</button>
+        <button type="button" id="btnCallout" title="Callout einfügen">▤</button>
       </div>
       <button type="button" class="icon-btn" id="btnExport" title="Notiz exportieren" aria-label="Notiz exportieren">⬇</button>
       <button type="button" class="icon-btn" id="btnSaveAsTemplate" title="Als eigene Vorlage speichern" aria-label="Als Vorlage speichern">📋</button>
@@ -2421,6 +3028,8 @@ async function renderNote(relPath) {
     if (!btn) return;
     state.viewMode = btn.dataset.mode;
     applyViewMode();
+    fs.setProjectSetting('viewMode', state.viewMode).catch(() => {});
+    if (state.project?.config) state.project.config.viewMode = state.viewMode;
   });
 
   // Sync-Scroll: Standard an, außer der Nutzer hat es zuvor bewusst
@@ -2464,6 +3073,22 @@ async function renderNote(relPath) {
   // unproblematisch) — mousemove/mouseup laufen einmalig auf Modulebene
   // (siehe splitResizerState/wireSplitResizerGlobalListenersOnce weiter unten).
   wireSplitResizer();
+
+  // Gespeicherte Scrollposition wiederherstellen (Nutzer-Feature) — nur
+  // wenn tatsächlich ein Wert für GENAU diese Notiz vorliegt. Erst nach
+  // einem requestAnimationFrame anwenden, damit der Browser das Layout
+  // (reale Inhaltshöhe) vorher fertig berechnet hat — sonst würde der
+  // Wert bei einem noch nicht vollständig gemessenen Bereich stillschweigend
+  // auf die aktuell verfügbare, zu kleine Höhe gekappt.
+  const savedScroll = state.project?.config?.noteScrollPositions?.[relPath];
+  if (savedScroll) {
+    setTimeout(() => {
+      const editorScrollEl = document.querySelector('.cm-scroller');
+      const previewScrollEl = document.getElementById('previewContainer');
+      if (editorScrollEl && typeof savedScroll.editor === 'number') editorScrollEl.scrollTop = savedScroll.editor;
+      if (previewScrollEl && typeof savedScroll.preview === 'number') previewScrollEl.scrollTop = savedScroll.preview;
+    }, 120);
+  }
 
   const tagsInput = document.getElementById('noteTagsInput');
   const titleInput = document.getElementById('noteTitleInput');
@@ -2578,6 +3203,7 @@ async function renderNote(relPath) {
     showCategoryMoveMenu(categoryBadge, options, async (targetRelPath) => {
       const moved = await fs.moveEntry(relPath, targetRelPath);
       await refreshAll();
+      showMoveUndoToast(relPath, moved);
       location.hash = '#note/' + encodeURIComponent(moved.relPath);
     });
   });
@@ -2635,8 +3261,8 @@ async function renderNote(relPath) {
     relPath,
     editorContainer: document.getElementById('editorContainer'),
     previewContainer: document.getElementById('previewContainer'),
-    tabSize: state.config?.tabSize || 2,
-    autoSaveSeconds: state.config?.autoSave ?? 30,
+    tabSize: state.project?.config?.editor?.tabSize ?? 2,
+    autoSaveSeconds: state.project?.config?.editor?.autoSave ?? 30,
     projectPath: state.project?.path,
     getNoteIndex: () => fs.flattenNotes(state.tree).map(n => ({
       title: n.frontmatter?.title || n.name.replace(/\.md$/, ''),
@@ -2687,6 +3313,14 @@ async function renderNote(relPath) {
       if (Number.isNaN(idx)) return;
       const updated = setNthImageWidthInMarkdown(getEditorContent(), idx, pctBtn.dataset.imgPct);
       setEditorContent(updated);
+      return;
+    }
+    // Bild-Zoom (Nutzer-Feature): läuft NACH dem obigen Prozent-Knopf-
+    // Handler, der bei Treffer bereits zurückkehrt — ein Klick auf einen
+    // der Größen-Knöpfe erreicht diesen Code also gar nicht erst.
+    const zoomImg = e.target.closest('.img-size-wrap img');
+    if (zoomImg) {
+      showImageLightbox(zoomImg.src, zoomImg.alt);
       return;
     }
     const copyBtn = e.target.closest('.copy-btn');
@@ -3147,7 +3781,7 @@ function showCalloutPicker(anchorOrPos) {
     const btn = e.target.closest('.callout-picker-btn');
     if (!btn) return;
     const meta = CALLOUT_PICKER_TYPES.find(c => c.type === btn.dataset.calloutType);
-    insertAtCursor(`\n> [!${meta.type}] ${meta.label}\n> Inhalt hier\n`);
+    insertAtCursor(`\n> [!${meta.type}] ${meta.label}\n> Inhalt hier\n\n`);
     picker.remove();
   });
   setTimeout(() => document.addEventListener('click', function closeOnce(e) {
@@ -3841,7 +4475,6 @@ function waitForUnlock() {
 
 (async function init() {
   state.project = await window.archivAPI.getCurrentProject();
-  state.config = state.project?.config?.editor || {};
 
   await waitForUnlock();
 
@@ -3852,6 +4485,26 @@ function waitForUnlock() {
   applyReadingWidth(state.project?.config?.readingWidthEnabled, state.project?.config?.readingWidthKey);
   applyEditorFontSize(state.project?.config?.editorFontSize);
   initEllipsisTooltips();
+  // Sidebar-Kollaps-Zustand wiederherstellen (Nutzer-Feature) — nur die
+  // Klasse/den Titel setzen, nicht erneut speichern, der Wert kommt ja
+  // bereits aus der gespeicherten Konfiguration.
+  const startCollapsed = state.project?.config?.sidebarCollapsed === true;
+  document.body.classList.toggle('sidebar-collapsed', startCollapsed);
+  els.burgerBtn.title = startCollapsed ? 'Sidebar einblenden' : 'Sidebar ausblenden';
+  // Gespeicherte Sidebar-Breite wiederherstellen (Nutzer-Feature) — nur
+  // anwenden, wenn tatsächlich eine abweichende Breite gespeichert wurde,
+  // sonst bleibt es beim CSS-Standardwert (292px).
+  const savedWidth = state.project?.config?.sidebarWidth;
+  if (typeof savedWidth === 'number' && savedWidth >= 220 && savedWidth <= 480) {
+    document.documentElement.style.setProperty('--sidebar-w', savedWidth + 'px');
+  }
+  // Gespeicherten Ansichtsmodus wiederherstellen (Nutzer-Feature) — nur
+  // anwenden, wenn ein gültiger Wert gespeichert wurde, sonst bleibt es beim
+  // Standard ('split') aus der initialen State-Deklaration.
+  const savedViewMode = state.project?.config?.viewMode;
+  if (['split', 'editor', 'preview'].includes(savedViewMode)) {
+    state.viewMode = savedViewMode;
+  }
 
   // Backup-Warnung: Symbol bleibt standardmäßig versteckt, erscheint nur ab
   // 3 aufeinanderfolgenden fehlgeschlagenen automatischen Backups (main/backup.js

@@ -4,12 +4,13 @@
 // damit die Renderer-Seite CodeMirror/marked/highlight.js/KaTeX ohne eigenen
 // Bundler per <script type="module"> laden kann (siehe build/build.mjs).
 
-import { EditorState } from '@codemirror/state';
-import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
+import { EditorState, RangeSetBuilder } from '@codemirror/state';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, Decoration, ViewPlugin } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage, markdownKeymap } from '@codemirror/lang-markdown';
-import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
-import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
+import { syntaxHighlighting, HighlightStyle, syntaxTree, indentUnit } from '@codemirror/language';
+import { GFM } from '@lezer/markdown';
+import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { search, searchKeymap, setSearchQuery, SearchQuery, findNext, findPrevious, closeSearchPanel } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
 
@@ -185,12 +186,31 @@ export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, 
       saveKeymap,
       search({ top: true }),
       keymap.of([...markdownKeymap, indentWithTab, ...defaultKeymap, ...historyKeymap, ...completionKeymap, ...searchKeymap]),
-      markdown({ base: markdownLanguage }),
+      markdown({ base: markdownLanguage, extensions: [GFM] }),
       autocompletion({ override: [wikiLinkCompletionSource(getNoteIndex)] }),
       syntaxHighlighting(highlightStyle),
       editorTheme,
       EditorState.tabSize.of(tabSize),
+      // Bugfix (Editor-Audit Phase 10): tabSize allein steuert nur die
+      // visuelle Breite eines bereits vorhandenen Tab-Zeichens, NICHT wie
+      // viele Leerzeichen indentWithTab beim Drücken der Tab-Taste
+      // tatsächlich einfügt — dafür ist diese separate Facet zuständig.
+      indentUnit.of(' '.repeat(tabSize)),
+      closeBrackets(),
+      keymap.of(closeBracketsKeymap),
+      // Automatische Zeichenpaar-Ergänzung (Nutzer-Feature): CodeMirrors
+      // eigener closeBrackets-Baustein, um Backtick (Inline-Code) und
+      // Sternchen (Betonung) erweitert — zusätzlich zu den Standard-Klammern
+      // und Anführungszeichen, die closeBrackets() bereits von Haus aus
+      // abdeckt. Bei markiertem Text umschließt closeBrackets die Auswahl
+      // automatisch (z. B. Text markieren, * drücken → *Text*), statt nur
+      // ein leeres Paar einzufügen. Echtes **fett** über ein einziges
+      // Tastenpaar bräuchte eine eigene, spezifisch für Markdown-Doppel-
+      // zeichen geschriebene Lösung, bewusst nicht umgesetzt — hier kommt
+      // ausschließlich CodeMirrors eigener Mechanismus zum Einsatz.
+      EditorState.languageData.of(() => [{ closeBrackets: { brackets: ['(', '[', '{', "'", '"', '`', '*'] } }]),
       EditorView.lineWrapping,
+      readingWidthNowrapPlugin,
       // Bugfix (Nutzer-Meldung: Rechtschreibprüfung funktioniert nicht):
       // CodeMirror setzt als Code-Editor SELBST standardmäßig
       // spellcheck="false" auf sein eigenes Textfeld — unabhängig von
@@ -365,6 +385,57 @@ marked.use({
   }
 });
 
+// Lesebreite im Editor (Nutzer-Feature): normale Zeilen werden per CSS
+// zentriert und auf die Lesebreite begrenzt (siehe reading-width-Regeln in
+// styles.css). Für Bereiche, in denen eine feste Breite den Arbeitsfluss
+// verschlechtern würde (Tabellen, Code-Blöcke), wird hier GENERISCH über
+// den echten Markdown-Syntaxbaum erkannt, ob eine Zeile zu einem dieser
+// "nicht umbrechen"-Knotentypen gehört — keine Heuristik auf Zeicheninhalt
+// (z. B. "enthält viele |-Zeichen"), sondern dieselbe Erkennung, die
+// CodeMirror ohnehin schon für die Syntax-Hervorhebung nutzt (siehe GFM-
+// Erweiterung weiter oben, nötig damit Tabellen überhaupt als eigener
+// Knotentyp erkannt werden, nicht nur als normaler Absatz). Neue, ähnliche
+// Knotentypen (z. B. HTMLBlock) ließen sich später einfach hier ergänzen,
+// ohne die eigentliche Erkennungs-Logik anzufassen.
+const NOWRAP_NODE_TYPES = new Set(['FencedCode', 'CodeBlock', 'Table']);
+
+function lineHasNowrapNode(state, line) {
+  let node = syntaxTree(state).resolve(line.from, 1);
+  while (node) {
+    if (NOWRAP_NODE_TYPES.has(node.type.name)) return true;
+    node = node.parent;
+  }
+  return false;
+}
+
+const readingWidthNowrapPlugin = ViewPlugin.fromClass(class {
+  constructor(view) { this.decorations = this.buildDecorations(view); }
+  update(update) {
+    // Nur bei tatsächlichen Änderungen neu berechnen (Text, sichtbarer
+    // Bereich beim Scrollen) — nicht bei jeder reinen Cursor-Bewegung.
+    if (update.docChanged || update.viewportChanged) {
+      this.decorations = this.buildDecorations(update.view);
+    }
+  }
+  buildDecorations(view) {
+    const builder = new RangeSetBuilder();
+    // Nur sichtbare Zeilen prüfen (Performance bei großen Dokumenten) — das
+    // von CodeMirror selbst empfohlene Muster für zeilenweise Dekorationen,
+    // statt bei jeder Änderung das gesamte Dokument zu durchlaufen.
+    for (const { from, to } of view.visibleRanges) {
+      let pos = from;
+      while (pos <= to) {
+        const line = view.state.doc.lineAt(pos);
+        if (lineHasNowrapNode(view.state, line)) {
+          builder.add(line.from, line.from, Decoration.line({ class: 'cm-line-nowrap' }));
+        }
+        pos = line.to + 1;
+      }
+    }
+    return builder.finish();
+  }
+}, { decorations: v => v.decorations });
+
 // Schützt Code-Bereiche (Fences + Inline-Code) vor der Mathe-Erkennung —
 // sonst würde z. B. ${name}, $HOME oder $1 in Code-Blöcken fälschlich als
 // Mathe-Ausdruck interpretiert. Läuft VOR der Mathe-Ersetzung, wird danach
@@ -532,10 +603,29 @@ export function renderPreview(markdownText, options = {}) {
   let imgIndex = 0;
   html = html.replace(/<img\b([^>]*)>/g, (match, attrs) => {
     if (/\bclass="[^"]*preview-lib-icon/.test(attrs)) return match; // unverändert
+    // Die Breite kommt aus dem title-Attribut ("width:50%"), nicht aus
+    // einem rohen style-Attribut — siehe setNthImageWidthInMarkdown in
+    // app.js: das hält das Bild als normale Markdown-Bildsyntax, die
+    // marked.js zuverlässig in einen umschließenden <p> einbettet, statt
+    // es als eigenständigen HTML-Block zu behandeln (was es sonst aus dem
+    // normalen Textfluss herausfallen ließe). Hier wird daraus erst das
+    // tatsächlich wirksame style-Attribut erzeugt.
+    const titleWidthMatch = attrs.match(/\btitle\s*=\s*"width:(\d+)%"/);
+    const finalAttrs = titleWidthMatch
+      ? attrs.replace(/\s*title\s*=\s*"width:\d+%"/, '') + ` style="width:${titleWidthMatch[1]}%"`
+      : attrs;
     const idx = imgIndex++;
     const buttons = [25, 50, 75, 100].map(p => `<button type="button" data-img-pct="${p}">${p}%</button>`).join('');
-    return `<span class="img-size-wrap" data-img-index="${idx}"><img${attrs}><span class="img-size-buttons">${buttons}</span></span>`;
+    return `<span class="img-size-wrap" data-img-index="${idx}"><img${finalAttrs}><span class="img-size-buttons">${buttons}</span></span>`;
   });
 
-  return html;
+  // Gemeinsamer Inhaltscontainer (Bugfix): EINZIGER Ort, an dem die
+  // Lesebreite greift. Vorher wurde jedes direkte Kind von .preview-pane
+  // einzeln zentriert — funktionierte für normale Block-Elemente (Absatz,
+  // Überschrift, Tabelle), führte aber zu Problemen, sobald ein einzelnes
+  // Element (z. B. das Bild) eine eigene, abweichende Zentrierungslogik
+  // bekam. Jetzt bestimmt dieser eine Wrapper die Breite, alle Inhalte
+  // (inklusive Bilder, die innerhalb eines <p> liegen) folgen ihm über den
+  // normalen Dokumentfluss, ohne eigene Regeln pro Element.
+  return `<div class="preview-content">${html}</div>`;
 }
