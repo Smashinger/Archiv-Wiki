@@ -10,9 +10,10 @@
 // neben jedem Feld) UND sofort über den Settings-Service (settings:update)
 // gespeichert — kein Neustart nötig, kein separater "Speichern"-Button.
 
-import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, setFocusMode, READING_WIDTH_PRESETS, applyReadingWidth, generateRandomAccentColor } from './theme.js';
+import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, setFocusMode, isFocusModeAvailable, syncFocusIntensitySelection, READING_WIDTH_PRESETS, applyReadingWidth, generateRandomAccentColor } from './theme.js';
 import { fetchUpdateStatus, requestUpdateCheck, onUpdateStatusChanged, renderUpdateStatus } from './update-check.js';
 import { animateIn, animateOut } from './motion.js';
+import { manageModalDialog } from './dialog.js';
 
 function escapeAttr(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -47,16 +48,6 @@ const BACKUP_INTERVAL_OPTIONS = [
   { value: 14, label: 'Alle 2 Wochen' },
   { value: 30, label: 'Monatlich' }
 ];
-
-const FOCUSABLE_SELECTOR = [
-  'button:not([disabled])',
-  'input:not([disabled]):not([type=\"hidden\"])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  'a[href]',
-  '[contenteditable=\"true\"]',
-  '[tabindex]:not([tabindex=\"-1\"])'
-].join(',');
 
 let closeActiveSettingsWindow = null;
 let settingsWindowOpenGeneration = 0;
@@ -122,7 +113,7 @@ export async function showSettingsWindow(context = {}) {
   overlay.innerHTML = `
     <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsDialogTitle">
       <div class="settings-modal-header">
-        <span id="settingsDialogTitle">⚙ Einstellungen</span>
+        <span id="settingsDialogTitle"><img class="lib-icon dialog-title-icon" src="assets/icon-library/projects/settings.svg" alt="">Einstellungen</span>
         <button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Einstellungen schließen">✕</button>
       </div>
       <div class="settings-modal-body">
@@ -134,59 +125,24 @@ export async function showSettingsWindow(context = {}) {
     </div>
   `;
 
-  // Während der modale Dialog geöffnet ist, darf die Hauptoberfläche weder
-  // per Tab noch über Hilfstechnologien erreichbar sein. Vorzustände werden
-  // exakt gesichert und beim Schließen wiederhergestellt.
-  const backgroundState = [...document.body.children].map(element => ({
-    element,
-    inert: element.inert,
-    ariaHidden: element.getAttribute('aria-hidden')
-  }));
-  backgroundState.forEach(({ element }) => {
-    element.inert = true;
-    element.setAttribute('aria-hidden', 'true');
-  });
-
   document.body.appendChild(overlay);
   const modal = overlay.querySelector('.settings-modal');
   animateIn(modal);
-
-  function getFocusableElements() {
-    return [...modal.querySelectorAll(FOCUSABLE_SELECTOR)].filter(element => {
-      if (!(element instanceof HTMLElement)) return false;
-      if (element.getAttribute('aria-hidden') === 'true') return false;
-      return element.getClientRects().length > 0;
-    });
-  }
 
   function hasActiveChildDialog() {
     return [...document.querySelectorAll('.prompt-overlay, .table-editor-overlay, .image-lightbox-overlay')]
       .some(element => element !== overlay && element.isConnected && element.getClientRects().length > 0);
   }
 
-  function restoreBackground() {
-    backgroundState.forEach(({ element, inert, ariaHidden }) => {
-      if (!element.isConnected) return;
-      element.inert = inert;
-      if (ariaHidden === null) element.removeAttribute('aria-hidden');
-      else element.setAttribute('aria-hidden', ariaHidden);
-    });
-  }
-
   let stopBackupStatusUpdates = null;
   let stopUpdateStatusUpdates = null;
+  let dialogController = null;
 
   function finishClose(restoreFocus = true) {
-    document.removeEventListener('keydown', handleDialogKeydown, true);
     stopBackupStatusUpdates?.();
     stopUpdateStatusUpdates?.();
-    overlay.remove();
-    restoreBackground();
+    dialogController?.destroy({ restoreFocus });
     closeActiveSettingsWindow = null;
-
-    if (restoreFocus && previouslyFocused?.isConnected) {
-      requestAnimationFrame(() => previouslyFocused.focus({ preventScroll: true }));
-    }
   }
 
   function closeSettings({ immediate = false, restoreFocus = true } = {}) {
@@ -197,39 +153,15 @@ export async function showSettingsWindow(context = {}) {
   }
 
   closeActiveSettingsWindow = closeSettings;
-
-  function handleDialogKeydown(event) {
-    if (event.key === 'Escape') {
-      // Native Dateidialoge blockieren den Renderer-Ereignisloop. Für
-      // untergeordnete App-Dialoge bleibt Escape beim jeweils obersten Dialog.
-      if (hasActiveChildDialog()) return;
-      event.preventDefault();
-      event.stopPropagation();
-      closeSettings();
-      return;
-    }
-
-    if (event.key !== 'Tab') return;
-    const focusable = getFocusableElements();
-    if (!focusable.length) {
-      event.preventDefault();
-      return;
-    }
-
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const active = document.activeElement;
-
-    if (event.shiftKey && (active === first || !modal.contains(active))) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && (active === last || !modal.contains(active))) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  document.addEventListener('keydown', handleDialogKeydown, true);
+  dialogController = manageModalDialog({
+    overlay,
+    dialog: modal,
+    titleElement: overlay.querySelector('#settingsDialogTitle'),
+    initialFocus: () => overlay.querySelector('.settings-nav button'),
+    onRequestClose: () => closeSettings(),
+    closeOnBackdrop: false,
+    canCloseOnEscape: () => !hasActiveChildDialog()
+  });
 
   // Sofort speichern UND zurückgeben — jede Sektion wendet das Ergebnis
   // selbst live an (z. B. applyAccentPalette), kein Neustart nötig.
@@ -355,7 +287,18 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
       </div>
     </div>
     </section>
+    <section class="settings-group" aria-labelledby="stGeneralHelpGroup">
+      <h4 id="stGeneralHelpGroup">Hilfe</h4>
+      <div class="settings-field">
+        <span>Tastenkürzel</span>
+        <button type="button" class="btn ghost settings-inline-btn" id="stShowShortcuts">Übersicht öffnen</button>
+        <p class="settings-hint">Zeigt die vorhandene Übersicht aller Tastenkürzel.</p>
+      </div>
+    </section>
   `;
+  el.querySelector('#stShowShortcuts').addEventListener('click', () => {
+    context.onShowShortcuts?.();
+  });
   el.querySelector('#stWikiName').addEventListener('change', async (e) => {
     const name = e.target.value.trim();
     await updateSetting({ wikiName: name });
@@ -426,7 +369,7 @@ function renderAppearanceSection(el, config, updateSetting) {
       <span>Akzentfarbe</span>
       <div class="color-swatches" id="stAccentSwatches">
         ${buildAccentSwatchesHtml(config.accentKey || 'orange')}
-        <button type="button" class="color-swatch color-swatch-random" id="stRandomAccent" data-accent="random" title="Neue Zufallsfarbe erzeugen">🎲</button>
+        <button type="button" class="color-swatch color-swatch-random" id="stRandomAccent" data-accent="random" title="Neue Zufallsfarbe erzeugen"><img class="lib-icon dialog-inline-icon" src="assets/icon-library/projects/sparkles.svg" alt=""></button>
       </div>
       <input type="color" id="stCustomColorInput" class="settings-hidden-color-input" aria-label="Eigene Akzentfarbe auswählen" value="${escapeAttr(config.customAccentColor || '#c17d45')}">
       <div class="settings-hex-input-row">
@@ -451,12 +394,12 @@ function renderAppearanceSection(el, config, updateSetting) {
     <div class="settings-field">
       <span>Fokus-Modus</span>
       <label class="settings-checkbox-row">
-        <input type="checkbox" id="stFocusModeEnabled" ${document.body.classList.contains('focus-mode') ? 'checked' : ''}>
+        <input type="checkbox" id="stFocusModeEnabled" ${document.body.classList.contains('focus-mode') ? 'checked' : ''} ${isFocusModeAvailable() ? '' : 'disabled'}>
         <span>Fokus-Modus aktivieren</span>
       </label>
       <div class="density-option-row" id="stFocusIntensityRow" role="group" aria-label="Stärke des Fokus-Modus">
         ${[{ v: 'light', l: 'Leicht' }, { v: 'medium', l: 'Mittel' }, { v: 'strong', l: 'Stark' }, { v: 'stronger', l: 'Sehr stark' }].map(o =>
-          `<button type="button" class="density-option ${(config.focusModeIntensity || 'medium') === o.v ? 'active' : ''}" data-intensity="${o.v}">${o.l}</button>`
+          `<button type="button" aria-pressed="${(config.focusModeIntensity || 'medium') === o.v ? 'true' : 'false'}" class="density-option ${(config.focusModeIntensity || 'medium') === o.v ? 'active' : ''}" data-intensity="${o.v}">${o.l}</button>`
         ).join('')}
       </div>
     </div>
@@ -560,7 +503,8 @@ function renderAppearanceSection(el, config, updateSetting) {
   // Stil-Vorliebe und wird gespeichert; ist der Modus gerade aktiv, wirkt sie
   // sofort sichtbar.
   el.querySelector('#stFocusModeEnabled').addEventListener('change', (e) => {
-    setFocusMode(e.target.checked, config.focusModeIntensity);
+    const active = setFocusMode(e.target.checked, config.focusModeIntensity);
+    e.target.checked = active;
   });
   el.querySelector('#stFocusIntensityRow').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-intensity]');
@@ -568,7 +512,7 @@ function renderAppearanceSection(el, config, updateSetting) {
     await updateSetting({ focusModeIntensity: btn.dataset.intensity });
     config.focusModeIntensity = btn.dataset.intensity;
     if (document.body.classList.contains('focus-mode')) setFocusMode(true, btn.dataset.intensity);
-    el.querySelectorAll('#stFocusIntensityRow button').forEach(b => b.classList.toggle('active', b === btn));
+    syncFocusIntensitySelection(btn.dataset.intensity);
   });
   // Lesebreite: läuft im selben Dokument wie die Hauptansicht (siehe Kommentar
   // beim Fokus-Modus oben) — Checkbox und Breiten-Auswahl wirken deshalb ohne

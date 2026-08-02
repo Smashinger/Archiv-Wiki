@@ -173,7 +173,6 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 
 .nav-group.collapsed .g-chevron{ transform: rotate(-90deg); }
 .nav-group.collapsed .group-list{ max-height:0; opacity:0; margin:0; border-color:transparent; }
-.group-header-row:hover .nav-icon-btn{ opacity:1; }
 
 /* Einrückungslinie: jede Verschachtelungsebene (Unterkategorien, Notizen)
    bekommt eine eigene vertikale Linie + Einzug, siehe hierarchie.png. */
@@ -201,14 +200,9 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .drop-success > .nav-link, .drop-success > .group-header-row .group-header{
   animation: drop-success-pulse .5s ease-out;
 }
-.nav-icon-btn{ border:none; background:transparent; color: var(--text-faint); cursor:pointer; font-size:13px; line-height:1; padding:5px 6px; border-radius: var(--radius-sm); flex-shrink:0; opacity:0; }
-.nav-item-row:hover .nav-icon-btn{ opacity:1; }
-.nav-icon-btn:hover{ color: var(--red); background: rgba(226,88,90,.1); }
 
 /* Ziehen-Griff (Nutzer-Feature): erscheint automatisch beim Überfahren
-   einer Zeile mit der Maus — kein extra Modus mehr nötig. Dieselbe
-   opacity-Technik wie das bereits bestehende .nav-icon-btn, für ein
-   konsistentes Erscheinungsbild beider "erst bei Hover sichtbar"-Elemente. */
+   einer Zeile mit der Maus — kein extra Modus mehr nötig. */
 .row-handle{
   display:flex; align-items:center; justify-content:center; flex-shrink:0; cursor:grab; color: var(--text-faint); font-size:13px;
   padding: 4px 3px; line-height:1; border-radius: var(--radius-sm); opacity:0; transition: opacity .12s ease;
@@ -266,6 +260,7 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
   display:flex; align-items:center; justify-content:center; transition: border-color .15s ease;
 }
 .dashboard-tip-icon-btn:hover{ border-color: var(--accent-dim); }
+.dashboard-tip-icon-btn:focus-visible{ outline:2px solid var(--accent-dim); outline-offset:2px; }
 .dashboard-tip-popover{
   position:fixed; z-index:180; max-width:280px; display:flex; align-items:flex-start; gap:8px;
   background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-md);
@@ -719,6 +714,20 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .context-menu-label{ font-family: var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color: var(--text-faint); padding:6px 10px 2px; }
 .context-menu button{ text-align:left; background:transparent; border:none; color: var(--text-muted); font-family: var(--mono); font-size:12.5px; padding:8px 10px; border-radius: var(--radius-sm); cursor:pointer; }
 .context-menu button:hover{ background: var(--bg-elev); color: var(--text-main); }
+
+/* Tastaturziele für HTML-Kontextmenüs: derselbe dezente Fokusstandard wie
+   Menüeinträge, ohne das bestehende Layout zu verändern. */
+.nav-link[data-relpath]:focus-visible,
+.group-header:focus-visible,
+#previewContainer:focus-visible {
+  outline: 2px solid var(--accent-dim);
+  outline-offset: 2px;
+}
+.context-menu [role="menuitem"]:focus-visible,
+.ectx-item[role="menuitem"]:focus-visible{
+  outline:2px solid var(--accent-dim); outline-offset:-2px;
+  background:var(--bg-elev); color:var(--text-main);
+}
 .context-menu button.danger{ color: var(--red); }
 .context-menu button.danger:hover{ color: var(--red); background: rgba(226,88,90,.12); }
 
@@ -895,11 +904,14 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 }
 .template-picker-btn:hover{ background: var(--bg-elev); color: var(--text-main); border-color: var(--accent-dim); }
 
-/* --- Eingabe-Modal (Ersatz für window.prompt(), das Electron nicht unterstützt) --- */
+/* --- Eingabe-Modal auf Basis des zentralen Dialogsystems --- */
 .prompt-overlay{
   position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.55);
   display: flex; align-items: center; justify-content: center;
 }
+/* Die gemeinsame Tastenkürzelübersicht darf auch über bereits offenen
+   HTML-Dialogen (z. B. Einstellungen) nicht verdeckt werden. */
+.prompt-overlay.shortcuts-overlay{ z-index: 400; }
 .prompt-modal{
   background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius-lg);
   padding: 20px; width: 340px; max-width: calc(100vw - 40px);
@@ -1213,3 +1225,153 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .settings-technical-details{ margin-top:6px; font-size:11.5px; }
 .settings-technical-details summary{ cursor:pointer; }
 .settings-technical-details div{ margin-top:6px; white-space:pre-wrap; overflow-wrap:anywhere; }
+
+/* Einheitlicher Tastaturfokus für bestehende modale HTML-Dialoge. */
+.prompt-modal :is(button, input, select, textarea, a, [tabindex]):focus-visible,
+.table-editor-modal :is(button, input, select, textarea, a, [tabindex]):focus-visible,
+.dashboard-settings-panel :is(button, input, select, textarea, a, [tabindex]):focus-visible,
+.image-lightbox-overlay:focus-visible {
+  outline: 2px solid var(--accent-dim);
+  outline-offset: 2px;
+}
+
+/* Gemeinsame semantische Dialogstruktur. Die Body-Hülle bleibt bewusst
+   layoutneutral, damit Phase 2 keine visuelle Änderung verursacht. */
+.dialog-body-layout-neutral{ display: contents; }
+
+/* Dialogsystem – abschließender visueller Standard.
+   Bestehende Dialogklassen bleiben erhalten; gemeinsame Rollen sorgen nur
+   für konsistente Abstände, Typografie, Größenbegrenzung und Zustände. */
+.dialog-surface{
+  box-sizing:border-box;
+  max-width:calc(100vw - 40px);
+  max-height:calc(100vh - 80px);
+  color:var(--text-main);
+}
+.dialog-header{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  font-family:var(--mono);
+  font-size:13px;
+  font-weight:600;
+  line-height:1.4;
+  color:var(--text-main);
+}
+.prompt-title.dialog-header{
+  position:relative;
+  margin:0 0 14px;
+  padding:0;
+}
+.prompt-title.dialog-header .modal-close-x{
+  position:static;
+  margin-left:auto;
+  flex-shrink:0;
+}
+.dialog-title-icon{
+  width:16px;
+  height:16px;
+  flex:0 0 16px;
+  vertical-align:0;
+}
+.dialog-inline-icon{
+  width:14px;
+  height:14px;
+  flex:0 0 14px;
+  vertical-align:0;
+}
+.dialog-description{
+  font-size:11.5px;
+  line-height:1.5;
+  color:var(--text-faint);
+}
+.dialog-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+}
+.dialog-actions > button{
+  min-height:34px;
+  line-height:1.3;
+  transition:color .15s ease, border-color .15s ease, background-color .15s ease, opacity .15s ease;
+}
+.dialog-actions > button:disabled{
+  opacity:.5;
+  cursor:not-allowed;
+}
+.prompt-modal.dialog-surface{
+  width:360px;
+  overflow:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+.prompt-modal.sync-modal.dialog-surface{
+  width:420px;
+}
+.dashboard-settings-panel.dialog-surface{
+  width:340px;
+  max-height:calc(100vh - 80px);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+.dashboard-settings-panel.dialog-surface h3.dialog-title{
+  margin:0 0 14px;
+}
+.dashboard-settings-panel .dialog-inline-icon{
+  margin-left:1px;
+}
+.settings-modal-header .dialog-title{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+.table-editor-modal .dialog-header{
+  min-height:24px;
+}
+.sync-history-toggle{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+}
+.sync-action-btn .sab-icon{
+  width:17px;
+  height:17px;
+  flex:0 0 17px;
+  vertical-align:0;
+}
+.sync-history-row .shr-icon{
+  width:14px;
+  height:14px;
+  flex:0 0 14px;
+}
+.dialog-surface :is(button, input, select, textarea, a, [tabindex]):focus-visible{
+  outline:2px solid var(--accent-dim);
+  outline-offset:2px;
+}
+@media (max-width:560px){
+  .dialog-surface{
+    max-width:calc(100vw - 24px);
+    max-height:calc(100vh - 48px);
+  }
+  .prompt-modal.dialog-surface,
+  .prompt-modal.sync-modal.dialog-surface,
+  .dashboard-settings-panel.dialog-surface{
+    width:calc(100vw - 24px);
+  }
+}
+
+/* Gemeinsame Meldungs- und Bestätigungsdialoge auf Basis des Dialogsystems. */
+.dialog-message {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  white-space: pre-line;
+}
+.prompt-actions .btn.danger {
+  border-color: var(--red);
+  color: var(--red);
+}

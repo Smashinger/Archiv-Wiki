@@ -8,6 +8,7 @@
 const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { atomicWriteFileSync } = require('./atomic-write');
 
 const CONFIG_FILENAME = '.wiki-config.json';
 const TRASH_DIRNAME = '.wiki-trash';
@@ -37,7 +38,7 @@ function readProjectConfig(projectPath) {
 
 function writeProjectConfig(projectPath, config) {
   const configPath = path.join(projectPath, CONFIG_FILENAME);
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+  atomicWriteFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
   return config;
 }
 

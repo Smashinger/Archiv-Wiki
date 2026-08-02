@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const matter = require('gray-matter');
 const { CONFIG_FILENAME, TRASH_DIRNAME } = require('./project');
+const { atomicWriteFileSync } = require('./atomic-write');
 
 const NOTE_EXT = '.md';
 
@@ -69,7 +70,7 @@ function readNoteRaw(fullPath) {
 
 function writeNoteRaw(fullPath, frontmatter, body) {
   const fileString = matter.stringify(body || '', frontmatter || {});
-  fs.writeFileSync(fullPath, fileString, 'utf8');
+  atomicWriteFileSync(fullPath, fileString, 'utf8');
 }
 
 // ---------------------------------------------------------------------------

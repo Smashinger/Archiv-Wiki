@@ -5,6 +5,7 @@
 import { buildSyncIntervalOptionsHtml } from './sync-shared.js';
 import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml } from './theme.js';
 import { fetchUpdateStatus, onUpdateStatusChanged, renderUpdateStatus } from './update-check.js';
+import { showMessageDialog, showConfirmDialog } from './dialog.js';
 
 const state = {
   step: 1,
@@ -200,10 +201,14 @@ els.btnNext.addEventListener('click', () => {
     renderStep();
   }
 });
-els.btnCancel.addEventListener('click', () => {
-  if (confirm('Einrichtung abbrechen? Bisherige Eingaben gehen verloren.')) {
-    window.close();
-  }
+els.btnCancel.addEventListener('click', async () => {
+  const confirmed = await showConfirmDialog({
+    title: 'Einrichtung abbrechen?',
+    message: 'Bisherige Eingaben gehen verloren.',
+    confirmLabel: 'Einrichtung abbrechen',
+    danger: true
+  });
+  if (confirmed) window.close();
 });
 els.btnBack.addEventListener('click', () => {
   if (state.step > 1) {
@@ -253,7 +258,10 @@ els.btnFinish.addEventListener('click', async () => {
   } catch (err) {
     els.btnFinish.disabled = false;
     els.btnFinish.textContent = 'Projekt anlegen ✓';
-    alert('Projekt konnte nicht angelegt werden: ' + err.message);
+    await showMessageDialog({
+      title: 'Projekt konnte nicht angelegt werden',
+      message: err.message
+    });
   }
 });
 

@@ -169,15 +169,49 @@ export function applyEditorFontSize(px) {
   return clamped;
 }
 
-// Focus-/Cocoon-Modus: hier zentral, damit sowohl app.js (Werkzeugleisten-
+// Fokus-Modus: hier zentral, damit sowohl app.js (Werkzeugleisten-
 // Knopf/Tastenkürzel) als auch settings-window.js (Checkbox) dieselbe Logik
 // nutzen, ohne dass die beiden sich gegenseitig importieren müssten (app.js
 // importiert bereits AUS settings-window.js, ein Import in der Gegenrichtung
 // wäre ein zirkulärer Import).
+export function isFocusModeAvailable() {
+  const editor = document.getElementById('editorContainer');
+  return Boolean(editor && editor.isConnected);
+}
+
+export function syncFocusIntensitySelection(intensity) {
+  const selected = intensity || 'medium';
+  document.querySelectorAll('#stFocusIntensityRow [data-intensity]').forEach(button => {
+    const active = button.dataset.intensity === selected;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
 export function setFocusMode(active, intensity) {
-  document.body.classList.toggle('focus-mode', active);
-  if (active) document.body.dataset.focusIntensity = intensity || 'medium';
-  document.getElementById('btnFocusMode')?.classList.toggle('active', active);
+  const nextActive = Boolean(active && isFocusModeAvailable());
+  const selectedIntensity = intensity || document.body.dataset.focusIntensity || 'medium';
+  document.body.classList.toggle('focus-mode', nextActive);
+  if (nextActive) document.body.dataset.focusIntensity = selectedIntensity;
+  else delete document.body.dataset.focusIntensity;
+
+  const focusButton = document.getElementById('btnFocusMode');
+  if (focusButton) {
+    focusButton.classList.toggle('active', nextActive);
+    focusButton.setAttribute('aria-pressed', nextActive ? 'true' : 'false');
+  }
+  syncFocusIntensitySelection(selectedIntensity);
+
+  // Das Einstellungsfenster lebt im selben Dokument. Falls sein Fokus-Schalter
+  // gerade sichtbar ist, wird er direkt aus demselben Body-Zustand gespiegelt,
+  // statt eine zweite lokale Statusquelle zu führen.
+  const settingsToggle = document.getElementById('stFocusModeEnabled');
+  if (settingsToggle) {
+    settingsToggle.checked = nextActive;
+    settingsToggle.disabled = !isFocusModeAvailable();
+  }
+
+  return nextActive;
 }
 
 // Lesemodus mit fester Textbreite (Nutzer-Feature): begrenzt die Vorschau auf

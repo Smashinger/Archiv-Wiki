@@ -16,6 +16,7 @@ const fs = require('fs');
 const { readProjectConfig, writeProjectConfig, TRASH_DIRNAME } = require('./project');
 const { classifyFile, isExcluded, MANIFEST_FILENAME } = require('./sync-classify');
 const { readAppState, writeAppState } = require('./app-state');
+const { atomicWriteFileSync } = require('./atomic-write');
 
 // Sync-Verlauf/Protokoll (Punkt 3.3): letzte 20 Abgleiche, jeweils mit
 // Zeitstempel, Dauer, Anzahl übertragener Dateien, Erfolg/Fehler und
@@ -45,7 +46,7 @@ function loadManifest(projectPath) {
 }
 
 function saveManifest(projectPath, manifest) {
-  fs.writeFileSync(path.join(projectPath, MANIFEST_FILENAME), JSON.stringify(manifest, null, 2), 'utf8');
+  atomicWriteFileSync(path.join(projectPath, MANIFEST_FILENAME), JSON.stringify(manifest, null, 2), 'utf8');
 }
 
 // ---------------------------------------------------------------------------
@@ -66,7 +67,8 @@ function loadCredentialsStore() {
 }
 
 function saveCredentialsStore(store) {
-  fs.writeFileSync(credentialsFilePath(), JSON.stringify(store, null, 2), 'utf8');
+  fs.mkdirSync(path.dirname(credentialsFilePath()), { recursive: true });
+  atomicWriteFileSync(credentialsFilePath(), JSON.stringify(store, null, 2), 'utf8');
 }
 
 // Von main/wizard-ipc.js genutzt: der Wizard hat beim Speichern des Passworts
@@ -222,7 +224,7 @@ async function performSyncAll({ projectPath, url, username, password }) {
     const localFullPath = path.join(projectPath, relPath);
     fs.mkdirSync(path.dirname(localFullPath), { recursive: true });
     const content = await client.getFileContents(relPath);
-    fs.writeFileSync(localFullPath, content);
+    atomicWriteFileSync(localFullPath, content);
     const newStat = fs.statSync(localFullPath);
     manifest[relPath] = { localMtime: newStat.mtime.toISOString(), localSize: newStat.size, remoteEtag: remote.etag, remoteSize: remote.size };
   }
@@ -562,7 +564,7 @@ function registerSyncIpc({ getCurrentProject, getMainWindow }) {
       if (remoteExists) {
         fs.mkdirSync(path.dirname(localFullPath), { recursive: true });
         const content = await client.getFileContents(relPath);
-        fs.writeFileSync(localFullPath, content);
+        atomicWriteFileSync(localFullPath, content);
         const localStat = fs.statSync(localFullPath);
         manifest[relPath] = { localMtime: localStat.mtime.toISOString(), localSize: localStat.size, remoteEtag: remoteStat.etag, remoteSize: remoteStat.size };
       } else {
@@ -577,9 +579,18 @@ function registerSyncIpc({ getCurrentProject, getMainWindow }) {
       const base = ext ? relPath.slice(0, -ext.length) : relPath;
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
       const conflictFullPath = path.join(projectPath, `${base} (lokale Version, Konflikt ${stamp})${ext}`);
-      fs.renameSync(localFullPath, conflictFullPath);
       const content = await client.getFileContents(relPath);
-      fs.writeFileSync(localFullPath, content);
+      fs.renameSync(localFullPath, conflictFullPath);
+      try {
+        atomicWriteFileSync(localFullPath, content);
+      } catch (error) {
+        try {
+          if (!fs.existsSync(localFullPath) && fs.existsSync(conflictFullPath)) {
+            fs.renameSync(conflictFullPath, localFullPath);
+          }
+        } catch { /* ursprünglichen Schreibfehler beibehalten */ }
+        throw error;
+      }
       const localStat = fs.statSync(localFullPath);
       manifest[relPath] = { localMtime: localStat.mtime.toISOString(), localSize: localStat.size, remoteEtag: remoteStat.etag, remoteSize: remoteStat.size };
       // Die umbenannte Kopie ist jetzt eine neue, unverfolgte lokale Datei —

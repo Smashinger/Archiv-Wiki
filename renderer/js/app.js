@@ -9,8 +9,9 @@ import { ICON_LIBRARY, ICON_CATEGORIES, searchIconLibrary } from './icon-library
 import { fetchUpdateStatus, requestUpdateCheck, onUpdateStatusChanged, renderUpdateStatus } from './update-check.js';
 import { showSettingsWindow } from './settings-window.js';
 import { animateIn, animateOut } from './motion.js';
+import { manageModalDialog, closeManagedDialogs, showMessageDialog, showConfirmDialog } from './dialog.js';
 import { initEllipsisTooltips } from './tooltip.js';
-import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor, setSyncScrollEnabled, setAutoSaveSeconds } from './editor.js';
+import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor, focusEditor, setSyncScrollEnabled, setAutoSaveSeconds } from './editor.js';
 import { rebuildIndex, getSearchState, search as searchNotes, searchWithDetails } from './search.js';
 
 // ---------------------------------------------------------------------------
@@ -66,10 +67,278 @@ function renderIconHtml(iconValue, fallbackEmoji) {
   return escapeHtml(resolvedIcon);
 }
 
+function createDialogInlineIcon(iconId) {
+  const img = document.createElement('img');
+  img.className = 'lib-icon dialog-inline-icon';
+  img.src = `assets/icon-library/${iconId}.svg`;
+  img.alt = '';
+  return img;
+}
+
+
 // ---------------------------------------------------------------------------
-// Eigenes Eingabe-Modal als Ersatz für window.prompt() — Electron unterstützt
-// prompt() bewusst nicht (alert/confirm funktionieren, siehe Electron-Issue
-// #472, "wontfix"). Gibt den getrimmten Text zurück, oder null bei Abbruch/
+// Gemeinsamer Bedienstandard für alle selbst gerenderten HTML-Kontextmenüs.
+// Die bestehenden Menütypen (.context-menu und .ectx-menu) bleiben erhalten;
+// diese Hilfe ergänzt ausschließlich Fokus, Tastatur, ARIA und sauberes
+// Schließen. Einzelne Menüs dürfen keine parallelen document-Listener mehr
+// anlegen, weil sonst nach wiederholtem Öffnen veraltete Listener bleiben.
+// ---------------------------------------------------------------------------
+let activeHtmlContextMenu = null;
+
+function isContextMenuKeyboardEvent(event) {
+  const key = event.key || '';
+  const code = event.code || '';
+  return (
+    key === 'ContextMenu' ||
+    key === 'Menu' ||
+    key === 'Apps' ||
+    code === 'ContextMenu' ||
+    (event.shiftKey && (key === 'F10' || code === 'F10'))
+  );
+}
+
+function getContextMenuItems(menuContainer) {
+  return [...menuContainer.querySelectorAll(':scope > [role="menuitem"]')]
+    .filter(item => item.getAttribute('aria-disabled') !== 'true' && item.offsetParent !== null);
+}
+
+function focusContextMenuItem(item) {
+  if (!item) return;
+  const root = item.closest('.context-menu, .ectx-menu');
+  root?.querySelectorAll('[role="menuitem"][tabindex="0"]').forEach(el => { el.tabIndex = -1; });
+  item.tabIndex = 0;
+  item.focus({ preventScroll: true });
+}
+
+function setEditorSubmenuExpanded(item, expanded) {
+  const submenu = item?.querySelector(':scope > .ectx-submenu');
+  if (!submenu) return false;
+  submenu.style.display = expanded ? 'block' : 'none';
+  submenu.setAttribute('aria-hidden', expanded ? 'false' : 'true');
+  item.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  if (expanded) {
+    submenu.style.left = '100%';
+    submenu.style.right = 'auto';
+    submenu.style.top = '-6px';
+    submenu.style.bottom = 'auto';
+    const itemRect = item.getBoundingClientRect();
+    const submenuRect = submenu.getBoundingClientRect();
+    if (itemRect.right + submenuRect.width > window.innerWidth) {
+      submenu.style.left = 'auto';
+      submenu.style.right = '100%';
+    }
+    if (itemRect.top + submenuRect.height > window.innerHeight) {
+      submenu.style.top = 'auto';
+      submenu.style.bottom = '-6px';
+    }
+  }
+  return true;
+}
+
+function closeHtmlContextMenu(menu = activeHtmlContextMenu, { restoreFocus = true, reason = 'dismiss' } = {}) {
+  if (!menu || menu.dataset.contextMenuClosed === 'true') return;
+  menu.dataset.contextMenuClosed = 'true';
+  menu.__contextMenuCleanup?.();
+  const trigger = menu.__contextMenuTrigger;
+  const onDismiss = menu.__contextMenuOnDismiss;
+  if (activeHtmlContextMenu === menu) activeHtmlContextMenu = null;
+  menu.remove();
+  menu.__contextMenuTrigger = null;
+  menu.__contextMenuOnDismiss = null;
+  menu.__contextMenuCleanup = null;
+  if (restoreFocus && trigger?.isConnected && typeof trigger.focus === 'function') {
+    trigger.focus({ preventScroll: true });
+  }
+  if (reason !== 'action') onDismiss?.();
+}
+
+function manageHtmlContextMenu(menu, {
+  trigger = document.activeElement,
+  label = 'Kontextmenü',
+  onDismiss = null
+} = {}) {
+  closeHtmlContextMenu(activeHtmlContextMenu, { restoreFocus: false });
+  activeHtmlContextMenu = menu;
+  menu.__contextMenuTrigger = trigger;
+  menu.__contextMenuOnDismiss = onDismiss;
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', label);
+  normalizeContextMenuSeparators(menu);
+
+  menu.querySelectorAll(':scope > button').forEach(button => {
+    button.setAttribute('role', 'menuitem');
+    button.tabIndex = -1;
+  });
+  menu.querySelectorAll('.ectx-sep').forEach(separator => separator.setAttribute('role', 'separator'));
+  menu.querySelectorAll('.ectx-submenu').forEach(submenu => {
+    submenu.setAttribute('role', 'menu');
+    submenu.setAttribute('aria-hidden', 'true');
+  });
+  menu.querySelectorAll('.ectx-item').forEach(item => {
+    item.setAttribute('role', 'menuitem');
+    item.tabIndex = -1;
+    if (item.classList.contains('disabled')) item.setAttribute('aria-disabled', 'true');
+    if (item.classList.contains('has-submenu')) {
+      item.setAttribute('aria-haspopup', 'menu');
+      item.setAttribute('aria-expanded', 'false');
+      const labelText = item.querySelector(':scope > .ectx-label')?.textContent?.trim();
+      const submenu = item.querySelector(':scope > .ectx-submenu');
+      if (labelText && submenu) submenu.setAttribute('aria-label', labelText);
+    }
+  });
+
+  const onDocumentPointerDown = (event) => {
+    if (!menu.contains(event.target)) closeHtmlContextMenu(menu);
+  };
+  const onKeyDown = (event) => {
+    const focused = document.activeElement?.closest?.('[role="menuitem"]');
+    const currentContainer = focused?.parentElement?.closest?.('[role="menu"]') || menu;
+    const items = getContextMenuItems(currentContainer);
+    const currentIndex = Math.max(0, items.indexOf(focused));
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeHtmlContextMenu(menu);
+      return;
+    }
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      closeHtmlContextMenu(menu);
+      return;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (!items.length) return;
+      event.preventDefault();
+      const delta = event.key === 'ArrowDown' ? 1 : -1;
+      focusContextMenuItem(items[(currentIndex + delta + items.length) % items.length]);
+      return;
+    }
+    if (event.key === 'Home' || event.key === 'End') {
+      if (!items.length) return;
+      event.preventDefault();
+      focusContextMenuItem(event.key === 'Home' ? items[0] : items[items.length - 1]);
+      return;
+    }
+    if (event.key === 'ArrowRight' && focused?.classList.contains('has-submenu')) {
+      event.preventDefault();
+      setEditorSubmenuExpanded(focused, true);
+      const submenu = focused.querySelector(':scope > .ectx-submenu');
+      focusContextMenuItem(getContextMenuItems(submenu)[0]);
+      return;
+    }
+    if (event.key === 'ArrowLeft') {
+      const submenu = focused?.closest('.ectx-submenu');
+      const parentItem = submenu?.parentElement?.closest('.ectx-item.has-submenu');
+      if (submenu && parentItem) {
+        event.preventDefault();
+        setEditorSubmenuExpanded(parentItem, false);
+        focusContextMenuItem(parentItem);
+      }
+      return;
+    }
+    if ((event.key === 'Enter' || event.key === ' ') && focused) {
+      event.preventDefault();
+      if (focused.getAttribute('aria-disabled') === 'true') return;
+      if (focused.classList.contains('has-submenu')) {
+        setEditorSubmenuExpanded(focused, true);
+        focusContextMenuItem(getContextMenuItems(focused.querySelector(':scope > .ectx-submenu'))[0]);
+      } else {
+        focused.click();
+      }
+    }
+  };
+
+  document.addEventListener('pointerdown', onDocumentPointerDown, true);
+  menu.addEventListener('keydown', onKeyDown);
+  menu.__contextMenuCleanup = () => {
+    document.removeEventListener('pointerdown', onDocumentPointerDown, true);
+    menu.removeEventListener('keydown', onKeyDown);
+  };
+
+  requestAnimationFrame(() => {
+    if (!menu.isConnected) return;
+    focusContextMenuItem(getContextMenuItems(menu)[0]);
+  });
+  return menu;
+}
+
+
+function isContextMenuSeparatorElement(element) {
+  return element?.matches?.('hr, .ectx-sep, [role="separator"]') || false;
+}
+
+function normalizeContextMenuSeparators(container) {
+  const children = [...container.children];
+  let previousWasSeparator = true;
+  for (const child of children) {
+    if (!isContextMenuSeparatorElement(child)) {
+      previousWasSeparator = false;
+      continue;
+    }
+    if (previousWasSeparator) {
+      child.remove();
+      continue;
+    }
+    previousWasSeparator = true;
+  }
+  const last = container.lastElementChild;
+  if (isContextMenuSeparatorElement(last)) last.remove();
+}
+
+function positionHtmlContextMenu(menu, { clientX, clientY, anchorEl = null, offsetY = 4 } = {}) {
+  const anchorRect = anchorEl?.getBoundingClientRect?.();
+  const requestedLeft = Number.isFinite(clientX) ? clientX : (anchorRect?.left ?? 4);
+  const requestedTop = Number.isFinite(clientY) ? clientY : ((anchorRect?.bottom ?? 0) + offsetY);
+  const rect = menu.getBoundingClientRect();
+  const margin = 4;
+  const left = Math.max(margin, Math.min(requestedLeft, window.innerWidth - rect.width - margin));
+  const top = Math.max(margin, Math.min(requestedTop, window.innerHeight - rect.height - margin));
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function createHtmlContextMenu({
+  className = 'context-menu',
+  html = '',
+  trigger = document.activeElement,
+  label = 'Kontextmenü',
+  position = null,
+  onDismiss = null
+} = {}) {
+  const menu = document.createElement('div');
+  menu.className = className;
+  menu.innerHTML = html;
+  normalizeContextMenuSeparators(menu);
+  document.body.appendChild(menu);
+  manageHtmlContextMenu(menu, { trigger, label, onDismiss });
+  positionHtmlContextMenu(menu, { ...(position || {}), anchorEl: trigger });
+  return menu;
+}
+
+function renderSimpleContextMenuItems(items) {
+  return items.map(item => {
+    if (item.separator) return '<hr>';
+    const className = item.danger ? ' class="danger"' : '';
+    const data = item.data || {};
+    const attributes = Object.entries(data)
+      .map(([key, value]) => ` data-${key}="${escapeHtml(String(value))}"`)
+      .join('');
+    return `<button type="button"${className}${attributes}>${item.label}</button>`;
+  }).join('');
+}
+
+function contextMenuPointForElement(element) {
+  const rect = element.getBoundingClientRect();
+  return {
+    clientX: Math.max(4, Math.min(window.innerWidth - 8, rect.left)),
+    clientY: Math.max(4, Math.min(window.innerHeight - 8, rect.bottom + 4))
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Gemeinsames Eingabe-Modal auf Basis des zentralen Dialogsystems. Gibt den
+// getrimmten Text zurück, oder null bei Abbruch/
 // leerer Eingabe — kompatibel zu den bestehenden `if (!x) return;`-Checks.
 // ---------------------------------------------------------------------------
 // Zwei Felder statt nur eines (siehe showPromptModal unten) — Ziel bestimmt
@@ -78,7 +347,7 @@ function renderIconHtml(iconValue, fallbackEmoji) {
 // vorausgefüllt ("diesen Text zu einem Link machen").
 function showWikiLinkModal(prefillDisplay = '') {
   return new Promise((resolve) => {
-    document.querySelectorAll('.prompt-overlay').forEach(el => el.remove());
+    closeManagedDialogs('.prompt-overlay', { restoreFocus: false });
     const overlay = document.createElement('div');
     overlay.className = 'prompt-overlay';
     overlay.innerHTML = `
@@ -101,7 +370,6 @@ function showWikiLinkModal(prefillDisplay = '') {
     const displayInput = document.getElementById('wikiLinkDisplay');
     const suggestionsEl = document.getElementById('wikiLinkSuggestions');
     displayInput.value = prefillDisplay || '';
-    targetInput.focus();
 
     const MIN_CHARS = 2;
     const MAX_VISIBLE = 8;
@@ -193,8 +461,7 @@ function showWikiLinkModal(prefillDisplay = '') {
     function close(result) {
       if (done) return;
       done = true;
-      overlay.remove();
-      document.removeEventListener('keydown', onKeydown);
+      dialogController.destroy();
       resolve(result);
     }
     function submit() {
@@ -218,6 +485,7 @@ function showWikiLinkModal(prefillDisplay = '') {
         updateActiveHighlight();
       } else if (e.key === 'Enter') {
         e.preventDefault();
+        e.stopPropagation();
         selectMatch(currentMatches[activeIndex >= 0 ? activeIndex : 0]);
       } else if (e.key === 'Escape') {
         e.preventDefault();
@@ -225,20 +493,30 @@ function showWikiLinkModal(prefillDisplay = '') {
         suggestionsEl.style.display = 'none';
       }
     });
-    function onKeydown(e) {
-      if (e.key === 'Enter') { e.preventDefault(); submit(); }
-      else if (e.key === 'Escape') { e.preventDefault(); close(null); }
-    }
-    document.addEventListener('keydown', onKeydown);
-    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(null); });
+    const okButton = overlay.querySelector('[data-action="ok"]');
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.defaultPrevented) {
+        e.preventDefault();
+        submit();
+      }
+    });
     overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => close(null));
-    overlay.querySelector('[data-action="ok"]').addEventListener('click', submit);
+    okButton.addEventListener('click', submit);
+    const dialogController = manageModalDialog({
+      overlay,
+      dialog: overlay.querySelector('.prompt-modal'),
+      initialFocus: targetInput,
+      primaryAction: okButton,
+      onRequestClose: () => close(null),
+      closeOnBackdrop: false,
+      canCloseOnEscape: () => suggestionsEl.style.display !== 'block'
+    });
   });
 }
 
 function showPromptModal({ title, defaultValue = '', okLabel = 'OK' }) {
   return new Promise((resolve) => {
-    document.querySelectorAll('.prompt-overlay').forEach(el => el.remove());
+    closeManagedDialogs('.prompt-overlay', { restoreFocus: false });
     const overlay = document.createElement('div');
     overlay.className = 'prompt-overlay';
     overlay.innerHTML = `
@@ -253,25 +531,26 @@ function showPromptModal({ title, defaultValue = '', okLabel = 'OK' }) {
     document.body.appendChild(overlay);
     const input = overlay.querySelector('.prompt-input');
     input.value = defaultValue;
-    input.focus();
-    input.select();
 
     let done = false;
     function close(value) {
       if (done) return;
       done = true;
-      overlay.remove();
-      document.removeEventListener('keydown', onKeydown);
+      dialogController.destroy();
       resolve(value && value.trim() ? value.trim() : null);
     }
-    function onKeydown(e) {
-      if (e.key === 'Enter') { e.preventDefault(); close(input.value); }
-      else if (e.key === 'Escape') { e.preventDefault(); close(null); }
-    }
-    document.addEventListener('keydown', onKeydown);
-    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(null); });
+    const okButton = overlay.querySelector('[data-action="ok"]');
     overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => close(null));
-    overlay.querySelector('[data-action="ok"]').addEventListener('click', () => close(input.value));
+    okButton.addEventListener('click', () => close(input.value));
+    const dialogController = manageModalDialog({
+      overlay,
+      dialog: overlay.querySelector('.prompt-modal'),
+      initialFocus: input,
+      primaryAction: okButton,
+      enterActivatesPrimary: true,
+      onRequestClose: () => close(null),
+      closeOnBackdrop: false
+    });
   });
 }
 
@@ -327,6 +606,10 @@ async function setSidebarWidth(px) {
 
 (function initSidebarResize() {
   const handle = document.getElementById('sidebarResizeHandle');
+  handle.tabIndex = 0;
+  handle.setAttribute('role', 'separator');
+  handle.setAttribute('aria-orientation', 'vertical');
+  handle.setAttribute('aria-label', 'Sidebar-Breite ändern');
   let startX = 0, startWidth = 0, dragging = false;
 
   handle.addEventListener('mousedown', (e) => {
@@ -361,22 +644,30 @@ async function setSidebarWidth(px) {
   // Rechtsklick (Nutzer-Feature): dieselbe Standardbreite-Wiederherstellung
   // auch besser auffindbar über ein Kontextmenü, nicht nur per (weniger
   // offensichtlichem) Doppelklick auf den schmalen Ziehbereich.
+  function openSidebarWidthContextMenu(clientX, clientY) {
+    const menu = createHtmlContextMenu({
+      trigger: handle,
+      label: 'Sidebar-Breite',
+      position: { clientX, clientY: clientY + 4 },
+      html: renderSimpleContextMenuItems([
+        { label: '↺ Standardbreite wiederherstellen', data: { action: 'reset-width' } }
+      ])
+    });
+    menu.addEventListener('click', (ev) => {
+      if (!ev.target.closest('[data-action="reset-width"]')) return;
+      closeHtmlContextMenu(menu, { reason: 'action' });
+      setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+    });
+  }
   handle.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    document.querySelectorAll('.context-menu').forEach(m => m.remove());
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.innerHTML = `<button type="button" data-action="reset-width">↺ Standardbreite wiederherstellen</button>`;
-    document.body.appendChild(menu);
-    menu.style.top = e.clientY + 4 + 'px';
-    menu.style.left = Math.min(e.clientX, window.innerWidth - 240) + 'px';
-    menu.addEventListener('click', (ev) => {
-      if (ev.target.closest('[data-action="reset-width"]')) setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
-      menu.remove();
-    });
-    setTimeout(() => document.addEventListener('click', function closeOnce() {
-      menu.remove(); document.removeEventListener('click', closeOnce);
-    }, { once: true }), 0);
+    openSidebarWidthContextMenu(e.clientX, e.clientY);
+  });
+  handle.addEventListener('keydown', (e) => {
+    if (!isContextMenuKeyboardEvent(e)) return;
+    e.preventDefault();
+    const point = contextMenuPointForElement(handle);
+    openSidebarWidthContextMenu(point.clientX, point.clientY);
   });
 })();
 
@@ -385,7 +676,7 @@ async function setSidebarWidth(px) {
 // beim Überfahren einer Zeile mit der Maus (siehe .row-handle-CSS) — der
 // frühere, extra Bearbeiten-Modus-Knopf ist dadurch überflüssig geworden
 // und wurde entfernt. Löschen läuft weiterhin immer über das eigene
-// ⋮-Kontextmenü, unabhängig davon.
+// Kontextmenü per Rechtsklick oder Tastatur, unabhängig davon.
 // ---------------------------------------------------------------------------
 
 // Akzentfarben nachträglich ändern (bisher nur einmalig im Wizard möglich).
@@ -411,7 +702,7 @@ function friendlyBackupErrorText(code, message) {
 // main.js handleCloseRequest). Ergebnis geht über resolveCloseDialog zurück
 // an den Hauptprozess, der dann entsprechend minimiert/beendet/nichts tut.
 function showCloseDialog() {
-  document.querySelectorAll('.prompt-overlay').forEach(el => el.remove());
+  closeManagedDialogs('.prompt-overlay', { restoreFocus: false });
   const overlay = document.createElement('div');
   overlay.className = 'prompt-overlay';
   overlay.innerHTML = `
@@ -430,21 +721,28 @@ function showCloseDialog() {
       </div>
     </div>`;
   document.body.appendChild(overlay);
-  function close() { overlay.remove(); }
-  overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => {
-    window.archivAPI.resolveCloseDialog({ choice: 'cancel', remember: false });
-    close();
-  });
+  function close(result = { choice: 'cancel', remember: false }) {
+    dialogController.destroy();
+    window.archivAPI.resolveCloseDialog(result);
+  }
+  overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => close());
   overlay.querySelector('[data-action="ok"]').addEventListener('click', () => {
     const choice = overlay.querySelector('input[name="closeChoice"]:checked').value;
     const remember = overlay.querySelector('#closeDialogRemember').checked;
-    window.archivAPI.resolveCloseDialog({ choice, remember });
-    close();
+    close({ choice, remember });
+  });
+  const dialogController = manageModalDialog({
+    overlay,
+    dialog: overlay.querySelector('.prompt-modal'),
+    initialFocus: overlay.querySelector('input[name="closeChoice"]:checked'),
+    onRequestClose: () => close(),
+    closeOnBackdrop: false,
+    enterActivatesPrimary: false
   });
 }
 
 function showBackupErrorModal(status) {
-  document.querySelector('.backup-error-overlay')?.remove();
+  closeManagedDialogs('.backup-error-overlay', { restoreFocus: false });
   const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const overlay = document.createElement('div');
   overlay.className = 'prompt-overlay backup-error-overlay';
@@ -458,72 +756,18 @@ function showBackupErrorModal(status) {
       <pre class="backup-error-details" id="backupErrorDetails" style="display:none;">${escapeHtml([status.lastErrorCode, status.lastErrorMessage].filter(Boolean).join('\n') || 'Keine weiteren Details verfügbar.')}</pre>
     </div>`;
 
-  const backgroundState = [...document.body.children].map(element => ({
-    element,
-    inert: element.inert,
-    ariaHidden: element.getAttribute('aria-hidden')
-  }));
-  backgroundState.forEach(({ element }) => {
-    element.inert = true;
-    element.setAttribute('aria-hidden', 'true');
-  });
   document.body.appendChild(overlay);
 
   const modal = overlay.querySelector('.prompt-modal');
   const closeButton = overlay.querySelector('[data-action="close-x"]');
-  const focusableSelector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
   let closed = false;
-
-  function restoreBackground() {
-    backgroundState.forEach(({ element, inert, ariaHidden }) => {
-      if (!element.isConnected) return;
-      element.inert = inert;
-      if (ariaHidden === null) element.removeAttribute('aria-hidden');
-      else element.setAttribute('aria-hidden', ariaHidden);
-    });
-  }
 
   function close() {
     if (closed) return;
     closed = true;
-    document.removeEventListener('keydown', handleKeydown, true);
-    overlay.remove();
-    restoreBackground();
-    if (previouslyFocused?.isConnected) {
-      requestAnimationFrame(() => previouslyFocused.focus({ preventScroll: true }));
-    }
+    dialogController.destroy();
   }
 
-  function focusableElements() {
-    return [...modal.querySelectorAll(focusableSelector)].filter(element => element.getClientRects().length > 0);
-  }
-
-  function handleKeydown(event) {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      close();
-      return;
-    }
-    if (event.key !== 'Tab') return;
-    const focusable = focusableElements();
-    if (!focusable.length) {
-      event.preventDefault();
-      return;
-    }
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const active = document.activeElement;
-    if (event.shiftKey && (active === first || !modal.contains(active))) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && (active === last || !modal.contains(active))) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  document.addEventListener('keydown', handleKeydown, true);
   closeButton.addEventListener('click', close);
   overlay.querySelector('#backupErrorDetailsToggle').addEventListener('click', (event) => {
     const details = overlay.querySelector('#backupErrorDetails');
@@ -532,7 +776,15 @@ function showBackupErrorModal(status) {
     event.currentTarget.textContent = nowShown ? 'Details verbergen' : 'Details anzeigen';
     event.currentTarget.setAttribute('aria-expanded', String(nowShown));
   });
-  requestAnimationFrame(() => closeButton.focus({ preventScroll: true }));
+  const dialogController = manageModalDialog({
+    overlay,
+    dialog: modal,
+    titleElement: overlay.querySelector('#backupErrorDialogTitle'),
+    descriptionElement: overlay.querySelector('#backupErrorDialogDescription'),
+    initialFocus: closeButton,
+    onRequestClose: close,
+    closeOnBackdrop: false
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -547,7 +799,7 @@ els.btnBugReport.addEventListener('click', async () => {
 // window.archivAPI verfügbar, wurden bisher aber nirgends genutzt — genau
 // das Richtige für einen hilfreichen, vorausgefüllten Bug-Report.
 async function showBugReportModal() {
-  document.querySelectorAll('.prompt-overlay').forEach(el => el.remove());
+  closeManagedDialogs('.prompt-overlay', { restoreFocus: false });
   const [version, platformInfo] = await Promise.all([
     window.archivAPI.getVersion(),
     window.archivAPI.getPlatformInfo()
@@ -558,7 +810,7 @@ async function showBugReportModal() {
   overlay.className = 'prompt-overlay';
   overlay.innerHTML = `
     <div class="prompt-modal">
-      <div class="prompt-title">🐛 Fehler melden<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
+      <div class="prompt-title"><img class="lib-icon dialog-title-icon" src="assets/icon-library/dev/bug.svg" alt="">Fehler melden<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
       <div class="bugreport-info">
         <div><span class="bugreport-label">App-Version</span> ${escapeHtml(version)}</div>
         <div><span class="bugreport-label">Plattform</span> ${escapeHtml(platformLabel)} (${escapeHtml(platformInfo.arch)})</div>
@@ -572,11 +824,12 @@ async function showBugReportModal() {
     </div>`;
   document.body.appendChild(overlay);
 
-  function close() { overlay.remove(); }
-  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
-  overlay.querySelector('[data-action="close-x"]').addEventListener('click', close);
+  function close() { dialogController.destroy(); }
+  const closeButton = overlay.querySelector('[data-action="close-x"]');
+  const openButton = overlay.querySelector('[data-action="open-github"]');
+  closeButton.addEventListener('click', close);
   overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
-  overlay.querySelector('[data-action="open-github"]').addEventListener('click', () => {
+  openButton.addEventListener('click', () => {
     const body = [
       `**App-Version:** ${version}`,
       `**Plattform:** ${platformLabel} (${platformInfo.arch})`,
@@ -597,10 +850,22 @@ async function showBugReportModal() {
     window.open(url, '_blank');
     close();
   });
+  const dialogController = manageModalDialog({
+    overlay,
+    dialog: overlay.querySelector('.prompt-modal'),
+    initialFocus: closeButton,
+    primaryAction: openButton,
+    enterActivatesPrimary: false,
+    onRequestClose: close,
+    closeOnBackdrop: false
+  });
 }
 els.btnAbout.addEventListener('click', async () => {
   const version = await window.archivAPI.getVersion();
-  alert(`Archiv Wiki v${version}\nAutor: Smashinger\nLizenz: MIT\n\nTipp: Taste "?" zeigt alle Tastenkürzel.`);
+  await showMessageDialog({
+    title: 'Über Archiv-Wiki',
+    message: `Archiv-Wiki v${version}\nAutor: Smashinger\nLizenz: MIT\n\nTipp: Taste "?" zeigt alle Tastenkürzel.`
+  });
 });
 
 function openSettingsWindow() {
@@ -610,7 +875,8 @@ function openSettingsWindow() {
       if (state.project) state.project.config = newConfig;
       setAutoSaveSeconds(newConfig?.editor?.autoSave ?? 30);
     },
-    onProjectPathChange: (newPath) => { if (state.project) state.project.path = newPath; }
+    onProjectPathChange: (newPath) => { if (state.project) state.project.path = newPath; },
+    onShowShortcuts: showShortcutsCheatsheet
   });
 }
 document.getElementById('btnSettings').addEventListener('click', openSettingsWindow);
@@ -620,6 +886,7 @@ window.archivAPI.onShowCloseDialog(() => showCloseDialog());
 window.archivAPI.onGoHome(() => { location.hash = '#home'; });
 window.archivAPI.onCheckForUpdatesRequested(() => requestUpdateCheck());
 window.archivAPI.onOpenSettingsRequested(() => openSettingsWindow());
+window.archivAPI.onShowShortcutsRequested?.(() => showShortcutsCheatsheet());
 
 // Automatisches Update-System (Nutzer-Feature): dezente Ecken-Benachrichtigung
 // statt eines blockierenden Dialogs — passend zum Wunsch "keine aufdringlichen
@@ -701,7 +968,7 @@ function showUpdateToast({
 // abgedunkelten Hintergrund schließen beide die Ansicht — ein Klick auf
 // das Bild selbst nicht (e.target === overlay prüft genau das).
 function showImageLightbox(src, alt) {
-  document.querySelectorAll('.image-lightbox-overlay').forEach(el => el.remove());
+  closeManagedDialogs('.image-lightbox-overlay', { restoreFocus: false });
   const overlay = document.createElement('div');
   overlay.className = 'image-lightbox-overlay';
   const img = document.createElement('img');
@@ -709,15 +976,16 @@ function showImageLightbox(src, alt) {
   if (alt) img.alt = alt;
   overlay.appendChild(img);
   document.body.appendChild(overlay);
-  function close() {
-    overlay.remove();
-    document.removeEventListener('keydown', onKeyDown);
-  }
-  function onKeyDown(e) {
-    if (e.key === 'Escape') close();
-  }
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  document.addEventListener('keydown', onKeyDown);
+  function close() { dialogController.destroy(); }
+  const dialogController = manageModalDialog({
+    overlay,
+    dialog: overlay,
+    titleElement: null,
+    descriptionElement: null,
+    initialFocus: overlay,
+    onRequestClose: close,
+    closeOnBackdrop: true
+  });
 }
 
 function showQuickFeedback(message) {
@@ -906,14 +1174,14 @@ onUpdateStatusChanged(applyCentralUpdateStatus);
 // merken"-Option sicher über safeStorage vorausgefüllt (siehe main/sync-ipc.js).
 // ---------------------------------------------------------------------------
 async function openSyncSettingsModal() {
-  document.querySelectorAll('.prompt-overlay').forEach(el => el.remove());
+  closeManagedDialogs('.prompt-overlay', { restoreFocus: false });
   const settings = await window.archivAPI.syncApi.getSettings();
 
   const overlay = document.createElement('div');
   overlay.className = 'prompt-overlay';
   overlay.innerHTML = `
     <div class="prompt-modal sync-modal">
-      <div class="prompt-title">☁ Cloud-Sync (Nextcloud/WebDAV)<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
+      <div class="prompt-title"><img class="lib-icon dialog-title-icon" src="assets/icon-library/network/cloud.svg" alt="">Cloud-Sync (Nextcloud/WebDAV)<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
       <p class="sync-modal-note">Verbindung testen, reiner Upload, oder Abgleich in beide Richtungen mit Löschungs- und Konflikterkennung.</p>
       <label class="sync-field-label">WebDAV-URL</label>
       <input type="text" class="prompt-input" id="syncModalUrl" placeholder="https://deine-nextcloud.example/remote.php/dav/files/NUTZER/" autocomplete="off">
@@ -933,12 +1201,12 @@ async function openSyncSettingsModal() {
       <div class="sync-modal-status" id="syncModalStatus"></div>
       <div class="sync-retry-row" id="syncRetryRow"></div>
       <div class="sync-conflict-list" id="syncConflictList"></div>
-      <button type="button" class="sync-history-toggle" id="syncHistoryToggle">📋 Verlauf anzeigen</button>
+      <button type="button" class="sync-history-toggle" id="syncHistoryToggle"><img class="lib-icon dialog-inline-icon" src="assets/icon-library/docs/clipboard-list.svg" alt="">Verlauf anzeigen</button>
       <div class="sync-history-list" id="syncHistoryList" style="display:none;"></div>
       <div class="prompt-actions sync-modal-actions">
-        <button type="button" class="btn sync-action-btn" data-action="test"><span class="sab-icon">🔗</span><span class="sab-label">TESTEN</span></button>
-        <button type="button" class="btn sync-action-btn" data-action="upload"><span class="sab-icon">⬆️</span><span class="sab-label">UPLOAD</span></button>
-        <button type="button" class="btn primary sync-action-btn" data-action="syncall"><span class="sab-icon">🔄</span><span class="sab-label">JETZT SYNCHRONISIEREN</span></button>
+        <button type="button" class="btn sync-action-btn" data-action="test"><img class="lib-icon sab-icon" src="assets/icon-library/network/plug.svg" alt=""><span class="sab-label">TESTEN</span></button>
+        <button type="button" class="btn sync-action-btn" data-action="upload"><img class="lib-icon sab-icon" src="assets/icon-library/network/cloud.svg" alt=""><span class="sab-label">UPLOAD</span></button>
+        <button type="button" class="btn primary sync-action-btn" data-action="syncall"><img class="lib-icon sab-icon" src="assets/icon-library/dev/git-merge.svg" alt=""><span class="sab-label">JETZT SYNCHRONISIEREN</span></button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -965,15 +1233,15 @@ async function openSyncSettingsModal() {
             const when = formatRelativeTime(h.timestamp);
             const duration = h.durationMs != null ? `${(h.durationMs / 1000).toFixed(1)}s` : '–';
             if (!h.success) {
-              return `<div class="sync-history-row sync-history-error"><span class="shr-icon">⚠️</span><span class="shr-main">Fehlgeschlagen · ${escapeHtml(when)}</span><span class="shr-detail">${escapeHtml(h.error || 'Unbekannter Fehler')}</span></div>`;
+              return `<div class="sync-history-row sync-history-error"><img class="lib-icon shr-icon" src="assets/icon-library/security/alert-triangle.svg" alt=""><span class="shr-main">Fehlgeschlagen · ${escapeHtml(when)}</span><span class="shr-detail">${escapeHtml(h.error || 'Unbekannter Fehler')}</span></div>`;
             }
             return `<div class="sync-history-row"><span class="shr-icon">✓</span><span class="shr-main">${h.filesCount} Datei${h.filesCount === 1 ? '' : 'en'} · ${escapeHtml(when)}</span><span class="shr-detail">${duration}${h.warnings ? ` · ${h.warnings} Warnung${h.warnings === 1 ? '' : 'en'}` : ''}</span></div>`;
           }).join('');
       listEl.style.display = 'block';
-      e.target.textContent = '📋 Verlauf ausblenden';
+      e.target.replaceChildren(createDialogInlineIcon('docs/clipboard-list'), document.createTextNode('Verlauf ausblenden'));
     } else {
       listEl.style.display = 'none';
-      e.target.textContent = '📋 Verlauf anzeigen';
+      e.target.replaceChildren(createDialogInlineIcon('docs/clipboard-list'), document.createTextNode('Verlauf anzeigen'));
     }
   });
   urlInput.value = settings.url || '';
@@ -1067,7 +1335,7 @@ async function openSyncSettingsModal() {
             row.querySelector('.sync-conflict-reason').textContent = '✓ gelöst';
             await refreshAll();
           } catch (err) {
-            row.querySelector('.sync-conflict-reason').textContent = '✕ ' + err.message;
+            row.querySelector('.sync-conflict-reason').textContent = err.message;
             row.querySelectorAll('button').forEach(b => b.disabled = false);
           }
         });
@@ -1075,9 +1343,18 @@ async function openSyncSettingsModal() {
     });
   }
 
-  function close() { overlay.remove(); }
-  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
-  overlay.querySelector('[data-action="close-x"]').addEventListener('click', async () => { await persistUrlAndUser(); close(); });
+  function close() { dialogController.destroy(); }
+  async function persistAndClose() { await persistUrlAndUser(); close(); }
+  const closeButton = overlay.querySelector('[data-action="close-x"]');
+  closeButton.addEventListener('click', persistAndClose);
+  const dialogController = manageModalDialog({
+    overlay,
+    dialog: overlay.querySelector('.prompt-modal'),
+    initialFocus: closeButton,
+    onRequestClose: persistAndClose,
+    closeOnBackdrop: false,
+    enterActivatesPrimary: false
+  });
 
   overlay.querySelector('[data-action="test"]').addEventListener('click', async () => {
     setStatus('Verbinde …', 'pending');
@@ -1087,12 +1364,16 @@ async function openSyncSettingsModal() {
       await maybePersistPassword();
       setStatus('✓ Verbindung erfolgreich.', 'ok');
     } catch (err) {
-      setStatus('✕ ' + err.message, 'error');
+      setStatus(err.message, 'error');
     }
   });
 
   overlay.querySelector('[data-action="upload"]').addEventListener('click', async () => {
-    if (!confirm('Kompletten Wiki-Ordner jetzt zur Cloud hochladen? Vorhandene Remote-Dateien mit gleichem Namen werden überschrieben.')) return;
+    if (!await showConfirmDialog({
+      title: 'Wiki zur Cloud hochladen?',
+      message: 'Der komplette Wiki-Ordner wird hochgeladen. Vorhandene Remote-Dateien mit gleichem Namen werden überschrieben.',
+      confirmLabel: 'Hochladen'
+    })) return;
     setStatus('Lade hoch …', 'pending');
     try {
       await persistUrlAndUser();
@@ -1100,12 +1381,16 @@ async function openSyncSettingsModal() {
       await maybePersistPassword();
       setStatus(`✓ ${result.uploaded} Datei(en) hochgeladen.`, 'ok');
     } catch (err) {
-      setStatus('✕ ' + err.message, 'error');
+      setStatus(err.message, 'error');
     }
   });
 
   overlay.querySelector('[data-action="syncall"]').addEventListener('click', async () => {
-    if (!confirm('Jetzt in beide Richtungen abgleichen? Bei eindeutigen Änderungen wird automatisch übertragen bzw. eine Löschung übernommen. Bei echten Konflikten wird NICHTS verändert, du bekommst stattdessen eine Liste mit Auflösungs-Optionen.')) return;
+    if (!await showConfirmDialog({
+      title: 'Zwei-Wege-Abgleich starten?',
+      message: 'Eindeutige Änderungen und Löschungen werden automatisch abgeglichen. Bei echten Konflikten wird nichts verändert; stattdessen erscheint eine Liste mit Auflösungsoptionen.',
+      confirmLabel: 'Abgleichen'
+    })) return;
     setStatus('Gleiche ab …', 'pending');
     conflictListEl.innerHTML = '';
     try {
@@ -1116,14 +1401,14 @@ async function openSyncSettingsModal() {
       if (result.deletedLocal) parts.push(`${result.deletedLocal} lokal gelöscht (Remote-Löschung übernommen)`);
       if (result.deletedRemote) parts.push(`${result.deletedRemote} remote gelöscht (lokale Löschung übernommen)`);
       if (result.conflicts?.length) {
-        setStatus(`✓ ${parts.join(', ')}.\n⚠ ${result.conflicts.length} Konflikt(e) unten — bitte auflösen:`, 'error');
+        setStatus(`${parts.join(', ')}.\n${result.conflicts.length} Konflikt(e) unten — bitte auflösen:`, 'error');
         renderConflicts(result.conflicts);
       } else {
         setStatus(`✓ ${parts.join(', ')}.`, 'ok');
       }
       await refreshAll();
     } catch (err) {
-      setStatus('✕ ' + err.message, 'error');
+      setStatus(err.message, 'error');
     }
   });
 
@@ -1136,13 +1421,13 @@ async function openSyncSettingsModal() {
   try {
     const status = await window.archivAPI.syncApi.getStatus();
     if (status.state === 'error') {
-      setStatus('✕ Letzter Abgleich fehlgeschlagen: ' + (status.lastError || ''), 'error');
-      retryRow.innerHTML = '<button type="button" class="btn" id="syncRetryBtn">🔄 Erneut versuchen</button>';
+      setStatus('Letzter Abgleich fehlgeschlagen: ' + (status.lastError || ''), 'error');
+      retryRow.innerHTML = '<button type="button" class="btn" id="syncRetryBtn">Erneut versuchen</button>';
       document.getElementById('syncRetryBtn').addEventListener('click', () => {
         overlay.querySelector('[data-action="syncall"]').click();
       });
     } else if (status.state === 'conflicts' && status.conflicts?.length) {
-      setStatus(`⚠ ${status.conflicts.length} ungelöste(r) Konflikt(e) — bitte auflösen:`, 'error');
+      setStatus(`${status.conflicts.length} ungelöste(r) Konflikt(e) — bitte auflösen:`, 'error');
       renderConflicts(status.conflicts);
     } else if (status.state === 'idle' && status.lastSyncAt) {
       setStatus('Zuletzt erfolgreich abgeglichen: ' + formatRelativeTime(status.lastSyncAt), 'ok');
@@ -1311,7 +1596,6 @@ function renderGroup(group, depth) {
         <span class="g-label">${escapeHtml(group.name)}</span>
         <span class="g-count">${notesCount}</span>
       </button>
-      <button type="button" class="nav-icon-btn" data-context-category="${escapeHtml(group.relPath)}" title="Optionen">⋮</button>
     </div>
     <ul class="group-list"></ul>
   `;
@@ -1336,10 +1620,9 @@ function renderNoteItem(note) {
   const title = note.frontmatter?.title || note.name;
   li.innerHTML = `
     <span class="row-handle" draggable="true" title="Ziehen zum Verschieben/Umsortieren">⠿</span>
-    <a class="nav-link" data-route="note" data-relpath="${escapeHtml(note.relPath)}">
+    <a class="nav-link" data-route="note" data-relpath="${escapeHtml(note.relPath)}" tabindex="0">
       <span class="nl-icon">${renderIconHtml(note.icon, '📄')}</span><span class="nl-title">${escapeHtml(title)}</span>
     </a>
-    <button type="button" class="nav-icon-btn" data-context="${escapeHtml(note.relPath)}" title="Optionen">⋮</button>
   `;
   return li;
 }
@@ -1392,14 +1675,6 @@ function wireNavInteractions() {
         fs.setProjectSetting('savedCollapsedGroups', saved).catch(() => {});
         if (state.project?.config) state.project.config.savedCollapsedGroups = saved;
       }
-    });
-  });
-
-  els.navTree.querySelectorAll('[data-context-category]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation(); e.preventDefault();
-      const roleType = btn.closest('.nav-group')?.dataset.type || 'subCategory';
-      showContextMenu(btn.dataset.contextCategory, btn, roleType);
     });
   });
 
@@ -1496,7 +1771,10 @@ function wireNavInteractions() {
             const created = await fs.createNote(group.dataset.relpath, titleGuess);
             await fs.saveNote(created.relPath, text, undefined);
           } catch (err) {
-            alert(`"${file.name}" konnte nicht importiert werden:\n` + err.message);
+            await showMessageDialog({
+              title: 'Import fehlgeschlagen',
+              message: `"${file.name}" konnte nicht importiert werden:\n${err.message}`
+            });
           }
         }
         await refreshAll();
@@ -1617,10 +1895,6 @@ function wireNavInteractions() {
     });
   });
 
-  els.navTree.querySelectorAll('[data-context]').forEach(btn => {
-    btn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); showContextMenu(btn.dataset.context, btn); });
-  });
-
   els.navTree.querySelectorAll('a.nav-link[data-relpath]').forEach(a => {
     a.addEventListener('click', () => { location.hash = '#note/' + encodeURIComponent(a.dataset.relpath); });
   });
@@ -1647,29 +1921,29 @@ function isValidDropTarget(targetRelPath, targetType) {
 // ---------------------------------------------------------------------------
 function showExportMenu(anchorEl) {
   return new Promise((resolve) => {
-    document.querySelectorAll('.context-menu').forEach(m => m.remove());
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.innerHTML = `
-      <button type="button" data-choice="md">⬇ Als Markdown-Datei (.md) exportieren</button>
-      <button type="button" data-choice="html">⬇ Als HTML exportieren</button>
-      <button type="button" data-choice="pdf">⬇ Als PDF exportieren</button>
-      <button type="button" data-choice="zip">⬇ Ganzes Wiki als ZIP sichern</button>
-    `;
-    document.body.appendChild(menu);
-    const rect = anchorEl.getBoundingClientRect();
-    menu.style.top = rect.bottom + 4 + 'px';
-    menu.style.left = Math.min(rect.left, window.innerWidth - 240) + 'px';
+    const menu = createHtmlContextMenu({
+      trigger: anchorEl,
+      label: 'Exportieren',
+      onDismiss: () => close(null),
+      html: renderSimpleContextMenuItems([
+        { label: '⬇ Als Markdown-Datei (.md) exportieren', data: { choice: 'md' } },
+        { label: '⬇ Als HTML exportieren', data: { choice: 'html' } },
+        { label: '⬇ Als PDF exportieren', data: { choice: 'pdf' } },
+        { label: '⬇ Ganzes Wiki als ZIP sichern', data: { choice: 'zip' } }
+      ])
+    });
 
     let resolved = false;
-    function close(value) { if (resolved) return; resolved = true; menu.remove(); resolve(value); }
+    function close(value) {
+      if (resolved) return;
+      resolved = true;
+      closeHtmlContextMenu(menu, { reason: value ? 'action' : 'dismiss' });
+      resolve(value);
+    }
     menu.addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-choice]');
       if (btn) close(btn.dataset.choice);
     });
-    setTimeout(() => document.addEventListener('click', function closeOnce() {
-      close(null); document.removeEventListener('click', closeOnce);
-    }, { once: true }), 0);
   });
 }
 
@@ -1738,13 +2012,17 @@ ${bodyHtml}
 }
 
 // ---------------------------------------------------------------------------
-// Gemeinsame Lösch-Logik — genutzt vom X-Button (Standard-Modus) UND von der
-// "Löschen"-Option im ⋮-Menü (Edit-Modus, siehe showContextMenu).
+// Gemeinsame Lösch-Logik — genutzt vom Sidebar-Kontextmenü (siehe showContextMenu).
 // ---------------------------------------------------------------------------
 async function performDelete(relPath, type) {
   const noun = type === 'mainCategory' ? 'Hauptkategorie' : type === 'subCategory' ? 'Unterkategorie' : 'Notiz';
   const msg = type === 'note' ? 'Notiz in den Papierkorb verschieben?' : `${noun} inkl. allem Inhalt in den Papierkorb verschieben?`;
-  if (!confirm(msg)) return;
+  if (!await showConfirmDialog({
+    title: `${noun} in den Papierkorb?`,
+    message: msg,
+    confirmLabel: 'In den Papierkorb',
+    danger: true
+  })) return;
   const openRelPath = getOpenRelPath();
   const affectsOpenNote = openRelPath && (type === 'note' ? openRelPath === relPath : (openRelPath === relPath || openRelPath.startsWith(relPath + '/')));
   if (affectsOpenNote) { closeEditor(); location.hash = '#home'; }
@@ -1752,31 +2030,30 @@ async function performDelete(relPath, type) {
   await refreshAll();
 }
 
-function showContextMenu(relPath, anchorEl, type = 'note') {
-  document.querySelectorAll('.context-menu').forEach(m => m.remove());
+function showContextMenu(relPath, anchorEl, type = 'note', position = null) {
   const isFolder = type !== 'note';
-  const menu = document.createElement('div');
-  menu.className = 'context-menu';
-  menu.innerHTML = `
-    <button type="button" data-action="rename">✎ Umbenennen</button>
-    <button type="button" data-action="icon">🎨 Icon ändern</button>
-    <button type="button" class="danger" data-action="delete">🗑 Löschen</button>
-  `;
-  document.body.appendChild(menu);
-  const rect = anchorEl.getBoundingClientRect();
-  menu.style.top = rect.bottom + 4 + 'px';
-  menu.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
+  const menu = createHtmlContextMenu({
+    trigger: anchorEl,
+    label: type === 'note' ? 'Notizaktionen' : 'Kategorieaktionen',
+    position,
+    html: renderSimpleContextMenuItems([
+      { label: '✎ Umbenennen', data: { action: 'rename' } },
+      { label: '🎨 Icon ändern', data: { action: 'icon' } },
+      { separator: true },
+      { label: '🗑 In den Papierkorb', danger: true, data: { action: 'delete' } }
+    ])
+  });
 
   menu.addEventListener('click', async (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
     if (btn.dataset.action === 'delete') {
-      menu.remove();
+      closeHtmlContextMenu(menu, { reason: 'action' });
       await performDelete(relPath, type);
       return;
     }
     if (btn.dataset.action === 'icon') {
-      menu.remove();
+      closeHtmlContextMenu(menu, { reason: 'action' });
       showIconPicker(anchorEl, async (icon) => {
         await fs.setCategoryIcon(relPath, icon);
         await refreshAll();
@@ -1784,6 +2061,7 @@ function showContextMenu(relPath, anchorEl, type = 'note') {
       return;
     }
     if (btn.dataset.action !== 'rename') return;
+    closeHtmlContextMenu(menu, { reason: 'action' });
     const openRelPath = getOpenRelPath();
     const affectsOpenNote = openRelPath && (isFolder ? (openRelPath.startsWith(relPath + '/') || openRelPath === relPath) : openRelPath === relPath);
     const currentName = relPath.split('/').pop().replace(/\.md$/, '');
@@ -1794,12 +2072,7 @@ function showContextMenu(relPath, anchorEl, type = 'note') {
       if (!isFolder && openRelPath === relPath) location.hash = '#note/' + encodeURIComponent(renamed.relPath);
       else if (isFolder && affectsOpenNote) location.hash = '#home'; // Pfad der offenen Notiz hat sich mitgeändert
     }
-    menu.remove();
   });
-
-  setTimeout(() => document.addEventListener('click', function closeOnce() {
-    menu.remove(); document.removeEventListener('click', closeOnce);
-  }, { once: true }), 0);
 }
 
 // Hauptkategorien: nur Top-Level-Ordner.
@@ -1830,7 +2103,7 @@ async function createMainCategoryFlow() {
     await fs.createMainCategory(name);
     await refreshAll();
   } catch (err) {
-    alert('Hauptkategorie konnte nicht angelegt werden:\n' + err.message);
+    await showMessageDialog({ title: 'Hauptkategorie konnte nicht angelegt werden', message: err.message });
   }
 }
 
@@ -1840,7 +2113,10 @@ async function createMainCategoryFlow() {
 async function createSubCategoryFlow() {
   const mainCategories = collectMainCategories(state.tree);
   if (mainCategories.length === 0) {
-    alert('Erst eine Hauptkategorie anlegen, dann kann die Unterkategorie dort hinein.');
+    await showMessageDialog({
+      title: 'Hauptkategorie erforderlich',
+      message: 'Lege zuerst eine Hauptkategorie an. Danach kannst du darin eine Unterkategorie erstellen.'
+    });
     return;
   }
   const mainCategoryRelPath = mainCategories.length === 1
@@ -1854,7 +2130,7 @@ async function createSubCategoryFlow() {
     await fs.createSubCategory(mainCategoryRelPath, name);
     await refreshAll();
   } catch (err) {
-    alert('Unterkategorie konnte nicht angelegt werden:\n' + err.message);
+    await showMessageDialog({ title: 'Unterkategorie konnte nicht angelegt werden', message: err.message });
   }
 }
 
@@ -1904,7 +2180,7 @@ const NOTE_TEMPLATES = [
 
 function showTemplatePickerModal() {
   return new Promise((resolve) => {
-    document.querySelectorAll('.prompt-overlay').forEach(el => el.remove());
+    closeManagedDialogs('.prompt-overlay', { restoreFocus: false });
     let customTemplates = Array.isArray(state.project?.config?.customTemplates) ? state.project.config.customTemplates : [];
     const overlay = document.createElement('div');
     overlay.className = 'prompt-overlay';
@@ -1922,8 +2198,7 @@ function showTemplatePickerModal() {
     document.body.appendChild(overlay);
     const customArea = overlay.querySelector('.template-picker-custom-area');
     let done = false;
-    function close(value) { if (done) return; done = true; overlay.remove(); resolve(value); }
-    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(null); });
+    function close(value) { if (done) return; done = true; dialogController.destroy(); resolve(value); }
     overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => close(null));
     overlay.querySelectorAll('.template-picker-btn[data-key]').forEach(btn => {
       btn.addEventListener('click', () => close(NOTE_TEMPLATES.find(t => t.key === btn.dataset.key)));
@@ -1941,7 +2216,7 @@ function showTemplatePickerModal() {
             <div class="template-picker-row">
               <button type="button" class="template-picker-btn" data-custom-key="${escapeHtml(t.key)}">${escapeHtml(t.label)}</button>
               <button type="button" class="icon-btn small" data-rename-key="${escapeHtml(t.key)}" title="Umbenennen">✎</button>
-              <button type="button" class="icon-btn small" data-delete-key="${escapeHtml(t.key)}" title="Löschen">🗑</button>
+              <button type="button" class="icon-btn small" data-delete-key="${escapeHtml(t.key)}" title="Löschen" aria-label="Vorlage löschen">✕</button>
             </div>`).join('')}
         </div>`;
       customArea.querySelectorAll('.template-picker-btn[data-custom-key]').forEach(btn => {
@@ -1962,7 +2237,12 @@ function showTemplatePickerModal() {
       customArea.querySelectorAll('[data-delete-key]').forEach(btn => {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
-          if (!confirm('Diese eigene Vorlage wirklich löschen?')) return;
+          if (!await showConfirmDialog({
+            title: 'Vorlage löschen?',
+            message: 'Diese eigene Vorlage wird dauerhaft entfernt.',
+            confirmLabel: 'Löschen',
+            danger: true
+          })) return;
           customTemplates = customTemplates.filter(t => t.key !== btn.dataset.deleteKey);
           await fs.setProjectSetting('customTemplates', customTemplates);
           if (state.project?.config) state.project.config.customTemplates = customTemplates;
@@ -1971,6 +2251,14 @@ function showTemplatePickerModal() {
       });
     }
     renderCustomArea();
+    const dialogController = manageModalDialog({
+      overlay,
+      dialog: overlay.querySelector('.prompt-modal'),
+      initialFocus: overlay.querySelector('.template-picker-btn'),
+      onRequestClose: () => close(null),
+      closeOnBackdrop: false,
+      enterActivatesPrimary: false
+    });
   });
 }
 
@@ -1995,7 +2283,10 @@ async function saveNoteAsTemplate() {
 els.btnAddNote.addEventListener('click', async () => {
   const subCategories = collectSubCategories(state.tree);
   if (subCategories.length === 0) {
-    alert('Erst eine Unterkategorie anlegen ("+ Unterthema"), dann kann die Notiz dort hinein.');
+    await showMessageDialog({
+      title: 'Unterkategorie erforderlich',
+      message: 'Lege zuerst eine Unterkategorie an. Danach kannst du darin eine Notiz erstellen.'
+    });
     return;
   }
   const targetRelPath = subCategories.length === 1
@@ -2014,14 +2305,14 @@ els.btnAddNote.addEventListener('click', async () => {
     await refreshAll();
     location.hash = '#note/' + encodeURIComponent(created.relPath);
   } catch (err) {
-    alert('Notiz konnte nicht angelegt werden:\n' + err.message);
+    await showMessageDialog({ title: 'Notiz konnte nicht angelegt werden', message: err.message });
     console.error('[Archiv Wiki] fs.createNote fehlgeschlagen für Ziel', targetRelPath, err);
   }
 });
 
 function showCategoryPickerModal(categories, title = 'In welcher Kategorie?') {
   return new Promise((resolve) => {
-    document.querySelectorAll('.prompt-overlay').forEach(el => el.remove());
+    closeManagedDialogs('.prompt-overlay', { restoreFocus: false });
     const overlay = document.createElement('div');
     overlay.className = 'prompt-overlay';
     overlay.innerHTML = `
@@ -2037,11 +2328,20 @@ function showCategoryPickerModal(categories, title = 'In welcher Kategorie?') {
       </div>`;
     document.body.appendChild(overlay);
     const select = overlay.querySelector('select');
-    select.focus();
-    function close(value) { overlay.remove(); resolve(value); }
-    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(null); });
+    let done = false;
+    function close(value) { if (done) return; done = true; dialogController.destroy(); resolve(value); }
+    const okButton = overlay.querySelector('[data-action="ok"]');
     overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => close(null));
-    overlay.querySelector('[data-action="ok"]').addEventListener('click', () => close(select.value));
+    okButton.addEventListener('click', () => close(select.value));
+    const dialogController = manageModalDialog({
+      overlay,
+      dialog: overlay.querySelector('.prompt-modal'),
+      initialFocus: select,
+      primaryAction: okButton,
+      enterActivatesPrimary: true,
+      onRequestClose: () => close(null),
+      closeOnBackdrop: false
+    });
   });
 }
 
@@ -2310,20 +2610,40 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === '?' && !mod && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName) && !document.activeElement?.closest('.cm-editor')) {
     e.preventDefault(); showShortcutsCheatsheet();
   }
-  else if (mod && e.shiftKey && e.key.toLowerCase() === 'f' && getOpenRelPath()) { e.preventDefault(); toggleFocusMode(); }
+  else if (mod && e.shiftKey && e.key.toLowerCase() === 'f' && getOpenRelPath()) {
+    if (isFocusModeShortcutBlocked()) return;
+    e.preventDefault();
+    const fromToolbar = Boolean(document.activeElement?.closest?.('.note-toolbar'));
+    toggleFocusMode({ focusWorkArea: fromToolbar });
+  }
   else if (e.key === 'Escape' && document.body.classList.contains('focus-mode')) { e.preventDefault(); toggleFocusMode(); }
 });
 
-// Focus-/Cocoon-Modus (überarbeitet aus dem bisherigen Zen-Modus, siehe CSS
+function isFocusModeShortcutBlocked() {
+  const managedDialogOpen = Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'));
+  return managedDialogOpen || searchDropdownOpen || Boolean(activeHtmlContextMenu);
+}
+
+function focusCurrentWritingArea() {
+  if (!getOpenRelPath()) return;
+  if (state.viewMode === 'preview') {
+    document.getElementById('previewContainer')?.focus({ preventScroll: true });
+    return;
+  }
+  focusEditor();
+}
+
+// Fokus-Modus (editorgebundene Konzentrationsansicht, siehe CSS
 // body.focus-mode-Regeln in layout.css): Sidebar/Kopfzeile/Werkzeugleiste/
 // Statuszeile bleiben jetzt vollständig sichtbar UND bedienbar, treten nur
 // optisch zurück (Deckkraft reduziert) statt komplett zu verschwinden — man
 // verliert dadurch nicht mehr die Orientierung in der App. Ein/Aus-Zustand
 // bewusst NICHT gespeichert (jeder Programmstart beginnt wieder normal), die
 // INTENSITÄT dagegen schon (Stil-Vorliebe, kein Sitzungs-Zustand, siehe
-// Einstellungen → Darstellung → Focus-Modus).
-function toggleFocusMode() {
+// Einstellungen → Darstellung → Fokus-Modus).
+function toggleFocusMode({ focusWorkArea = false } = {}) {
   setFocusMode(!document.body.classList.contains('focus-mode'), state.project?.config?.focusModeIntensity);
+  if (focusWorkArea) focusCurrentWritingArea();
 }
 
 const SHORTCUT_SECTIONS = [
@@ -2343,7 +2663,7 @@ const SHORTCUT_SECTIONS = [
       { keys: 'Alt + ← / →', desc: 'Zur vorherigen/nächsten Notiz springen' },
       { keys: 'F3', desc: 'Nächster Suchtreffer in der offenen Notiz' },
       { keys: 'Umschalt + F3', desc: 'Vorheriger Suchtreffer in der offenen Notiz' },
-      { keys: 'Strg/Cmd + Umschalt + F', desc: 'Focus-Modus umschalten' },
+      { keys: 'Strg/Cmd + Umschalt + F', desc: 'Fokus-Modus umschalten' },
     ]
   },
   {
@@ -2355,13 +2675,27 @@ const SHORTCUT_SECTIONS = [
   }
 ];
 
+let shortcutsDialogInstance = null;
+
 function showShortcutsCheatsheet() {
-  document.querySelectorAll('.prompt-overlay').forEach(el => el.remove());
+  // Die Tastenkürzelübersicht ist ein Singleton: Alle Einstiegspunkte öffnen
+  // dieselbe Instanz. Ist sie bereits sichtbar, wird sie nur nach vorn geholt
+  // und fokussiert statt erneut erzeugt.
+  if (shortcutsDialogInstance?.overlay?.isConnected) {
+    const { overlay, closeButton } = shortcutsDialogInstance;
+    overlay.classList.add('shortcuts-overlay');
+    overlay.inert = false;
+    overlay.removeAttribute('aria-hidden');
+    requestAnimationFrame(() => closeButton?.focus({ preventScroll: true }));
+    return;
+  }
+
+  closeManagedDialogs('.prompt-overlay', { restoreFocus: false });
   const overlay = document.createElement('div');
-  overlay.className = 'prompt-overlay';
+  overlay.className = 'prompt-overlay shortcuts-overlay';
   overlay.innerHTML = `
     <div class="prompt-modal">
-      <div class="prompt-title">⌨️ Tastenkürzel<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
+      <div class="prompt-title"><img class="lib-icon dialog-title-icon" src="assets/icon-library/hardware/keyboard.svg" alt="">Tastenkürzel<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
       <div class="shortcuts-list">
         ${SHORTCUT_SECTIONS.map(section => `
           <div class="shortcut-section-label">${escapeHtml(section.title)}</div>
@@ -2370,10 +2704,22 @@ function showShortcutsCheatsheet() {
       </div>
     </div>`;
   document.body.appendChild(overlay);
-  function close() { overlay.remove(); }
-  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
-  overlay.querySelector('[data-action="close-x"]').addEventListener('click', close);
-  document.addEventListener('keydown', function onEsc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onEsc); } });
+
+  const closeButton = overlay.querySelector('[data-action="close-x"]');
+  let dialogController = null;
+  function close() {
+    dialogController?.destroy();
+    shortcutsDialogInstance = null;
+  }
+  closeButton.addEventListener('click', close);
+  dialogController = manageModalDialog({
+    overlay,
+    dialog: overlay.querySelector('.prompt-modal'),
+    initialFocus: closeButton,
+    onRequestClose: close,
+    closeOnBackdrop: false
+  });
+  shortcutsDialogInstance = { overlay, closeButton, dialogController };
 }
 
 function cycleViewMode() {
@@ -2426,6 +2772,15 @@ async function render() {
   closeSidebar();
   els.topbarNoteDates.textContent = ''; // wird von renderNote() neu befüllt, falls eine Notiz offen ist
   const slug = currentSlug();
+
+  // Der Fokus-Modus ist bewusst editorgebunden. Sobald eine Route ohne offene
+  // Notiz aufgerufen wird, beendet ausschließlich die zentrale Funktion den
+  // Modus und stellt Body, Intensitäts-Dataset sowie sichtbare Schalter wieder
+  // auf den normalen Zustand zurück.
+  if (!slug.startsWith('note/')) {
+    setFocusMode(false, state.project?.config?.focusModeIntensity);
+  }
+
   if (slug === 'home') return await renderHome();
   if (slug === 'trash') return renderTrash();
   if (slug === 'tags') return await renderTagsOverview(null);
@@ -2688,23 +3043,228 @@ const DASHBOARD_SIZE_OPTIONS = [5, 10, 20];
 // darüber wird fest gescrollt.
 const RECENT_SIZE_OPTIONS = [4, 10, 20];
 
-// Tipps (Nutzer-Feature, überarbeitet): keine eigene Dashboard-Zeile mehr,
-// sondern ein kleines, unauffälliges Symbol im Kopfbereich neben dem
-// Personalisierungs-Zahnrad — bewusst NICHT als Widget mit fester Position
-// behandelt, da ein Tipp konzeptionell keine Nutzerdaten sind und niemand
-// eine Präferenz hat, ob er "über" oder "unter" den eigenen Notizen steht.
-// Feste, lokale Liste — kein externer Abruf, kein zusätzlicher
-// Wartungsaufwand. Bei jedem Klick auf das Symbol wird einer zufällig
-// gewählt.
+// Tipps (Nutzer-Feature): feste lokale Inhalte, die über dieselbe kleine
+// Sprechblase im Dashboard-Kopfbereich ausgespielt werden. Die Liste bleibt
+// die einzige Inhaltsquelle; Metadaten steuern nur Reihenfolge, Einmaligkeit
+// und eindeutig erkennbare Kontextbedingungen.
 const DASHBOARD_TIPS = [
-  'Du kannst Notizen mit [[doppelten eckigen Klammern]] direkt miteinander verlinken.',
-  'Mit Strg+K öffnest du von überall aus die Schnellsuche.',
-  'Bilder lassen sich direkt per Ziehen-und-Ablegen in eine Notiz einfügen.',
-  'Angepinnte Notizen erscheinen ganz oben auf dem Dashboard — ideal für Notizen, die du oft brauchst.',
-  'Über die Einstellungen lässt sich eine eigene Akzentfarbe wählen — auch als Zufallsfarbe per Klick.',
-  'Der Fokus-Modus (Werkzeugleiste im Editor) blendet Ablenkungen für konzentriertes Schreiben aus.',
-  'Eigene Notiz-Vorlagen lassen sich speichern und für neue Notizen wiederverwenden.'
+  {
+    id: 'first-note',
+    category: 'firstSteps',
+    priority: 'high',
+    text: 'Erstelle zuerst ein Thema und darin deine erste Notiz.',
+    isRelevant: context => context.noteCount === 0
+  },
+  {
+    id: 'context-menu',
+    category: 'firstSteps',
+    priority: 'high',
+    text: 'Weitere Aktionen für Notizen und Kategorien findest du per Rechtsklick, Umschalt+F10 oder Kontextmenütaste.'
+  },
+  {
+    id: 'search',
+    category: 'firstSteps',
+    priority: 'high',
+    text: 'Mit Strg+K springst du im Hauptfenster direkt zur Suche.'
+  },
+  {
+    id: 'shortcuts',
+    category: 'firstSteps',
+    priority: 'high',
+    text: 'Mit ? öffnest du im Hauptfenster die Übersicht aller Tastenkürzel.'
+  },
+  {
+    id: 'wikilinks',
+    category: 'general',
+    priority: 'high',
+    text: 'Du kannst Notizen mit [[doppelten eckigen Klammern]] direkt miteinander verlinken.'
+  },
+  {
+    id: 'images',
+    category: 'general',
+    priority: 'medium',
+    text: 'Bilder lassen sich direkt per Ziehen-und-Ablegen in eine Notiz einfügen.'
+  },
+  {
+    id: 'pinned',
+    category: 'general',
+    priority: 'medium',
+    text: 'Angepinnte Notizen sind auf dem Dashboard schnell erreichbar — ideal für Notizen, die du oft brauchst.'
+  },
+  {
+    id: 'backup',
+    category: 'general',
+    priority: 'medium',
+    text: 'Backups richtest du in den Einstellungen ein und kannst sie dort jederzeit manuell starten.',
+    isRelevant: context => !context.backupConfigured
+  },
+  {
+    id: 'trash',
+    category: 'general',
+    priority: 'medium',
+    text: 'Gelöschte Notizen landen zuerst im Papierkorb und können dort wiederhergestellt werden.'
+  },
+  {
+    id: 'focus-mode',
+    category: 'general',
+    priority: 'medium',
+    text: 'Der Fokus-Modus in der Editor-Werkzeugleiste dimmt die übrige Oberfläche für konzentriertes Schreiben und Lesen.'
+  },
+  {
+    id: 'templates',
+    category: 'general',
+    priority: 'medium',
+    text: 'Eigene Notiz-Vorlagen lassen sich speichern und für neue Notizen wiederverwenden.',
+    isRelevant: context => context.customTemplateCount === 0
+  },
+  {
+    id: 'dashboard-customize',
+    category: 'general',
+    priority: 'low',
+    text: 'Über das Zahnrad kannst du die Bereiche des Dashboards ein- oder ausblenden und neu anordnen.'
+  },
+  {
+    id: 'tags',
+    category: 'general',
+    priority: 'low',
+    text: 'Schlagworte helfen dir, Notizen unabhängig von Kategorien gemeinsam wiederzufinden.',
+    isRelevant: context => context.tagCount === 0
+  },
+  {
+    id: 'accent-color',
+    category: 'general',
+    priority: 'low',
+    text: 'Über die Einstellungen lässt sich eine eigene Akzentfarbe wählen — auch als Zufallsfarbe per Klick.'
+  }
 ];
+
+// Releasebezogene Hinweise werden bewusst explizit pro Version registriert.
+// Derzeit ist kein konkreter Hinweis freigegeben; die kleine Infrastruktur
+// bleibt deshalb leer, statt eine angeblich "neue" Funktion zu erfinden.
+const DASHBOARD_FEATURE_TIPS = [];
+const DASHBOARD_TIP_PRIORITY = ['high', 'medium', 'low'];
+let dashboardAppVersionPromise = null;
+
+function shuffleDashboardTips(items) {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+function tipIsRelevant(tip, context) {
+  return typeof tip.isRelevant !== 'function' || tip.isRelevant(context);
+}
+
+async function getDashboardAppVersion() {
+  if (!dashboardAppVersionPromise) {
+    dashboardAppVersionPromise = window.archivAPI.getVersion().catch(() => null);
+  }
+  return dashboardAppVersionPromise;
+}
+
+async function persistDashboardTipState(patch) {
+  for (const [key, value] of Object.entries(patch)) {
+    await fs.setProjectSetting(key, value);
+    if (state.project?.config) state.project.config[key] = value;
+  }
+}
+
+function buildGeneralTipCycle(tips, firstCycle) {
+  if (!firstCycle) return shuffleDashboardTips(tips).map(tip => tip.id);
+  return DASHBOARD_TIP_PRIORITY.flatMap(priority =>
+    shuffleDashboardTips(tips.filter(tip => tip.priority === priority)).map(tip => tip.id)
+  );
+}
+
+async function chooseDashboardTip(context) {
+  const config = state.project?.config || {};
+  const firstStepsSeen = new Set(Array.isArray(config.dashboardTipFirstStepsSeen)
+    ? config.dashboardTipFirstStepsSeen
+    : []);
+  const nextFirstStep = DASHBOARD_TIPS.find(tip =>
+    tip.category === 'firstSteps' && !firstStepsSeen.has(tip.id) && tipIsRelevant(tip, context)
+  );
+
+  if (nextFirstStep) {
+    const nextSeen = [...firstStepsSeen, nextFirstStep.id];
+    await persistDashboardTipState({ dashboardTipFirstStepsSeen: nextSeen });
+    return nextFirstStep;
+  }
+
+  if (DASHBOARD_FEATURE_TIPS.length) {
+    const appVersion = await getDashboardAppVersion();
+    const seenVersions = new Set(Array.isArray(config.dashboardFeatureTipVersionsSeen)
+      ? config.dashboardFeatureTipVersionsSeen
+      : []);
+    const featureTip = DASHBOARD_FEATURE_TIPS.find(tip =>
+      tip.version === appVersion && !seenVersions.has(tip.version)
+    );
+    if (featureTip) {
+      await persistDashboardTipState({
+        dashboardFeatureTipVersionsSeen: [...seenVersions, featureTip.version]
+      });
+      return featureTip;
+    }
+  }
+
+  const eligibleGeneral = DASHBOARD_TIPS.filter(tip =>
+    tip.category === 'general' && tipIsRelevant(tip, context)
+  );
+  const eligibleIds = new Set(eligibleGeneral.map(tip => tip.id));
+  let remaining = Array.isArray(config.dashboardTipCycleRemaining)
+    ? config.dashboardTipCycleRemaining.filter(id => eligibleIds.has(id))
+    : [];
+  let completedCycles = Number.isInteger(config.dashboardTipCompletedCycles)
+    ? config.dashboardTipCompletedCycles
+    : 0;
+
+  if (!remaining.length) {
+    remaining = buildGeneralTipCycle(eligibleGeneral, completedCycles === 0);
+    completedCycles += 1;
+  }
+
+  const nextId = remaining.shift();
+  const nextTip = eligibleGeneral.find(tip => tip.id === nextId) || eligibleGeneral[0];
+  await persistDashboardTipState({
+    dashboardTipCycleRemaining: remaining,
+    dashboardTipCompletedCycles: completedCycles
+  });
+  return nextTip;
+}
+
+function bindDashboardTipButton(context) {
+  document.getElementById('dashboardTipBtn')?.addEventListener('click', async function (event) {
+    event.stopPropagation();
+    const existing = document.querySelector('.dashboard-tip-popover');
+    if (existing) {
+      existing.remove();
+      return;
+    }
+
+    const tip = await chooseDashboardTip(context);
+    if (!tip) return;
+
+    const popover = document.createElement('div');
+    popover.className = 'dashboard-tip-popover';
+    popover.innerHTML = `<span>💡</span><span>${escapeHtml(tip.text)}</span>`;
+    document.body.appendChild(popover);
+    const buttonRect = this.getBoundingClientRect();
+    popover.style.top = `${buttonRect.bottom + 8}px`;
+    popover.style.right = `${window.innerWidth - buttonRect.right}px`;
+
+    setTimeout(() => {
+      document.addEventListener('click', function closeOnce(clickEvent) {
+        if (!popover.contains(clickEvent.target)) {
+          popover.remove();
+          document.removeEventListener('click', closeOnce);
+        }
+      });
+    }, 0);
+  });
+}
 
 // Bugfix (per echtem Test gefunden): verhindert, dass ein ÄLTERER, noch
 // laufender renderHome()-Aufruf nach seinem eigenen await (Notiz-Inhalte
@@ -2718,16 +3278,32 @@ async function renderHome() {
   setBreadcrumb('Start');
   setActiveNav(null);
   const notes = fs.flattenNotes(state.tree);
+  const config = state.project?.config || {};
+  const tipsIconEnabled = config.dashboardTipsIconEnabled !== false;
+
   if (notes.length === 0) {
     els.contentScroll.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-state-title">Dein Archiv ist noch leer.</div>
-        <div class="empty-state-body">Erstelle deine erste Wissensseite, um dein persönliches Wiki aufzubauen — über „+ Thema" in der Sidebar eine Kategorie anlegen, dann „+ Notiz" darin.</div>
+      <div class="dashboard-wrap">
+        <div class="home-header-row">
+          <div></div>
+          <div class="dashboard-header-actions">
+            ${tipsIconEnabled ? `<button type="button" class="dashboard-tip-icon-btn" id="dashboardTipBtn" title="Tipp zur Bedienung anzeigen" aria-label="Tipp zur Bedienung anzeigen">💡</button>` : ''}
+          </div>
+        </div>
+        <div class="empty-state">
+          <div class="empty-state-title">Dein Archiv ist noch leer.</div>
+          <div class="empty-state-body">Erstelle deine erste Wissensseite, um dein persönliches Wiki aufzubauen — über „+ Thema" in der Sidebar eine Kategorie anlegen, dann „+ Notiz" darin.</div>
+        </div>
       </div>`;
+    bindDashboardTipButton({
+      noteCount: 0,
+      tagCount: 0,
+      customTemplateCount: Array.isArray(config.customTemplates) ? config.customTemplates.length : 0,
+      backupConfigured: Boolean(config.backupPath)
+    });
     return;
   }
 
-  const config = state.project?.config || {};
   // Dashboard-Personalisierung (Nutzer-Feature): gespeicherte Reihenfolge
   // mit den Standardwerten zusammenführen (statt sie direkt zu verwenden) —
   // damit ein SPÄTER neu hinzugekommener Bereich (z. B. wenn diese Funktion
@@ -2793,7 +3369,6 @@ async function renderHome() {
   if (mostUsedCategory) contextOptions.push(`Am häufigsten genutzt: ${escapeHtml(mostUsedCategory)}`);
   const contextLine = contextOptions.length ? contextOptions[Math.floor(Math.random() * contextOptions.length)] : '';
 
-  const tipText = DASHBOARD_TIPS[Math.floor(Math.random() * DASHBOARD_TIPS.length)];
 
   // --- Die einzelnen Bereichs-Blöcke, jeweils als HTML-Fragment ---
   const statsBlockHtml = `
@@ -2873,7 +3448,6 @@ async function renderHome() {
     bodyParts.push(blockRenderers[key]());
   }
 
-  const tipsIconEnabled = config.dashboardTipsIconEnabled !== false;
   // Sperrstatus (Nutzer-Feature): ein einziger, gemeinsamer Wert — sowohl das
   // Kopfbereich-Symbol als auch der Einstellungen-Dialog lesen/schreiben
   // GENAU diesen einen Wert, nie eine eigene Kopie. Dadurch können beide
@@ -2889,7 +3463,7 @@ async function renderHome() {
           <p class="home-sub">${subLine}</p>
         </div>
         <div class="dashboard-header-actions">
-          ${tipsIconEnabled ? `<button type="button" class="dashboard-tip-icon-btn" id="dashboardTipBtn" title="Tipp anzeigen">💡</button>` : ''}
+          ${tipsIconEnabled ? `<button type="button" class="dashboard-tip-icon-btn" id="dashboardTipBtn" title="Tipp zur Bedienung anzeigen" aria-label="Tipp zur Bedienung anzeigen">💡</button>` : ''}
           <button type="button" class="dashboard-lock-btn${dashboardLocked ? ' locked' : ''}" id="dashboardLockBtn" title="${dashboardLocked ? 'Dashboard ist gesperrt.' : 'Dashboard kann angepasst werden.'}">${dashboardLocked ? '🔒' : '🔓'}</button>
           <button type="button" class="dashboard-gear-btn" id="dashboardGearBtn" title="Dashboard anpassen">⚙</button>
         </div>
@@ -2912,28 +3486,11 @@ async function renderHome() {
   document.getElementById('statChipTopics')?.addEventListener('click', () => { location.hash = '#stats'; });
   document.getElementById('statChipTags')?.addEventListener('click', () => { location.hash = '#tags'; });
 
-  // Tipps (Nutzer-Feature, überarbeitet): kein eigener Platz im Layout mehr —
-  // ein Klick auf das Symbol zeigt eine kleine, schließbare Sprechblase mit
-  // einem zufälligen Tipp direkt daneben, statt einer festen Dashboard-Zeile.
-  document.getElementById('dashboardTipBtn')?.addEventListener('click', function (e) {
-    e.stopPropagation();
-    const existing = document.querySelector('.dashboard-tip-popover');
-    if (existing) { existing.remove(); return; } // Zweiter Klick auf das Symbol schließt es wieder
-    const tip = DASHBOARD_TIPS[Math.floor(Math.random() * DASHBOARD_TIPS.length)];
-    const popover = document.createElement('div');
-    popover.className = 'dashboard-tip-popover';
-    popover.innerHTML = `<span>💡</span><span>${escapeHtml(tip)}</span>`;
-    document.body.appendChild(popover);
-    const btnRect = this.getBoundingClientRect();
-    popover.style.top = (btnRect.bottom + 8) + 'px';
-    popover.style.right = (window.innerWidth - btnRect.right) + 'px';
-    // Schließt sich auch bei jedem Klick außerhalb — ohne diesen Listener
-    // bliebe die Sprechblase sonst dauerhaft offen stehen.
-    setTimeout(() => {
-      document.addEventListener('click', function closeOnce(ev) {
-        if (!popover.contains(ev.target)) { popover.remove(); document.removeEventListener('click', closeOnce); }
-      });
-    }, 0);
+  bindDashboardTipButton({
+    noteCount: notes.length,
+    tagCount,
+    customTemplateCount: Array.isArray(config.customTemplates) ? config.customTemplates.length : 0,
+    backupConfigured: Boolean(config.backupPath)
   });
 
   // Sperr-Symbol (Nutzer-Feature): einfacher Klick togglet sofort. e.detail>1
@@ -2951,31 +3508,37 @@ async function renderHome() {
     if (e.detail > 1) return;
     toggleDashboardLock();
   });
-  document.getElementById('dashboardLockBtn')?.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    document.querySelectorAll('.context-menu').forEach(m => m.remove());
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-    menu.innerHTML = `
-      <button type="button" data-choice="toggle">${dashboardLocked ? '🔓 Dashboard entsperren' : '🔒 Dashboard sperren'}</button>
-      <button type="button" data-choice="settings">⚙ Dashboard anpassen…</button>
-      <button type="button" data-choice="reset">↺ Standard wiederherstellen</button>
-    `;
-    document.body.appendChild(menu);
-    const rect = e.currentTarget.getBoundingClientRect();
-    menu.style.top = rect.bottom + 4 + 'px';
-    menu.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
+  const dashboardLockBtn = document.getElementById('dashboardLockBtn');
+  function openDashboardLockContextMenu(clientX, clientY) {
+    const menu = createHtmlContextMenu({
+      trigger: dashboardLockBtn,
+      label: 'Dashboard-Aktionen',
+      position: { clientX, clientY: clientY + 4 },
+      html: renderSimpleContextMenuItems([
+        { label: dashboardLocked ? '🔓 Dashboard entsperren' : '🔒 Dashboard sperren', data: { choice: 'toggle' } },
+        { label: '⚙ Dashboard anpassen…', data: { choice: 'settings' } },
+        { separator: true },
+        { label: '↺ Standard wiederherstellen', data: { choice: 'reset' } }
+      ])
+    });
     menu.addEventListener('click', async (ev) => {
       const btn = ev.target.closest('button[data-choice]');
       if (!btn) return;
-      menu.remove();
+      closeHtmlContextMenu(menu, { reason: 'action' });
       if (btn.dataset.choice === 'toggle') await toggleDashboardLock();
       else if (btn.dataset.choice === 'settings') showDashboardSettings(dashboardSections, { recentCount, allCount, pinnedCount, tipsIconEnabled, locked: dashboardLocked });
       else if (btn.dataset.choice === 'reset') resetDashboardToDefaults();
     });
-    setTimeout(() => document.addEventListener('click', function closeOnce() {
-      menu.remove(); document.removeEventListener('click', closeOnce);
-    }, { once: true }), 0);
+  }
+  dashboardLockBtn?.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    openDashboardLockContextMenu(e.clientX, e.clientY);
+  });
+  dashboardLockBtn?.addEventListener('keydown', (e) => {
+    if (!isContextMenuKeyboardEvent(e)) return;
+    e.preventDefault();
+    const point = contextMenuPointForElement(dashboardLockBtn);
+    openDashboardLockContextMenu(point.clientX, point.clientY);
   });
 
   document.getElementById('dashboardGearBtn')?.addEventListener('click', () => {
@@ -3072,7 +3635,12 @@ async function renderHome() {
 // gesperrt ist, funktioniert Zurücksetzen weiterhin, und bleibt danach genauso
 // gesperrt wie vorher (siehe Nutzer-Anforderung "Dashboard gesperrt + Zurücksetzen").
 async function resetDashboardToDefaults() {
-  if (!confirm('Dashboard wirklich auf die Standardansicht zurücksetzen?')) return;
+  if (!await showConfirmDialog({
+    title: 'Dashboard zurücksetzen?',
+    message: 'Die Dashboard-Anordnung und Sichtbarkeit werden auf den Standard zurückgesetzt.',
+    confirmLabel: 'Zurücksetzen',
+    danger: true
+  })) return;
   await fs.setProjectSetting('dashboardSections', DEFAULT_DASHBOARD_SECTIONS.map(def => ({ ...def })));
   await fs.setProjectSetting('dashboardRecentCount', 4);
   await fs.setProjectSetting('dashboardAllCount', 10);
@@ -3085,13 +3653,13 @@ async function resetDashboardToDefaults() {
     state.project.config.dashboardPinnedCount = 5;
     state.project.config.dashboardTipsIconEnabled = true;
   }
-  document.querySelectorAll('.dashboard-settings-overlay').forEach(el => el.remove());
+  closeManagedDialogs('.dashboard-settings-overlay', { restoreFocus: false });
   await renderHome();
   showQuickFeedback('Dashboard zurückgesetzt');
 }
 
 function showDashboardSettings(sections, sizes) {
-  document.querySelectorAll('.dashboard-settings-overlay').forEach(el => el.remove());
+  closeManagedDialogs('.dashboard-settings-overlay', { restoreFocus: false });
   const list = [...sections];
   let locked = sizes.locked === true;
   const overlay = document.createElement('div');
@@ -3100,7 +3668,7 @@ function showDashboardSettings(sections, sizes) {
     <div class="dashboard-settings-panel">
       <h3>Dashboard anpassen</h3>
       <div class="dashboard-settings-row" style="padding-bottom:11px; border-bottom:1px solid var(--border-soft);">
-        <label><input type="checkbox" id="dsLocked" ${locked ? 'checked' : ''}> 🔒 Dashboard sperren</label>
+        <label><input type="checkbox" id="dsLocked" ${locked ? 'checked' : ''}><img class="lib-icon dialog-inline-icon" src="assets/icon-library/security/lock.svg" alt="">Dashboard sperren</label>
       </div>
       <div id="dsRows"></div>
       <div class="dashboard-settings-size-block">
@@ -3116,13 +3684,21 @@ function showDashboardSettings(sections, sizes) {
         <div class="density-option-row" id="dsPinnedSize"></div>
       </div>
       <div class="dashboard-settings-row" style="border-top:1px solid var(--border-soft); margin-top:4px; padding-top:11px;">
-        <label><input type="checkbox" id="dsTipsIcon" ${sizes.tipsIconEnabled ? 'checked' : ''}> 💡 Tipp-Symbol anzeigen</label>
+        <label><input type="checkbox" id="dsTipsIcon" ${sizes.tipsIconEnabled ? 'checked' : ''}><img class="lib-icon dialog-inline-icon" src="assets/icon-library/projects/lightbulb.svg" alt="">Tipp-Symbol anzeigen</label>
       </div>
-      <button type="button" class="dashboard-show-more" id="dsResetBtn" style="margin-top:8px; border-top:none; border:1px solid var(--border-soft); border-radius:var(--radius-md);">↺ Standard wiederherstellen</button>
+      <button type="button" class="dashboard-show-more" id="dsResetBtn" style="margin-top:8px; border-top:none; border:1px solid var(--border-soft); border-radius:var(--radius-md);">Standard wiederherstellen</button>
     </div>
   `;
   document.body.appendChild(overlay);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  function close() { dialogController.destroy(); }
+  const dialogController = manageModalDialog({
+    overlay,
+    dialog: overlay.querySelector('.dashboard-settings-panel'),
+    initialFocus: overlay.querySelector('#dsLocked'),
+    onRequestClose: close,
+    closeOnBackdrop: true,
+    enterActivatesPrimary: false
+  });
   overlay.querySelector('#dsLocked').addEventListener('change', async (e) => {
     locked = e.target.checked;
     await fs.setProjectSetting('dashboardLocked', locked);
@@ -3327,7 +3903,7 @@ async function renderNote(relPath) {
         <button type="button" data-mode="preview">Vorschau</button>
       </div>
       <button type="button" class="icon-btn sync-scroll-toggle" id="btnSyncScroll" title="Sync-Scroll: Vorschau folgt beim Scrollen im Editor" aria-label="Sync-Scroll umschalten">🔗</button>
-      <button type="button" class="icon-btn" id="btnFocusMode" title="Focus-Modus (Strg+Umschalt+F)" aria-label="Focus-Modus umschalten">◎</button>
+      <button type="button" class="icon-btn" id="btnFocusMode" title="Fokus-Modus (Strg+Umschalt+F)" aria-label="Fokus-Modus umschalten" aria-pressed="false">◎</button>
       <select class="font-size-select" id="editorFontSizeSelect" title="Editor-Schriftgröße" aria-label="Editor-Schriftgröße">
         <option value="12">12px</option>
         <option value="13">13px</option>
@@ -3358,7 +3934,7 @@ async function renderNote(relPath) {
     <div class="note-split mode-split" id="noteSplit">
       <div id="editorContainer" class="editor-pane"></div>
       <div class="split-resizer" id="splitResizer" title="Ziehen zum Verändern der Breite"></div>
-      <div id="previewContainer" class="preview-pane"></div>
+      <div id="previewContainer" class="preview-pane" tabindex="0"></div>
     </div>
     <div class="note-bottombar">
       <span id="statLines">0 Zeilen</span>
@@ -3368,6 +3944,15 @@ async function renderNote(relPath) {
       <span id="statSaved"></span>
     </div>
   `;
+
+  // Die Werkzeugleiste wird bei jedem Notizwechsel neu aufgebaut. Der neue
+  // Fokus-Button übernimmt deshalb unmittelbar den bestehenden Body-Zustand.
+  // Beim Wechsel zwischen Notizen bleibt der Modus samt Intensität aktiv,
+  // ohne dafür eine zweite Statusvariable einzuführen.
+  setFocusMode(
+    document.body.classList.contains('focus-mode'),
+    document.body.dataset.focusIntensity || state.project?.config?.focusModeIntensity
+  );
 
   applyViewMode();
   document.getElementById('viewToggle').addEventListener('click', (e) => {
@@ -3393,7 +3978,7 @@ async function renderNote(relPath) {
     if (state.project?.config) state.project.config.syncScrollEnabled = syncScrollOn;
   });
 
-  document.getElementById('btnFocusMode').addEventListener('click', toggleFocusMode);
+  document.getElementById('btnFocusMode').addEventListener('click', () => toggleFocusMode({ focusWorkArea: true }));
 
   const fontSizeSelect = document.getElementById('editorFontSizeSelect');
   const storedFontSize = Number(state.project?.config?.editorFontSize) || EDITOR_FONT_SIZE_DEFAULT;
@@ -3462,7 +4047,12 @@ async function renderNote(relPath) {
   document.getElementById('btnSave').addEventListener('click', () => saveNow(currentOnSaved, currentOnSaveError));
 
   document.getElementById('btnDeleteNote').addEventListener('click', async () => {
-    if (!confirm('Notiz in den Papierkorb verschieben?')) return;
+    if (!await showConfirmDialog({
+      title: 'Notiz in den Papierkorb?',
+      message: 'Die Notiz kann später aus dem Papierkorb wiederhergestellt werden.',
+      confirmLabel: 'In den Papierkorb',
+      danger: true
+    })) return;
     closeEditor();
     location.hash = '#home';
     await fs.deleteEntry(relPath);
@@ -3517,7 +4107,7 @@ async function renderNote(relPath) {
     try {
       if (choice === 'md') {
         const result = await window.archivAPI.exportApi.saveMarkdown(getEditorContent(), safeTitle + '.md');
-        if (result?.saved) alert('Markdown-Datei exportiert nach:\n' + result.filePath);
+        if (result?.saved) await showMessageDialog({ title: 'Export abgeschlossen', message: `Markdown-Datei exportiert nach:\n${result.filePath}` });
       } else if (choice === 'html') {
         const html = buildStandaloneNoteHtml({
           title: titleInput.value.trim() || 'Notiz',
@@ -3526,23 +4116,35 @@ async function renderNote(relPath) {
           bodyHtml: document.getElementById('previewContainer').innerHTML
         });
         const result = await window.archivAPI.exportApi.saveHtml(html, safeTitle + '.html');
-        if (result?.saved) alert('HTML exportiert nach:\n' + result.filePath);
+        if (result?.saved) await showMessageDialog({ title: 'Export abgeschlossen', message: `HTML exportiert nach:\n${result.filePath}` });
       } else if (choice === 'pdf') {
         const result = await window.archivAPI.exportApi.notePdf(safeTitle + '.pdf');
-        if (result?.saved) alert('PDF exportiert nach:\n' + result.filePath);
+        if (result?.saved) await showMessageDialog({ title: 'Export abgeschlossen', message: `PDF exportiert nach:\n${result.filePath}` });
       } else if (choice === 'zip') {
         const result = await window.archivAPI.exportApi.projectZip();
-        if (result?.saved) alert('Wiki-Backup exportiert nach:\n' + result.filePath);
+        if (result?.saved) await showMessageDialog({ title: 'Export abgeschlossen', message: `Wiki-Backup exportiert nach:\n${result.filePath}` });
       }
     } catch (err) {
-      alert('Export fehlgeschlagen:\n' + err.message);
+      await showMessageDialog({ title: 'Export fehlgeschlagen', message: err.message });
       console.error('[Archiv Wiki] Export fehlgeschlagen', err);
     }
   });
 
+  document.getElementById('btnExport').addEventListener('keydown', (e) => {
+    if (!isContextMenuKeyboardEvent(e)) return;
+    e.preventDefault();
+    showExportMenu(document.getElementById('btnExport'));
+  });
+  document.getElementById('btnExport').addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showExportMenu(document.getElementById('btnExport'));
+  });
   document.getElementById('btnSaveAsTemplate').addEventListener('click', saveNoteAsTemplate);
 
-  categoryBadge.addEventListener('click', (e) => {
+  categoryBadge.tabIndex = 0;
+  categoryBadge.setAttribute('role', 'button');
+  categoryBadge.setAttribute('aria-label', 'Kategorie der Notiz ändern');
+  const openCategoryMoveMenu = (e) => {
     e.stopPropagation();
     const currentCategoryRelPath = relPath.includes('/') ? relPath.split('/').slice(0, -1).join('/') : '';
     const options = collectSubCategories(state.tree).filter(c => c.relPath !== currentCategoryRelPath);
@@ -3553,7 +4155,19 @@ async function renderNote(relPath) {
       showMoveUndoToast(relPath, moved);
       location.hash = '#note/' + encodeURIComponent(moved.relPath);
     });
+  };
+  categoryBadge.addEventListener('click', openCategoryMoveMenu);
+  categoryBadge.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    openCategoryMoveMenu(e);
   });
+  categoryBadge.addEventListener('keydown', (e) => {
+    if (isContextMenuKeyboardEvent(e) || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openCategoryMoveMenu(e);
+    }
+  });
+
 
   function updateCounts(text) {
     const lines = text.length ? text.split('\n').length : 0;
@@ -3693,7 +4307,11 @@ async function renderNote(relPath) {
     } else if (target.dataset.wikilinkCreate) {
       const name = target.dataset.wikilinkCreate;
       const currentSubCategory = relPath.split('/').slice(0, -1).join('/');
-      if (!currentSubCategory || !confirm(`Notiz "${name}" existiert noch nicht. In dieser Unterkategorie anlegen?`)) return;
+      if (!currentSubCategory || !await showConfirmDialog({
+        title: 'Notiz anlegen?',
+        message: `Die Notiz "${name}" existiert noch nicht. Soll sie in dieser Unterkategorie angelegt werden?`,
+        confirmLabel: 'Anlegen'
+      })) return;
       const created = await fs.createNote(currentSubCategory, name);
       await refreshAll();
       location.hash = '#note/' + encodeURIComponent(created.relPath);
@@ -3760,7 +4378,13 @@ async function renderNote(relPath) {
     const options = fs.flattenNotes(state.tree)
       .filter(n => n.relPath !== relPath)
       .map(n => ({ relPath: n.relPath, label: n.frontmatter?.title || n.name }));
-    if (options.length === 0) { alert('Es gibt noch keine andere Notiz, mit der verknüpft werden könnte.'); return; }
+    if (options.length === 0) {
+      await showMessageDialog({
+        title: 'Keine andere Notiz vorhanden',
+        message: 'Es gibt noch keine andere Notiz, mit der eine Verknüpfung erstellt werden kann.'
+      });
+      return;
+    }
     const targetRelPath = await showCategoryPickerModal(options, 'Verknüpfen mit welcher Notiz?');
     if (!targetRelPath) return;
     await fs.saveNote(relPath, undefined, { backlinkTo: targetRelPath });
@@ -3788,27 +4412,24 @@ async function renderNote(relPath) {
 // verschieben, ohne extra über die Sidebar zu müssen.
 // ---------------------------------------------------------------------------
 function showCategoryMoveMenu(anchorEl, options, onSelect) {
-  document.querySelectorAll('.context-menu').forEach(m => m.remove());
-  const menu = document.createElement('div');
-  menu.className = 'context-menu';
-  menu.innerHTML = `
-    <div class="context-menu-label">Verschieben nach:</div>
-    ${options.map(c => `<button type="button" data-target="${escapeHtml(c.relPath)}">→ ${escapeHtml(c.label)}</button>`).join('')}
-  `;
-  document.body.appendChild(menu);
-  const rect = anchorEl.getBoundingClientRect();
-  menu.style.top = rect.bottom + 4 + 'px';
-  menu.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
+  const menu = createHtmlContextMenu({
+    trigger: anchorEl,
+    label: 'Kategorie auswählen',
+    html: `
+      <div class="context-menu-label">Verschieben nach:</div>
+      ${renderSimpleContextMenuItems(options.map(c => ({
+        label: `→ ${escapeHtml(c.label)}`,
+        data: { target: c.relPath }
+      })))}
+    `
+  });
 
   menu.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-target]');
     if (!btn) return;
-    menu.remove();
+    closeHtmlContextMenu(menu, { reason: 'action' });
     onSelect(btn.dataset.target);
   });
-  setTimeout(() => document.addEventListener('click', function closeOnce() {
-    menu.remove(); document.removeEventListener('click', closeOnce);
-  }, { once: true }), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -3995,7 +4616,7 @@ function showTableEditorModal(tableIndex) {
   // Arbeitskopie — erst bei "Übernehmen" fließt das zurück in den Text.
   const data = { headers: [...original.headers], alignments: [...original.alignments], rows: original.rows.map(r => [...r]) };
 
-  document.querySelectorAll('.table-editor-overlay').forEach(el => el.remove());
+  closeManagedDialogs('.table-editor-overlay', { restoreFocus: false });
   const overlay = document.createElement('div');
   overlay.className = 'table-editor-overlay';
   overlay.innerHTML = `
@@ -4081,15 +4702,20 @@ function showTableEditorModal(tableIndex) {
     data.rows.forEach(r => r.push(''));
     renderGrid();
   });
+  function close() { dialogController.destroy(); }
   overlay.querySelector('[data-action="apply"]').addEventListener('click', () => {
     const updated = replaceNthTableInMarkdown(getEditorContent(), tableIndex, data);
     setEditorContent(updated);
-    overlay.remove();
+    close();
   });
-  overlay.querySelectorAll('[data-action="cancel"]').forEach(btn => btn.addEventListener('click', () => overlay.remove()));
-  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) overlay.remove(); });
-  document.addEventListener('keydown', function onEsc(e) {
-    if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onEsc); }
+  overlay.querySelectorAll('[data-action="cancel"]').forEach(btn => btn.addEventListener('click', close));
+  const dialogController = manageModalDialog({
+    overlay,
+    dialog: overlay.querySelector('.table-editor-modal'),
+    initialFocus: () => overlay.querySelector('.te-header-input, .te-cell-input, [data-action="cancel"]'),
+    onRequestClose: close,
+    closeOnBackdrop: false,
+    enterActivatesPrimary: false
   });
 }
 
@@ -4249,8 +4875,25 @@ function buildPreviewMenuItems(previewEl) {
   ];
 }
 
+function normalizeMenuItemDefinitions(items) {
+  const normalized = [];
+  for (const sourceItem of items || []) {
+    const item = Array.isArray(sourceItem?.submenu)
+      ? { ...sourceItem, submenu: normalizeMenuItemDefinitions(sourceItem.submenu) }
+      : sourceItem;
+    if (item?.separator) {
+      if (!normalized.length || normalized[normalized.length - 1]?.separator) continue;
+      normalized.push(item);
+      continue;
+    }
+    if (item) normalized.push(item);
+  }
+  if (normalized[normalized.length - 1]?.separator) normalized.pop();
+  return normalized;
+}
+
 function renderMenuItemsHtml(items) {
-  return items.map((item, i) => {
+  return normalizeMenuItemDefinitions(items).map((item, i) => {
     if (item.separator) return '<div class="ectx-sep"></div>';
     const hasSubmenu = Array.isArray(item.submenu);
     return `
@@ -4274,21 +4917,15 @@ function findMenuItemByPath(items, path) {
   return item;
 }
 
-function showEditorRightClickMenu(e, items, clickPos) {
+function showEditorRightClickMenu(e, items, clickPos, trigger = e.currentTarget || document.activeElement) {
   e.preventDefault();
-  document.querySelectorAll('.ectx-menu').forEach(m => m.remove());
-  const menu = document.createElement('div');
-  menu.className = 'ectx-menu';
-  menu.innerHTML = renderMenuItemsHtml(items);
-  document.body.appendChild(menu);
-
-  // Position: an der Klickstelle, mit Rand-Überlauf-Schutz.
-  const menuRect = menu.getBoundingClientRect();
-  let left = e.clientX, top = e.clientY;
-  if (left + menuRect.width > window.innerWidth) left = window.innerWidth - menuRect.width - 8;
-  if (top + menuRect.height > window.innerHeight) top = window.innerHeight - menuRect.height - 8;
-  menu.style.left = Math.max(4, left) + 'px';
-  menu.style.top = Math.max(4, top) + 'px';
+  const menu = createHtmlContextMenu({
+    className: 'ectx-menu',
+    trigger,
+    label: 'Editor-Kontextmenü',
+    position: { clientX: e.clientX, clientY: e.clientY },
+    html: renderMenuItemsHtml(items)
+  });
 
   // Untermenüs: JS-gesteuert statt reinem CSS-:hover, weil wir die TATSÄCHLICHE
   // Höhe/Breite eines Untermenüs erst kennen, sobald es (auch nur kurz)
@@ -4300,21 +4937,17 @@ function showEditorRightClickMenu(e, items, clickPos) {
     let hideTimer = null;
     el.addEventListener('mouseenter', () => {
       clearTimeout(hideTimer);
-      sub.style.display = 'block';
-      sub.style.left = '100%'; sub.style.right = 'auto';
-      sub.style.top = '-6px'; sub.style.bottom = 'auto';
-      const itemRect = el.getBoundingClientRect();
-      const subRect = sub.getBoundingClientRect();
-      if (itemRect.right + subRect.width > window.innerWidth) {
-        sub.style.left = 'auto'; sub.style.right = '100%';
-      }
-      if (itemRect.top + subRect.height > window.innerHeight) {
-        sub.style.top = 'auto'; sub.style.bottom = '-6px';
-      }
+      setEditorSubmenuExpanded(el, true);
     });
-    el.addEventListener('mouseleave', () => {
-      hideTimer = setTimeout(() => { sub.style.display = 'none'; }, 150);
-    });
+    const scheduleHide = () => {
+      hideTimer = setTimeout(() => {
+        if (!el.contains(document.activeElement)) setEditorSubmenuExpanded(el, false);
+      }, 150);
+    };
+    el.addEventListener('mouseleave', scheduleHide);
+    sub.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+    sub.addEventListener('mouseleave', scheduleHide);
+    sub.addEventListener('focusin', () => clearTimeout(hideTimer));
   });
 
   menu.addEventListener('click', (ev) => {
@@ -4330,15 +4963,8 @@ function showEditorRightClickMenu(e, items, clickPos) {
     const item = findMenuItemByPath(items, path);
     if (!item || item.submenu) return; // Klick auf einen Eintrag MIT Untermenü selbst tut nichts (nur Hover öffnet es)
     ev.stopPropagation();
-    menu.remove();
+    closeHtmlContextMenu(menu, { reason: 'action' });
     item.action?.(clickPos);
-  });
-
-  setTimeout(() => document.addEventListener('click', function closeOnce() {
-    menu.remove(); document.removeEventListener('click', closeOnce);
-  }, { once: true }), 0);
-  document.addEventListener('keydown', function closeOnEsc(ev) {
-    if (ev.key === 'Escape') { menu.remove(); document.removeEventListener('keydown', closeOnEsc); }
   });
 }
 
@@ -4357,10 +4983,22 @@ function wireEditorContextMenus() {
     // Editor-Element!) — Picker wie "Hinweisblock" positionieren sich daran.
     // Vorheriger Bug: mit dem Editor-Element als Anker landete der Picker an
     // dessen unterer Kante statt an der Klickstelle, teils weit weg/unsichtbar.
-    showEditorRightClickMenu(e, buildEditorMenuItems(), { left: e.clientX, top: e.clientY });
+    showEditorRightClickMenu(e, buildEditorMenuItems(), { left: e.clientX, top: e.clientY }, document.activeElement);
   });
   previewEl?.addEventListener('contextmenu', (e) => {
-    showEditorRightClickMenu(e, buildPreviewMenuItems(previewEl), { left: e.clientX, top: e.clientY });
+    showEditorRightClickMenu(e, buildPreviewMenuItems(previewEl), { left: e.clientX, top: e.clientY }, document.activeElement);
+  });
+  editorEl?.addEventListener('keydown', (e) => {
+    if (!isContextMenuKeyboardEvent(e)) return;
+    e.preventDefault();
+    const point = contextMenuPointForElement(e.target.closest('#editorContainer') || editorEl);
+    showEditorRightClickMenu({ ...point, preventDefault() {}, currentTarget: editorEl }, buildEditorMenuItems(), { left: point.clientX, top: point.clientY }, e.target);
+  });
+  previewEl?.addEventListener('keydown', (e) => {
+    if (!isContextMenuKeyboardEvent(e)) return;
+    e.preventDefault();
+    const point = contextMenuPointForElement(e.target.closest('#previewContainer') || previewEl);
+    showEditorRightClickMenu({ ...point, preventDefault() {}, currentTarget: previewEl }, buildPreviewMenuItems(previewEl), { left: point.clientX, top: point.clientY }, e.target);
   });
 }
 
@@ -4385,7 +5023,10 @@ function wireImageDrop() {
     e.preventDefault();
     for (const file of files) {
       if (file.size > MAX_IMAGE_BYTES) {
-        alert(`"${file.name}" ist zu groß (${(file.size / 1024 / 1024).toFixed(1)} MB) — maximal 20 MB pro Bild.`);
+        await showMessageDialog({
+          title: 'Bild ist zu groß',
+          message: `"${file.name}" ist ${(file.size / 1024 / 1024).toFixed(1)} MB groß. Maximal 20 MB pro Bild sind möglich.`
+        });
         continue; // erst NACH der Prüfung wird überhaupt gelesen — vorher landete jede Dateigröße ungeprüft komplett im Speicher
       }
       try {
@@ -4393,7 +5034,7 @@ function wireImageDrop() {
         const { fileName } = await fs.saveAttachment(file.name, buffer);
         insertAtCursor(`\n![${file.name.replace(/\.[^.]+$/, '')}](attachment:${fileName})\n`);
       } catch (err) {
-        alert('Bild konnte nicht eingefügt werden:\n' + err.message);
+        await showMessageDialog({ title: 'Bild konnte nicht eingefügt werden', message: err.message });
         console.error('[Archiv Wiki] Bild-Drop fehlgeschlagen:', err);
       }
     }
@@ -4734,7 +5375,12 @@ async function renderTrash() {
     });
   }
   document.getElementById('btnEmptyTrash')?.addEventListener('click', async () => {
-    if (!confirm('Papierkorb wirklich endgültig leeren? Das kann nicht rückgängig gemacht werden.')) return;
+    if (!await showConfirmDialog({
+      title: 'Papierkorb endgültig leeren?',
+      message: 'Alle Einträge im Papierkorb werden dauerhaft gelöscht. Das kann nicht rückgängig gemacht werden.',
+      confirmLabel: 'Endgültig löschen',
+      danger: true
+    })) return;
     await fs.emptyTrash();
     renderTrash();
     updateTrashBadge();
@@ -4771,6 +5417,41 @@ function formatBytes(bytes) {
 window.addEventListener('beforeunload', (e) => {
   if (isDirty()) { e.preventDefault(); e.returnValue = ''; }
 });
+
+// ---------------------------------------------------------------------------
+// Tastatur- und Rechtsklick-Öffnung für Sidebar-Einträge zentral delegieren.
+// Der Listener wird genau einmal registriert; renderNavTree() darf dadurch
+// beliebig oft neu rendern, ohne weitere globale EventListener anzuhängen.
+// ---------------------------------------------------------------------------
+function wireSidebarContextMenuTriggers() {
+  els.navTree.addEventListener('contextmenu', (event) => {
+    const row = event.target.closest('[data-relpath]');
+    if (!row || !els.navTree.contains(row)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const trigger = event.target.closest('a, button, [tabindex]') || row;
+    const type = row.dataset.type || row.closest('.nav-group')?.dataset.type || 'note';
+    showContextMenu(row.dataset.relpath, trigger, type, { clientX: event.clientX, clientY: event.clientY });
+  });
+
+  els.navTree.addEventListener('keydown', (event) => {
+    if (!isContextMenuKeyboardEvent(event)) return;
+
+    const focusedTarget = event.target.closest(
+      '.nav-link[data-relpath], .group-header'
+    );
+    if (!focusedTarget || !els.navTree.contains(focusedTarget)) return;
+
+    const row = focusedTarget.closest('.nav-item-row[data-relpath], .nav-group[data-relpath]');
+    if (!row) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const type = row.dataset.type || 'note';
+    const point = contextMenuPointForElement(focusedTarget);
+    showContextMenu(row.dataset.relpath, focusedTarget, type, point);
+  }, true);
+}
 
 // ---------------------------------------------------------------------------
 // Init
@@ -4825,6 +5506,7 @@ function waitForUnlock() {
   applyReadingWidth(state.project?.config?.readingWidthEnabled, state.project?.config?.readingWidthKey);
   applyEditorFontSize(state.project?.config?.editorFontSize);
   initEllipsisTooltips();
+  wireSidebarContextMenuTriggers();
   // Sidebar-Kollaps-Zustand wiederherstellen (Nutzer-Feature) — nur die
   // Klasse/den Titel setzen, nicht erneut speichern, der Wert kommt ja
   // bereits aus der gespeicherten Konfiguration.

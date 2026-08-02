@@ -528,7 +528,7 @@ function createMainWindow() {
   // wirklich beendet wird. isQuitting bleibt die Ausnahme für "wirklich
   // beenden" (Tray-Menü, Strg+Q, usw.).
   // Reaktiviert (war vorübergehend deaktiviert, bis das Tray-Icon-Problem aus
-  // 1.8.0 nachweislich behoben war — inzwischen per echtem Build-Test
+  // das frühere Tray-Icon-Problem nachweislich behoben war — inzwischen per echtem Build-Test
   // bestätigt, siehe createTray()): ohne diesen Handler griff Electrons
   // Standardverhalten beim X-Klick (Fenster wird tatsächlich zerstört,
   // window-all-closed beendet danach den kompletten Prozess) — die
@@ -646,6 +646,17 @@ function buildMenu() {
     {
       label: 'Hilfe',
       submenu: [
+        {
+          label: 'Tastenkürzel',
+          click: () => {
+            if (!mainWindow || mainWindow.isDestroyed()) return;
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+            mainWindow.webContents.send('menu:show-shortcuts');
+          }
+        },
+        { type: 'separator' },
         {
           label: 'Über Archiv Wiki',
           click: () => {

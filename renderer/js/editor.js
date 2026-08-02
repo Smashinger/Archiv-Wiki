@@ -190,6 +190,10 @@ export function getOpenRelPath() {
   return currentRelPath;
 }
 
+export function focusEditor() {
+  currentEditor?.focus();
+}
+
 // Brücke von der Header-Suche zum Editor: springt zur ersten Fundstelle der
 // übergebenen Suchanfrage, über dieselbe CodeMirror-Suchmechanik wie die
 // manuelle Editor-Suche (kein zweites, separates Hervorhebungssystem).

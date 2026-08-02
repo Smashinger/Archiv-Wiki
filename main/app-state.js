@@ -8,6 +8,7 @@
 const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { atomicWriteFileSync } = require('./atomic-write');
 
 function getAppStatePath() {
   return path.join(app.getPath('userData'), 'app-state.json');
@@ -25,7 +26,7 @@ function readAppState() {
 function writeAppState(partial) {
   const next = { ...readAppState(), ...partial };
   fs.mkdirSync(path.dirname(getAppStatePath()), { recursive: true });
-  fs.writeFileSync(getAppStatePath(), JSON.stringify(next, null, 2), 'utf8');
+  atomicWriteFileSync(getAppStatePath(), JSON.stringify(next, null, 2), 'utf8');
   return next;
 }
 

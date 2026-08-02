@@ -198,3 +198,45 @@ button.btn.ghost.subtle:hover{ color: var(--text-muted); }
 .update-dot.dot-neutral{ background: var(--text-faint); }
 .label-available{ color: var(--green); }
 .label-neutral{ color: var(--text-faint); }
+
+/* Gemeinsame Dialogbasis für Bestätigung und Fehler im Setup-Wizard. */
+.prompt-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, .62);
+}
+.prompt-modal {
+  width: min(440px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elev);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .35);
+}
+.prompt-title {
+  margin-bottom: 12px;
+  color: var(--text);
+  font-weight: 700;
+}
+.dialog-message {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  white-space: pre-line;
+}
+.prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.prompt-actions .btn.danger {
+  border-color: var(--red);
+  color: var(--red);
+}

@@ -124,7 +124,7 @@ body.sidebar-resizing .sidebar, body.sidebar-resizing .main-area{ transition: no
   body.sidebar-collapsed .main-area{ margin-left: 0; }
 }
 
-/* --- Focus-/Cocoon-Modus (überarbeitet aus dem bisherigen Zen-Modus) ---
+/* --- Fokus-Modus: editorgebundene Konzentrationsansicht ---
    Vorheriges Verhalten (Sidebar/Kopfzeile/Werkzeugleiste komplett ausblenden)
    ist bewusst NICHT mehr das Ziel — man verliert dabei zu leicht die
    Orientierung. Neu: die restliche Oberfläche bleibt vollständig sichtbar
@@ -136,7 +136,7 @@ body.sidebar-resizing .sidebar, body.sidebar-resizing .main-area{ transition: no
    Akzentfarbe, damit es mit jeder gewählten Akzentfarbe gleich gut aussieht.
    Kein echter Fullscreen (Fensterrahmen bleiben unangetastet). Zustand
    (an/aus) bewusst NICHT gespeichert — Intensität dagegen schon (siehe
-   Einstellungen → Darstellung → Focus-Modus), das ist eine Stil-Vorliebe,
+   Einstellungen → Darstellung → Fokus-Modus), das ist eine Stil-Vorliebe,
    kein Sitzungs-Zustand. */
 body.focus-mode{ --focus-dim-opacity: 0.55; } /* Standard = Mittel */
 body.focus-mode[data-focus-intensity="light"]{ --focus-dim-opacity: 0.78; }
@@ -149,7 +149,7 @@ body.focus-mode .note-toolbar,
 body.focus-mode .note-bottombar{
   opacity: var(--focus-dim-opacity);
   filter: saturate(0.85);
-  transition: opacity .18s ease, filter .18s ease;
+  transition: opacity 150ms ease, filter 150ms ease;
 }
 /* Bleibt trotz Abdunkelung vollständig bedienbar (keine Klick-Sperre über
    pointer-events) — beim Hovern/Fokussieren tritt der jeweilige Bereich kurz
@@ -159,7 +159,9 @@ body.focus-mode .sidebar:focus-within,
 body.focus-mode .topbar:hover,
 body.focus-mode .topbar:focus-within,
 body.focus-mode .note-toolbar:hover,
-body.focus-mode .note-bottombar:hover{
+body.focus-mode .note-toolbar:focus-within,
+body.focus-mode .note-bottombar:hover,
+body.focus-mode .note-bottombar:focus-within{
   opacity: 1;
   filter: none;
 }
@@ -172,5 +174,15 @@ body.focus-mode .note-split{
   background: var(--bg-elev);
   border-radius: var(--radius-lg);
   box-shadow: 0 8px 28px rgba(0,0,0,.28);
-  transition: box-shadow .18s ease;
+  transition: box-shadow 150ms ease;
+}
+
+@media (prefers-reduced-motion: reduce){
+  body.focus-mode .sidebar,
+  body.focus-mode .topbar,
+  body.focus-mode .note-toolbar,
+  body.focus-mode .note-bottombar,
+  body.focus-mode .note-split{
+    transition: none;
+  }
 }
