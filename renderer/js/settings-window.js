@@ -48,6 +48,43 @@ const BACKUP_INTERVAL_OPTIONS = [
   { value: 30, label: 'Monatlich' }
 ];
 
+const FOCUSABLE_SELECTOR = [
+  'button:not([disabled])',
+  'input:not([disabled]):not([type=\"hidden\"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  'a[href]',
+  '[contenteditable=\"true\"]',
+  '[tabindex]:not([tabindex=\"-1\"])'
+].join(',');
+
+let closeActiveSettingsWindow = null;
+let settingsWindowOpenGeneration = 0;
+
+function renderSettingsLoading(el, title, message) {
+  el.innerHTML = `<h3>${escapeAttr(title)}</h3><p class="settings-hint">${escapeAttr(message)}</p>`;
+}
+
+function renderSettingsError(el, title, message) {
+  el.innerHTML = `<h3>${escapeAttr(title)}</h3><p class="settings-hint settings-hint-error">${escapeAttr(message)}</p>`;
+}
+
+function showInlineSettingsError(el, message) {
+  if (!el?.isConnected) return;
+  let errorEl = el.querySelector('[data-settings-error]');
+  if (!errorEl) {
+    errorEl = document.createElement('p');
+    errorEl.className = 'settings-hint settings-hint-error';
+    errorEl.dataset.settingsError = '';
+    el.appendChild(errorEl);
+  }
+  errorEl.textContent = message;
+}
+
+function clearInlineSettingsError(el) {
+  el?.querySelector('[data-settings-error]')?.remove();
+}
+
 const SETTINGS_SECTIONS = [
   { id: 'general', label: 'Allgemein', render: renderGeneralSection },
   { id: 'appearance', label: 'Darstellung', render: renderAppearanceSection },
@@ -58,42 +95,185 @@ const SETTINGS_SECTIONS = [
 ];
 
 export async function showSettingsWindow(context = {}) {
-  document.querySelectorAll('.settings-overlay').forEach(o => o.remove());
-  let config = await window.archivAPI.settings.get();
+  const openGeneration = ++settingsWindowOpenGeneration;
+  // Falls der Dialog durch einen zweiten Auslöser erneut geöffnet wird, zuerst
+  // den vorhandenen Dialog sauber schließen (inkl. Fokus-/Hintergrundzustand).
+  if (closeActiveSettingsWindow) closeActiveSettingsWindow({ immediate: true, restoreFocus: false });
+
+  const previouslyFocused = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  let config;
+  let configLoadError = null;
+  try {
+    config = await window.archivAPI.settings.get();
+  } catch (error) {
+    console.error('Einstellungen konnten nicht geladen werden:', error);
+    config = {};
+    configLoadError = error;
+  }
+  if (openGeneration !== settingsWindowOpenGeneration) return;
   let activeId = SETTINGS_SECTIONS[0].id;
+  let isClosing = false;
 
   const overlay = document.createElement('div');
   overlay.className = 'settings-overlay';
   overlay.innerHTML = `
-    <div class="settings-modal">
+    <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsDialogTitle">
       <div class="settings-modal-header">
-        <span>⚙ Einstellungen</span>
-        <button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button>
+        <span id="settingsDialogTitle">⚙ Einstellungen</span>
+        <button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Einstellungen schließen">✕</button>
       </div>
       <div class="settings-modal-body">
-        <nav class="settings-nav">
+        <nav class="settings-nav" aria-label="Einstellungsbereiche">
           ${SETTINGS_SECTIONS.map(s => `<button type="button" data-section="${s.id}">${escapeAttr(s.label)}</button>`).join('')}
         </nav>
         <div class="settings-content" id="settingsContent"></div>
       </div>
     </div>
   `;
+
+  // Während der modale Dialog geöffnet ist, darf die Hauptoberfläche weder
+  // per Tab noch über Hilfstechnologien erreichbar sein. Vorzustände werden
+  // exakt gesichert und beim Schließen wiederhergestellt.
+  const backgroundState = [...document.body.children].map(element => ({
+    element,
+    inert: element.inert,
+    ariaHidden: element.getAttribute('aria-hidden')
+  }));
+  backgroundState.forEach(({ element }) => {
+    element.inert = true;
+    element.setAttribute('aria-hidden', 'true');
+  });
+
   document.body.appendChild(overlay);
-  animateIn(overlay.querySelector('.settings-modal'));
+  const modal = overlay.querySelector('.settings-modal');
+  animateIn(modal);
+
+  function getFocusableElements() {
+    return [...modal.querySelectorAll(FOCUSABLE_SELECTOR)].filter(element => {
+      if (!(element instanceof HTMLElement)) return false;
+      if (element.getAttribute('aria-hidden') === 'true') return false;
+      return element.getClientRects().length > 0;
+    });
+  }
+
+  function hasActiveChildDialog() {
+    return [...document.querySelectorAll('.prompt-overlay, .table-editor-overlay, .image-lightbox-overlay')]
+      .some(element => element !== overlay && element.isConnected && element.getClientRects().length > 0);
+  }
+
+  function restoreBackground() {
+    backgroundState.forEach(({ element, inert, ariaHidden }) => {
+      if (!element.isConnected) return;
+      element.inert = inert;
+      if (ariaHidden === null) element.removeAttribute('aria-hidden');
+      else element.setAttribute('aria-hidden', ariaHidden);
+    });
+  }
+
+  function finishClose(restoreFocus = true) {
+    document.removeEventListener('keydown', handleDialogKeydown, true);
+    overlay.remove();
+    restoreBackground();
+    closeActiveSettingsWindow = null;
+
+    if (restoreFocus && previouslyFocused?.isConnected) {
+      requestAnimationFrame(() => previouslyFocused.focus({ preventScroll: true }));
+    }
+  }
+
+  function closeSettings({ immediate = false, restoreFocus = true } = {}) {
+    if (isClosing) return;
+    isClosing = true;
+    if (immediate) finishClose(restoreFocus);
+    else animateOut(modal, () => finishClose(restoreFocus));
+  }
+
+  closeActiveSettingsWindow = closeSettings;
+
+  function handleDialogKeydown(event) {
+    if (event.key === 'Escape') {
+      // Native Dateidialoge blockieren den Renderer-Ereignisloop. Für
+      // untergeordnete App-Dialoge bleibt Escape beim jeweils obersten Dialog.
+      if (hasActiveChildDialog()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeSettings();
+      return;
+    }
+
+    if (event.key !== 'Tab') return;
+    const focusable = getFocusableElements();
+    if (!focusable.length) {
+      event.preventDefault();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+
+    if (event.shiftKey && (active === first || !modal.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || !modal.contains(active))) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  document.addEventListener('keydown', handleDialogKeydown, true);
 
   // Sofort speichern UND zurückgeben — jede Sektion wendet das Ergebnis
   // selbst live an (z. B. applyAccentPalette), kein Neustart nötig.
   async function updateSetting(patch) {
-    config = await window.archivAPI.settings.update(patch);
-    if (context.onConfigChange) context.onConfigChange(config);
-    return config;
+    try {
+      config = await window.archivAPI.settings.update(patch);
+      if (context.onConfigChange) context.onConfigChange(config);
+      clearInlineSettingsError(overlay.querySelector('#settingsContent'));
+      return config;
+    } catch (error) {
+      console.error('Einstellung konnte nicht gespeichert werden:', error);
+      showInlineSettingsError(overlay.querySelector('#settingsContent'), 'Die Einstellung konnte nicht gespeichert werden.');
+      return config;
+    }
   }
 
-  function renderActive() {
-    overlay.querySelectorAll('.settings-nav button').forEach(b => b.classList.toggle('active', b.dataset.section === activeId));
+  let renderGeneration = 0;
+
+  async function renderActive() {
+    const section = SETTINGS_SECTIONS.find(s => s.id === activeId);
+    if (!section) return;
+    const generation = ++renderGeneration;
+
+    overlay.querySelectorAll('.settings-nav button').forEach(button => {
+      const isActive = button.dataset.section === activeId;
+      button.classList.toggle('active', isActive);
+      if (isActive) button.setAttribute('aria-current', 'page');
+      else button.removeAttribute('aria-current');
+    });
+
     const contentEl = overlay.querySelector('#settingsContent');
     contentEl.innerHTML = '';
-    SETTINGS_SECTIONS.find(s => s.id === activeId).render(contentEl, config, updateSetting, context);
+    if (configLoadError) {
+      renderSettingsError(contentEl, section.label, 'Die Einstellungen konnten nicht geladen werden. Bitte öffne das Fenster erneut.');
+      return;
+    }
+    const lifecycle = {
+      isCurrent: () => !isClosing
+        && overlay.isConnected
+        && generation === renderGeneration
+        && activeId === section.id
+    };
+
+    try {
+      await section.render(contentEl, config, updateSetting, context, lifecycle);
+    } catch (error) {
+      if (!lifecycle.isCurrent()) return;
+      console.error(`Einstellungsbereich "${section.id}" konnte nicht geladen werden:`, error);
+      renderSettingsError(contentEl, section.label, 'Der Bereich konnte nicht geladen werden. Bitte versuche es erneut.');
+    }
   }
 
   overlay.querySelector('.settings-nav').addEventListener('click', (e) => {
@@ -103,17 +283,19 @@ export async function showSettingsWindow(context = {}) {
     renderActive();
   });
 
-  // Bewusst NUR über X schließbar (Anforderung) — kein Klick-außerhalb, kein Escape.
-  overlay.querySelector('[data-action="close-x"]').addEventListener('click', () => {
-    animateOut(overlay.querySelector('.settings-modal'), () => overlay.remove());
-  });
+  // Klicks außerhalb schließen den Dialog weiterhin bewusst nicht.
+  overlay.querySelector('[data-action="close-x"]').addEventListener('click', () => closeSettings());
 
   renderActive();
+  requestAnimationFrame(() => {
+    overlay.querySelector('.settings-nav button[data-section]')?.focus({ preventScroll: true });
+  });
 }
-
 // --- Allgemein ---
-async function renderGeneralSection(el, config, updateSetting, context) {
+async function renderGeneralSection(el, config, updateSetting, context, lifecycle) {
+  renderSettingsLoading(el, 'Allgemein', 'Lade Einstellungen …');
   const closeBehavior = await window.archivAPI.getCloseBehavior();
+  if (!lifecycle.isCurrent()) return;
   const closeOptions = [
     { value: 'ask', label: 'Immer nachfragen (Standard)' },
     { value: 'tray', label: 'Immer in den System-Tray minimieren' },
@@ -128,6 +310,8 @@ async function renderGeneralSection(el, config, updateSetting, context) {
   const categoryStartupBehavior = config.categoryStartupBehavior || 'closed';
   el.innerHTML = `
     <h3>Allgemein</h3>
+    <section class="settings-group" aria-labelledby="stGeneralWikiGroup">
+      <h4 id="stGeneralWikiGroup">Wiki</h4>
     <label class="settings-field">
       <span>Wiki-Name</span>
       <input type="text" id="stWikiName" value="${escapeAttr(config.wikiName || '')}" placeholder="z. B. Max">
@@ -135,9 +319,12 @@ async function renderGeneralSection(el, config, updateSetting, context) {
     <div class="settings-field">
       <span>Speicherort</span>
       <div class="settings-readonly-value" id="stProjectPath">${escapeAttr(context.projectPath || '')}</div>
-      <button type="button" class="btn ghost settings-inline-btn" id="stMoveProjectFolder">Ändern…</button>
-      <p class="settings-hint" id="stMoveHint">Kopiert alles an den neuen Ort — der alte Ordner bleibt zur Sicherheit zusätzlich bestehen, du kannst ihn danach selbst löschen. Der neue Ordner muss leer sein.</p>
+      <button type="button" class="btn ghost settings-inline-btn" id="stMoveProjectFolder">Wiki-Speicherort ändern…</button>
+      <p class="settings-hint" id="stMoveHint">Kopiert das Wiki an den neuen Ort. Der bisherige Ordner bleibt zur Sicherheit bestehen und kann anschließend manuell gelöscht werden. Der neue Ordner muss leer sein.</p>
     </div>
+    </section>
+    <section class="settings-group" aria-labelledby="stGeneralBehaviorGroup">
+      <h4 id="stGeneralBehaviorGroup">Start und Schließen</h4>
     <div class="settings-field">
       <span>Kategorien beim Start</span>
       <div class="close-dialog-options" id="stCategoryStartupOptions">
@@ -146,12 +333,12 @@ async function renderGeneralSection(el, config, updateSetting, context) {
       <p class="settings-hint">Bestimmt nur den Zustand beim Programmstart — während der Nutzung lässt sich jede Kategorie weiterhin ganz normal einzeln auf- und zuklappen, und das Öffnen einer Notiz klappt bei Bedarf automatisch die passende Kategorie auf.</p>
     </div>
     <div class="settings-field">
-      <span>Verhalten beim Schließen (X-Button)</span>
+      <span>Verhalten beim Schließen über X</span>
       <div class="close-dialog-options" id="stCloseBehaviorOptions">
         ${closeOptions.map(o => `<label class="close-dialog-option"><input type="radio" name="stCloseBehavior" value="${o.value}" ${closeBehavior === o.value ? 'checked' : ''}> ${escapeAttr(o.label)}</label>`).join('')}
       </div>
     </div>
-    <p class="settings-hint">Mehrere Wikis gleichzeitig zu verwalten ist noch nicht möglich — dieser Bereich ist aber bereits dafür vorbereitet.</p>
+    </section>
   `;
   el.querySelector('#stWikiName').addEventListener('change', async (e) => {
     const name = e.target.value.trim();
@@ -169,27 +356,45 @@ async function renderGeneralSection(el, config, updateSetting, context) {
   });
   el.querySelector('#stCloseBehaviorOptions').addEventListener('change', async (e) => {
     if (e.target.name !== 'stCloseBehavior') return;
-    await window.archivAPI.setCloseBehavior(e.target.value);
+    clearInlineSettingsError(el);
+    const input = e.target;
+    try {
+      await window.archivAPI.setCloseBehavior(input.value);
+    } catch (error) {
+      console.error('Schließen-Verhalten konnte nicht gespeichert werden:', error);
+      showInlineSettingsError(el, 'Das Schließen-Verhalten konnte nicht gespeichert werden.');
+    }
   });
   el.querySelector('#stMoveProjectFolder').addEventListener('click', async (e) => {
     const btn = e.target;
     const hint = el.querySelector('#stMoveHint');
     btn.disabled = true;
     btn.textContent = 'Wird kopiert …';
-    const result = await window.archivAPI.moveProjectFolder();
-    btn.disabled = false;
-    btn.textContent = 'Ändern…';
-    if (!result) return;
-    if (result.error) {
-      hint.textContent = result.error;
-      hint.classList.add('settings-hint-error');
-      return;
-    }
-    if (result.moved) {
-      el.querySelector('#stProjectPath').textContent = result.newPath;
-      if (context.onProjectPathChange) context.onProjectPathChange(result.newPath);
-      hint.classList.remove('settings-hint-error');
-      hint.textContent = `Verschoben. Die alten Dateien liegen weiterhin unter: ${result.oldPath}`;
+    try {
+      const result = await window.archivAPI.moveProjectFolder();
+      if (!lifecycle.isCurrent() || !result) return;
+      if (result.error) {
+        hint.textContent = result.error;
+        hint.classList.add('settings-hint-error');
+        return;
+      }
+      if (result.moved) {
+        el.querySelector('#stProjectPath').textContent = result.newPath;
+        if (context.onProjectPathChange) context.onProjectPathChange(result.newPath);
+        hint.classList.remove('settings-hint-error');
+        hint.textContent = `Verschoben. Die alten Dateien liegen weiterhin unter: ${result.oldPath}`;
+      }
+    } catch (error) {
+      console.error('Wiki-Speicherort konnte nicht geändert werden:', error);
+      if (lifecycle.isCurrent()) {
+        hint.textContent = 'Der Speicherort konnte nicht geändert werden.';
+        hint.classList.add('settings-hint-error');
+      }
+    } finally {
+      if (btn.isConnected) {
+        btn.disabled = false;
+        btn.textContent = 'Wiki-Speicherort ändern…';
+      }
     }
     // result.moved === false ohne error: Nutzer hat den Dialog abgebrochen — nichts weiter tun
   });
@@ -199,51 +404,60 @@ async function renderGeneralSection(el, config, updateSetting, context) {
 function renderAppearanceSection(el, config, updateSetting) {
   el.innerHTML = `
     <h3>Darstellung</h3>
+    <section class="settings-group" aria-labelledby="stAppearanceColorsGroup">
+      <h4 id="stAppearanceColorsGroup">Farben</h4>
     <div class="settings-field">
       <span>Akzentfarbe</span>
       <div class="color-swatches" id="stAccentSwatches">
         ${buildAccentSwatchesHtml(config.accentKey || 'orange')}
         <button type="button" class="color-swatch color-swatch-random" id="stRandomAccent" data-accent="random" title="Neue Zufallsfarbe erzeugen">🎲</button>
       </div>
-      <input type="color" id="stCustomColorInput" class="settings-hidden-color-input" value="${escapeAttr(config.customAccentColor || '#c17d45')}">
+      <input type="color" id="stCustomColorInput" class="settings-hidden-color-input" aria-label="Eigene Akzentfarbe auswählen" value="${escapeAttr(config.customAccentColor || '#c17d45')}">
       <div class="settings-hex-input-row">
-        <input type="text" class="settings-hex-input" id="stHexInput" placeholder="#RRGGBB" maxlength="7" value="${config.accentKey === 'custom' ? escapeAttr(config.customAccentColor || '') : ''}">
+        <input type="text" class="settings-hex-input" id="stHexInput" aria-label="Eigener Farbcode" placeholder="#RRGGBB" maxlength="7" value="${config.accentKey === 'custom' ? escapeAttr(config.customAccentColor || '') : ''}">
         <span class="settings-hint" id="stHexHint">oder Farbcode eingeben</span>
       </div>
     </div>
+    </section>
+    <section class="settings-group" aria-labelledby="stAppearanceInterfaceGroup">
+      <h4 id="stAppearanceInterfaceGroup">Oberfläche</h4>
     <div class="settings-field">
       <span>Sidebar-Größe</span>
-      <div class="density-option-row" id="stDensityRow">
+      <div class="density-option-row" id="stDensityRow" role="group" aria-label="Sidebar-Größe">
         ${Object.entries(SIDEBAR_DENSITY_PRESETS).map(([key, preset]) =>
           `<button type="button" class="density-option ${config.sidebarDensity === key ? 'active' : ''}" data-density="${key}">${escapeAttr(preset.label)}</button>`
         ).join('')}
       </div>
     </div>
+    </section>
+    <section class="settings-group" aria-labelledby="stAppearanceWorkspaceGroup">
+      <h4 id="stAppearanceWorkspaceGroup">Arbeitsansicht</h4>
     <div class="settings-field">
-      <span>Focus-Modus</span>
+      <span>Fokus-Modus</span>
       <label class="settings-checkbox-row">
         <input type="checkbox" id="stFocusModeEnabled" ${document.body.classList.contains('focus-mode') ? 'checked' : ''}>
-        <span>Focus-Modus aktivieren</span>
+        <span>Fokus-Modus aktivieren</span>
       </label>
-      <div class="density-option-row" id="stFocusIntensityRow">
+      <div class="density-option-row" id="stFocusIntensityRow" role="group" aria-label="Stärke des Fokus-Modus">
         ${[{ v: 'light', l: 'Leicht' }, { v: 'medium', l: 'Mittel' }, { v: 'strong', l: 'Stark' }, { v: 'stronger', l: 'Sehr stark' }].map(o =>
           `<button type="button" class="density-option ${(config.focusModeIntensity || 'medium') === o.v ? 'active' : ''}" data-intensity="${o.v}">${o.l}</button>`
         ).join('')}
       </div>
     </div>
     <div class="settings-field">
-      <span>Lesemodus</span>
+      <span>Lesebreite</span>
       <label class="settings-checkbox-row">
         <input type="checkbox" id="stReadingWidthEnabled" ${config.readingWidthEnabled ? 'checked' : ''}>
         <span>Optimale Lesebreite verwenden</span>
       </label>
-      <div class="density-option-row" id="stReadingWidthRow">
+      <div class="density-option-row" id="stReadingWidthRow" role="group" aria-label="Lesebreite">
         ${Object.entries(READING_WIDTH_PRESETS).map(([key, preset]) =>
           `<button type="button" class="density-option ${(config.readingWidthKey || 'standard') === key ? 'active' : ''}" data-reading-width="${key}">${escapeAttr(preset.label)}</button>`
         ).join('')}
       </div>
-      <p class="settings-hint">Begrenzt Editor und Vorschau auf eine angenehme Lesebreite, besonders praktisch bei sehr breiten Fenstern. Tabellen und Codeblöcke bleiben davon ausgenommen und nutzen weiterhin die volle verfügbare Breite.</p>
+      <p class="settings-hint">Begrenzt Editor und Vorschau auf eine angenehme Breite. Breite Tabellen und lange Codezeilen bleiben innerhalb ihres Bereichs horizontal scrollbar.</p>
     </div>
+    </section>
   `;
   const customSwatch = el.querySelector('.color-swatch-custom');
   const customColorInput = el.querySelector('#stCustomColorInput');
@@ -324,7 +538,7 @@ function renderAppearanceSection(el, config, updateSetting) {
     await updateSetting({ sidebarDensity: btn.dataset.density });
     el.querySelectorAll('#stDensityRow button').forEach(b => b.classList.toggle('active', b === btn));
   });
-  // Focus-Modus: die Checkbox schaltet direkt live um (Einstellungsfenster
+  // Fokus-Modus: die Checkbox schaltet direkt live um (Einstellungsfenster
   // läuft im selben Dokument wie die Hauptansicht, kein separates
   // BrowserWindow — siehe setFocusMode in theme.js). Die Intensität ist eine
   // Stil-Vorliebe und wird gespeichert; ist der Modus gerade aktiv, wirkt sie
@@ -340,8 +554,8 @@ function renderAppearanceSection(el, config, updateSetting) {
     if (document.body.classList.contains('focus-mode')) setFocusMode(true, btn.dataset.intensity);
     el.querySelectorAll('#stFocusIntensityRow button').forEach(b => b.classList.toggle('active', b === btn));
   });
-  // Lesemodus: läuft im selben Dokument wie die Hauptansicht (siehe Kommentar
-  // bei Focus-Modus oben) — Checkbox und Breiten-Auswahl wirken deshalb ohne
+  // Lesebreite: läuft im selben Dokument wie die Hauptansicht (siehe Kommentar
+  // beim Fokus-Modus oben) — Checkbox und Breiten-Auswahl wirken deshalb ohne
   // Umweg sofort sichtbar in der offenen Notiz, kein Neustart nötig.
   el.querySelector('#stReadingWidthEnabled').addEventListener('change', async (e) => {
     applyReadingWidth(e.target.checked, config.readingWidthKey || 'standard');
@@ -362,6 +576,8 @@ function renderEditorSection(el, config, updateSetting) {
   const editor = config.editor || {};
   el.innerHTML = `
     <h3>Editor</h3>
+    <section class="settings-group" aria-labelledby="stEditorWritingGroup">
+      <h4 id="stEditorWritingGroup">Schreiben</h4>
     <label class="settings-field">
       <span>Editor-Schriftgröße</span>
       <select id="stFontSize">
@@ -369,18 +585,23 @@ function renderEditorSection(el, config, updateSetting) {
       </select>
     </label>
     <label class="settings-field">
-      <span>Auto-Save-Intervall (Sekunden)</span>
+      <span>Automatisches Speichern (Sekunden)</span>
       <input type="number" id="stAutoSave" min="0" max="300" step="5" value="${escapeAttr(editor.autoSave ?? 30)}">
     </label>
     <p class="settings-hint">0 Sekunden deaktiviert das automatische Speichern.</p>
     <label class="settings-field">
-      <span>Tab-Größe (Leerzeichen)</span>
+      <span>Einrückung (Leerzeichen pro Tab)</span>
       <input type="number" id="stTabSize" min="1" max="8" value="${escapeAttr(editor.tabSize ?? 2)}">
     </label>
+    </section>
+    <section class="settings-group" aria-labelledby="stEditorLanguageGroup">
+      <h4 id="stEditorLanguageGroup">Sprache</h4>
     <label class="settings-checkbox-row">
       <input type="checkbox" id="stSpellcheck" ${editor.spellcheck !== false ? 'checked' : ''}>
       <span>Rechtschreibprüfung im Editor</span>
     </label>
+    <p class="settings-hint">Die Rechtschreibprüfung verwendet derzeit Deutsch.</p>
+    </section>
   `;
   el.querySelector('#stFontSize').addEventListener('change', async (e) => {
     const px = applyEditorFontSize(Number(e.target.value));
@@ -399,7 +620,7 @@ function renderEditorSection(el, config, updateSetting) {
   });
   // Rechtschreibprüfung (Nutzer-Feature): wirkt sofort live über Electrons
   // Session-API (kein Neustart nötig) UND wird dauerhaft über denselben
-  // generischen Einstellungs-Mechanismus wie Auto-Save/Tab-Größe gespeichert.
+  // generischen Einstellungs-Mechanismus wie automatisches Speichern/Einrückung gespeichert.
   el.querySelector('#stSpellcheck').addEventListener('change', async (e) => {
     await window.archivAPI.setSpellCheckEnabled(e.target.checked);
     await updateSetting({ editor: { spellcheck: e.target.checked } });
@@ -407,15 +628,18 @@ function renderEditorSection(el, config, updateSetting) {
 }
 
 // --- Backup ---
-async function renderBackupSection(el, config, updateSetting) {
-  el.innerHTML = `<h3>Backup</h3><p class="settings-hint">Lade Status …</p>`;
+async function renderBackupSection(el, config, updateSetting, context, lifecycle) {
+  renderSettingsLoading(el, 'Backup', 'Lade Status …');
   const status = await window.archivAPI.getBackupStatus();
+  if (!lifecycle.isCurrent()) return;
   el.innerHTML = `
     <h3>Backup</h3>
+    <section class="settings-group" aria-labelledby="stBackupSetupGroup">
+      <h4 id="stBackupSetupGroup">Speicherort und Zeitplan</h4>
     <div class="settings-field">
       <span>Backup-Ordner</span>
-      <div class="settings-readonly-value" id="stBackupPath">${escapeAttr(config.backupPath || '')}</div>
-      <button type="button" class="btn ghost settings-inline-btn" id="stChangeBackupPath">Ändern…</button>
+      <div class="settings-readonly-value" id="stBackupPath">${escapeAttr(config.backupPath || 'Noch kein Backup-Ordner gewählt')}</div>
+      <button type="button" class="btn ghost settings-inline-btn" id="stChangeBackupPath">Backup-Ordner wählen…</button>
     </div>
     <label class="settings-field">
       <span>Automatisches Backup</span>
@@ -423,6 +647,9 @@ async function renderBackupSection(el, config, updateSetting) {
         ${BACKUP_INTERVAL_OPTIONS.map(o => `<option value="${o.value}" ${(config.backupIntervalDays ?? 1) === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
       </select>
     </label>
+    </section>
+    <section class="settings-group" aria-labelledby="stBackupStatusGroup">
+      <h4 id="stBackupStatusGroup">Status</h4>
     <div class="settings-field">
       <span>Letztes erfolgreiches Backup</span>
       <div class="settings-readonly-value">${escapeAttr(formatRelative(status.lastSuccessAt))}</div>
@@ -435,36 +662,84 @@ async function renderBackupSection(el, config, updateSetting) {
       <button type="button" class="btn ghost" id="stRunBackupNow">Backup jetzt erstellen</button>
       <button type="button" class="btn ghost" id="stOpenBackupFolder">Backup-Ordner öffnen</button>
     </div>
+    </section>
   `;
   el.querySelector('#stChangeBackupPath').addEventListener('click', async () => {
-    const chosen = await window.archivAPI.chooseBackupFolder?.();
-    if (chosen) {
+    clearInlineSettingsError(el);
+    try {
+      const chosen = await window.archivAPI.chooseBackupFolder?.();
+      if (!chosen || !lifecycle.isCurrent()) return;
       await updateSetting({ backupPath: chosen });
+      if (!lifecycle.isCurrent()) return;
       el.querySelector('#stBackupPath').textContent = chosen;
+    } catch (error) {
+      console.error('Backup-Ordner konnte nicht geändert werden:', error);
+      showInlineSettingsError(el, 'Der Backup-Ordner konnte nicht geändert werden.');
     }
   });
   el.querySelector('#stBackupInterval').addEventListener('change', async (e) => {
-    await updateSetting({ backupIntervalDays: Number(e.target.value) });
+    clearInlineSettingsError(el);
+    try {
+      await updateSetting({ backupIntervalDays: Number(e.target.value) });
+    } catch (error) {
+      console.error('Backup-Intervall konnte nicht gespeichert werden:', error);
+      showInlineSettingsError(el, 'Das Backup-Intervall konnte nicht gespeichert werden.');
+    }
   });
   el.querySelector('#stRunBackupNow').addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    e.target.textContent = 'Läuft …';
-    await window.archivAPI.runBackupNow();
-    renderBackupSection(el, config, updateSetting);
+    const button = e.currentTarget;
+    clearInlineSettingsError(el);
+    button.disabled = true;
+    button.textContent = 'Läuft …';
+    try {
+      const before = await window.archivAPI.getBackupStatus();
+      await window.archivAPI.runBackupNow();
+      const after = await window.archivAPI.getBackupStatus();
+      if (!lifecycle.isCurrent()) return;
+      const failed = after.lastErrorAt && after.lastErrorAt !== before.lastErrorAt
+        && after.consecutiveFailures > before.consecutiveFailures;
+      if (failed) {
+        showInlineSettingsError(el, after.lastErrorMessage || 'Das Backup konnte nicht erstellt werden.');
+        button.disabled = false;
+        button.textContent = 'Backup jetzt erstellen';
+        return;
+      }
+      await renderBackupSection(el, config, updateSetting, context, lifecycle);
+    } catch (error) {
+      console.error('Backup konnte nicht erstellt werden:', error);
+      showInlineSettingsError(el, 'Das Backup konnte nicht erstellt werden.');
+      if (button.isConnected) {
+        button.disabled = false;
+        button.textContent = 'Backup jetzt erstellen';
+      }
+    }
   });
-  el.querySelector('#stOpenBackupFolder').addEventListener('click', () => window.archivAPI.openBackupFolder());
+  el.querySelector('#stOpenBackupFolder').addEventListener('click', async () => {
+    clearInlineSettingsError(el);
+    try {
+      await window.archivAPI.openBackupFolder();
+    } catch (error) {
+      console.error('Backup-Ordner konnte nicht geöffnet werden:', error);
+      showInlineSettingsError(el, 'Der Backup-Ordner konnte nicht geöffnet werden.');
+    }
+  });
 }
 
 // --- Updates ---
-async function renderUpdatesSection(el) {
-  el.innerHTML = `<h3>Updates</h3><p class="settings-hint">Prüfe …</p>`;
-  const status = await fetchUpdateStatus();
-  const updateSettings = await window.archivAPI.getUpdateSettings();
+async function renderUpdatesSection(el, config, updateSetting, context, lifecycle) {
+  renderSettingsLoading(el, 'Updates', 'Prüfe …');
+  const [status, updateSettings] = await Promise.all([
+    fetchUpdateStatus(),
+    window.archivAPI.getUpdateSettings()
+  ]);
+  if (!lifecycle.isCurrent()) return;
   const lastCheckLabel = updateSettings.lastCheckAt
     ? new Date(updateSettings.lastCheckAt).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
     : 'noch nie geprüft';
   el.innerHTML = `
     <h3>Updates</h3>
+    <section class="settings-group" aria-labelledby="stUpdateStatusGroup">
+      <h4 id="stUpdateStatusGroup">Versionsstatus</h4>
     <div class="settings-field">
       <span>Installierte Version</span>
       <div class="settings-readonly-value">v${escapeAttr(status.currentVersion || '?')}</div>
@@ -485,8 +760,11 @@ async function renderUpdatesSection(el) {
       <button type="button" class="btn ghost" id="stCheckNow">Jetzt nach Updates suchen</button>
       <button type="button" class="btn ghost" id="stOpenReleases">GitHub-Releases öffnen</button>
     </div>
+    </section>
+    <section class="settings-group" aria-labelledby="stUpdateBehaviorGroup">
+      <h4 id="stUpdateBehaviorGroup">Update-Verhalten</h4>
     <div class="settings-field">
-      <span>Verhalten</span>
+      <span>Automatik und Rückfragen</span>
       <label class="settings-checkbox-row">
         <input type="checkbox" id="stUpdateCheckOnStart" ${updateSettings.checkOnStart ? 'checked' : ''}>
         <span>Beim Start automatisch nach Updates suchen</span>
@@ -503,22 +781,37 @@ async function renderUpdatesSection(el) {
         <input type="checkbox" checked disabled>
         <span>Vor dem Neustart immer nachfragen</span>
       </label>
-      <p class="settings-hint">Archiv-Wiki installiert ein heruntergeladenes Update nie von selbst und startet nie von selbst neu — diese Nachfrage lässt sich deshalb bewusst nicht abschalten.</p>
+      <p class="settings-hint">Archiv-Wiki installiert ein heruntergeladenes Update nie selbstständig und startet nie ohne Rückfrage neu. Die Rückfrage vor dem Neustart ist deshalb immer aktiv.</p>
     </div>
+    </section>
   `;
   renderUpdateStatus(el.querySelector('#stUpdateDot'), el.querySelector('#stUpdateLabel'), status);
   el.querySelector('#stCheckNow').addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    e.target.textContent = 'Prüfe …';
-    const fresh = await fetchUpdateStatus();
-    el.querySelector('#stLatestVersion').textContent = fresh.latestVersion ? 'v' + fresh.latestVersion : 'unbekannt';
-    renderUpdateStatus(el.querySelector('#stUpdateDot'), el.querySelector('#stUpdateLabel'), fresh);
-    const refreshed = await window.archivAPI.getUpdateSettings();
-    el.querySelector('#stLastCheck').textContent = refreshed.lastCheckAt
-      ? new Date(refreshed.lastCheckAt).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
-      : 'noch nie geprüft';
-    e.target.disabled = false;
-    e.target.textContent = 'Jetzt nach Updates suchen';
+    const button = e.currentTarget;
+    clearInlineSettingsError(el);
+    button.disabled = true;
+    button.textContent = 'Prüfe …';
+    try {
+      const fresh = await fetchUpdateStatus();
+      const refreshed = await window.archivAPI.getUpdateSettings();
+      if (!lifecycle.isCurrent()) return;
+      if (fresh.checkFailed) {
+        showInlineSettingsError(el, 'Die Update-Prüfung ist fehlgeschlagen.');
+      }
+      el.querySelector('#stLatestVersion').textContent = fresh.latestVersion ? 'v' + fresh.latestVersion : 'unbekannt';
+      renderUpdateStatus(el.querySelector('#stUpdateDot'), el.querySelector('#stUpdateLabel'), fresh);
+      el.querySelector('#stLastCheck').textContent = refreshed.lastCheckAt
+        ? new Date(refreshed.lastCheckAt).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
+        : 'noch nie geprüft';
+    } catch (error) {
+      console.error('Update-Prüfung fehlgeschlagen:', error);
+      showInlineSettingsError(el, 'Die Update-Prüfung ist fehlgeschlagen.');
+    } finally {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.textContent = 'Jetzt nach Updates suchen';
+      }
+    }
   });
   el.querySelector('#stOpenReleases').addEventListener('click', () => {
     window.open(status.releaseUrl || 'https://github.com/Smashinger/Archiv-Wiki/releases', '_blank');
@@ -527,14 +820,26 @@ async function renderUpdatesSection(el) {
   // projektbezogenen config — deshalb direkt über window.archivAPI statt
   // über das hier übliche updateSetting(), exakt wie beim bestehenden
   // Schließen-Verhalten weiter oben in dieser Datei.
+  const saveUpdateSetting = async (input, key) => {
+    clearInlineSettingsError(el);
+    const nextValue = input.checked;
+    try {
+      const result = await window.archivAPI.setUpdateSetting(key, nextValue);
+      if (!result?.saved) throw new Error('Einstellung wurde nicht gespeichert.');
+    } catch (error) {
+      console.error(`Update-Einstellung "${key}" konnte nicht gespeichert werden:`, error);
+      if (input.isConnected) input.checked = !nextValue;
+      showInlineSettingsError(el, 'Die Update-Einstellung konnte nicht gespeichert werden.');
+    }
+  };
   el.querySelector('#stUpdateCheckOnStart').addEventListener('change', (e) => {
-    window.archivAPI.setUpdateSetting('updateCheckOnStart', e.target.checked);
+    saveUpdateSetting(e.currentTarget, 'updateCheckOnStart');
   });
   el.querySelector('#stUpdateAutoDownload').addEventListener('change', (e) => {
-    window.archivAPI.setUpdateSetting('updateAutoDownload', e.target.checked);
+    saveUpdateSetting(e.currentTarget, 'updateAutoDownload');
   });
   el.querySelector('#stUpdateConfirmDownload').addEventListener('change', (e) => {
-    window.archivAPI.setUpdateSetting('updateConfirmBeforeDownload', e.target.checked);
+    saveUpdateSetting(e.currentTarget, 'updateConfirmBeforeDownload');
   });
 }
 
@@ -559,11 +864,23 @@ function renderSecuritySection(el, config, updateSetting) {
   el.querySelector('#stSetAppLockPw').addEventListener('click', async () => {
     const pw = el.querySelector('#stAppLockPw').value;
     if (!pw.trim()) return;
-    config = await window.archivAPI.settings.setAppLockPassword(pw);
-    renderSecuritySection(el, config, updateSetting);
+    clearInlineSettingsError(el);
+    try {
+      config = await window.archivAPI.settings.setAppLockPassword(pw);
+      if (el.isConnected) renderSecuritySection(el, config, updateSetting);
+    } catch (error) {
+      console.error('App-Passwort konnte nicht gespeichert werden:', error);
+      showInlineSettingsError(el, 'Das App-Passwort konnte nicht gespeichert werden.');
+    }
   });
   el.querySelector('#stRemoveAppLockPw')?.addEventListener('click', async () => {
-    config = await window.archivAPI.settings.setAppLockPassword('');
-    renderSecuritySection(el, config, updateSetting);
+    clearInlineSettingsError(el);
+    try {
+      config = await window.archivAPI.settings.setAppLockPassword('');
+      if (el.isConnected) renderSecuritySection(el, config, updateSetting);
+    } catch (error) {
+      console.error('App-Passwortschutz konnte nicht entfernt werden:', error);
+      showInlineSettingsError(el, 'Der App-Passwortschutz konnte nicht entfernt werden.');
+    }
   });
 }

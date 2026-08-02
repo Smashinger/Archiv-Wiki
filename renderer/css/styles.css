@@ -113,38 +113,28 @@ input{ font: inherit; }
   line-height: 1.65;
 }
 /* Lesemodus mit fester Textbreite (Nutzer-Feature, opt-in über Einstellungen
-   → Darstellung). Jedes direkte Kind der Vorschau wird einzeln auf die
-   eingestellte Breite begrenzt und mittig ausgerichtet — dadurch braucht
-   renderPreview() selbst KEINEN zusätzlichen Wrapper, jedes Element (Absatz,
-   Überschrift, Liste, Zitat, Callout, Bild) verhält sich automatisch gleich,
-   ganz ohne eigene Logik in der Markdown-Rendering-Funktion. Tabellen und
-   Code-Blöcke bekommen bewusst mehr Spielraum (siehe unten) und laufen bei
-   Bedarf selbst horizontal über (siehe .code-block pre weiter unten, hat das
-   schon immer gemacht), statt Inhalte abzuschneiden oder zu quetschen. */
-body.reading-width .preview-content{
-  max-width: calc(var(--read-width) * 1.3);
-  margin-left: auto;
-  margin-right: auto;
+   → Darstellung). .preview-content ist die einzige horizontale
+   Positionierungsinstanz der Vorschau. Der Wrapper wird als Ganzes zentriert;
+   seine direkten Markdown-Blöcke werden niemals einzeln erneut zentriert.
+   Dadurch behalten Überschriften, Text, Bilder, Listen, Zitate, Callouts,
+   Formeln, Tabellen und Codeblöcke beim Ziehen des Splitters dieselbe linke
+   Startkante. */
+.preview-content{
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
-/* Normale Inhalte (Absatz, Überschrift, Liste, Zitat, Callout, Bild — alles
-   außer Tabellen/Code) teilen sich EINE gemeinsame, engere Regel. Da alle
-   denselben Wert bekommen, landen sie automatisch an derselben linken
-   Kante — keine Sonderbehandlung für ein einzelnes Element, die zu
-   abweichender Ausrichtung führen könnte (genau das war der frühere Fehler
-   beim Bild). Bilder liegen innerhalb eines <p> und folgen dieser Regel
-   daher automatisch mit, ohne eigene Zentrierung zu benötigen. */
-body.reading-width .preview-content > :not(table):not(.code-block){
+body.reading-width .preview-content{
   max-width: var(--read-width);
   margin-left: auto;
   margin-right: auto;
 }
-/* Tabellen/Code dürfen den vollen (breiteren) Container nutzen — kein
-   eigenes margin/width nötig, sie füllen einfach den äußeren Rahmen und
-   scrollen bei Bedarf selbst horizontal (siehe .code-block pre weiter
-   unten, hat das schon immer gemacht). */
+/* Der gemeinsame Inhaltscontainer legt sowohl die linke als auch die rechte
+   Dokumentkante fest. Direkte Markdown-Blöcke erhalten deshalb keine eigene
+   Breiten- oder Zentrierungslogik. Tabellen und Codeblöcke bleiben ebenfalls
+   innerhalb dieser Außenkante; nur ihr Inhalt darf intern horizontal scrollen. */
 body.reading-width .preview-content > table{
   display: block;
-  width: 100%;
   overflow-x: auto;
 }
 /* Lesebreite jetzt auch im Editor (Nutzer-Feature) — dieselbe Einstellung,

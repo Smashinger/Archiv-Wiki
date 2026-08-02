@@ -913,7 +913,7 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .settings-modal-header{
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 16px; border-bottom: 1px solid var(--border);
-  font-family: var(--mono); font-size: 13px; color: var(--text-main); flex-shrink: 0;
+  font-family: var(--mono); font-size: 13px; line-height: 1.4; color: var(--text-main); flex-shrink: 0;
 }
 /* Bugfix (Nutzer-Screenshot: X erschien außerhalb des Fensters): .modal-close-x
    ist fürs ältere .prompt-title-Muster auf position:absolute ausgelegt — hier
@@ -925,33 +925,69 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .settings-nav{
   width: 150px; flex-shrink: 0; border-right: 1px solid var(--border);
   display: flex; flex-direction: column; padding: 10px; gap: 2px; overflow-y: auto;
+  scrollbar-gutter: stable; overscroll-behavior: contain;
 }
 .settings-nav button{
-  text-align: left; background: transparent; border: none; color: var(--text-muted);
-  font-family: var(--mono); font-size: 12px; padding: 8px 10px; border-radius: var(--radius-sm); cursor: pointer;
+  min-height: 36px; text-align: left; background: transparent; border: none; color: var(--text-muted);
+  font-family: var(--mono); font-size: 12px; line-height: 1.4; padding: 8px 10px;
+  border-radius: var(--radius-sm); cursor: pointer;
+  transition: color .15s ease, background-color .15s ease;
 }
 .settings-nav button:hover{ background: var(--bg-elev-2); color: var(--text-main); }
+.settings-nav button:active{ background: var(--accent-soft); }
 .settings-nav button.active{ background: var(--bg-elev-2); color: var(--accent-color); }
-.settings-content{ flex: 1; min-width: 0; padding: 20px 24px; overflow-y: auto; }
+.settings-content{
+  flex: 1; min-width: 0; padding: 20px 24px; overflow-y: auto;
+  scrollbar-gutter: stable; overscroll-behavior: contain;
+}
 .settings-content h3{ margin: 0 0 16px; font-size: 14px; color: var(--text-main); }
+.settings-group{ margin: 0 0 22px; padding: 0; }
+.settings-group:last-child{ margin-bottom: 0; }
+.settings-group h4{
+  margin: 0 0 12px; padding-bottom: 7px; border-bottom: 1px solid var(--border-soft);
+  font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--text-muted);
+}
+.settings-group > .settings-field:last-child,
+.settings-group > .settings-checkbox-row:last-child,
+.settings-group > .settings-button-row:last-child{ margin-bottom: 0; }
 .settings-field{
   display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px;
 }
 .settings-field > span:first-child{ font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
 .settings-field input[type="text"], .settings-field input[type="number"], .settings-field input[type="password"], .settings-field select{
-  background: var(--bg-elev-2); border: 1px solid var(--border); color: var(--text-main);
-  font-family: var(--mono); font-size: 12.5px; padding: 8px 10px; border-radius: var(--radius-sm); max-width: 260px;
+  min-height: 36px; background: var(--bg-elev-2); border: 1px solid var(--border); color: var(--text-main);
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.4; padding: 8px 10px;
+  border-radius: var(--radius-sm); max-width: 260px;
+  transition: color .15s ease, border-color .15s ease, background-color .15s ease;
 }
-.settings-field input:focus, .settings-field select:focus{ border-color: var(--accent-dim); outline: none; }
+.settings-modal :is(button, input, select, textarea, a, [tabindex]):focus{ outline: none; }
+.settings-modal :is(button, input, select, textarea, a, [tabindex]):focus-visible{
+  outline: 2px solid var(--accent-dim);
+  outline-offset: 2px;
+}
+.settings-field input:focus-visible, .settings-field select:focus-visible{ border-color: var(--accent-dim); }
 .settings-readonly-value{
-  font-family: var(--mono); font-size: 12px; color: var(--text-muted);
+  min-height: 36px; display: flex; align-items: center;
+  font-family: var(--mono); font-size: 12px; line-height: 1.4; color: var(--text-muted);
   background: var(--bg-elev-2); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
   padding: 8px 10px; word-break: break-all;
 }
 .settings-hint{ font-size: 11.5px; color: var(--text-faint); line-height: 1.5; margin: 4px 0 0; }
 .settings-hint-error{ color: var(--red); }
-.settings-button-row{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.settings-button-row{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.settings-modal .btn{
+  min-height: 36px; display: inline-flex; align-items: center; justify-content: center; line-height: 1.4;
+  transition: color .15s ease, border-color .15s ease, background-color .15s ease, opacity .15s ease;
+}
+.settings-modal .btn:active:not(:disabled){ background: var(--accent-soft); }
 .settings-inline-btn{ align-self: flex-start; margin-top: 2px; }
+.settings-modal :is(button, input, select):disabled{ opacity: .5; cursor: not-allowed; }
+.settings-modal :is(.settings-checkbox-row, .close-dialog-option):has(input:disabled){ opacity: .55; cursor: default; }
+.settings-modal :is(.settings-checkbox-row, .close-dialog-option){ line-height: 1.4; transition: color .15s ease, opacity .15s ease; }
+.settings-modal :is(.settings-checkbox-row, .close-dialog-option):hover:not(:has(input:disabled)){ color: var(--text-main); }
+.settings-modal :is(input[type="checkbox"], input[type="radio"]){ margin: 0; flex-shrink: 0; }
+.settings-modal .density-option{ min-height: 36px; line-height: 1.4; }
+.settings-modal .settings-field select:hover:not(:disabled){ border-color: var(--accent-dim); }
 .update-status-inline{ display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12.5px; }
 
 /* --- Sync-Einstellungen-Modal (Schritt 6, Stufe 1) --- */

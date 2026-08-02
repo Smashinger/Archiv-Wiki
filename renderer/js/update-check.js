@@ -12,7 +12,7 @@ export async function fetchUpdateStatus() {
     // Netzwerk-Aussetzer o.Ä. auf der Renderer-Seite — genau wie im Hintergrund
     // (main.js) lieber "keine Info verfügbar" liefern als die Aufrufer mit
     // einer geworfenen Exception zu überraschen.
-    return { currentVersion: null, latestVersion: null, updateAvailable: false, releaseUrl: null };
+    return { currentVersion: null, latestVersion: null, updateAvailable: false, releaseUrl: null, checkFailed: true };
   }
 }
 
