@@ -29129,6 +29129,10 @@ var searchState = /* @__PURE__ */ StateField.define({
   },
   provide: (f) => showPanel.from(f, (val) => val.panel)
 });
+function getSearchQuery(state) {
+  let curState = state.field(searchState, false);
+  return curState ? curState.query.spec : defaultQuery(state);
+}
 var SearchState = class {
   constructor(query, panel) {
     this.query = query;
@@ -48133,7 +48137,7 @@ function wikiLinkCompletionSource(getNoteIndex) {
     return { from: match.from + 2, options, validFor: /^[^\]\n]*$/ };
   };
 }
-function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, onChange, onSave, onCursorActivity, getNoteIndex, onScroll, onSlashCommand }) {
+function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, onChange, onSave, onCursorActivity, getNoteIndex, onScroll, onSlashCommand, onSearchQueryChange }) {
   let view;
   const saveKeymap = keymap.of([
     { key: "Mod-s", preventDefault: true, run: () => {
@@ -48160,6 +48164,19 @@ function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, onChange, o
       history(),
       saveKeymap,
       search({ top: true }),
+      EditorState.phrases.of({
+        "Find": "Suchen",
+        "Replace": "Ersetzen",
+        "next": "N\xE4chster Treffer",
+        "previous": "Vorheriger Treffer",
+        "all": "Alle Treffer",
+        "match case": "Gro\xDF-/Kleinschreibung beachten",
+        "regexp": "Regul\xE4re Ausdr\xFCcke",
+        "by word": "Ganze W\xF6rter suchen",
+        "replace": "Ersetzen",
+        "replace all": "Alle ersetzen",
+        "close": "Suche schlie\xDFen"
+      }),
       keymap.of([...markdownKeymap, indentWithTab, ...defaultKeymap, ...historyKeymap, ...completionKeymap, ...searchKeymap]),
       markdown({ base: markdownLanguage, extensions: [GFM] }),
       autocompletion({ override: [wikiLinkCompletionSource(getNoteIndex)] }),
@@ -48195,6 +48212,23 @@ function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, onChange, o
       // contentAttributes-Erweiterung hier ausdrücklich wieder aktiviert.
       EditorView.contentAttributes.of({ spellcheck: "true" }),
       EditorView.updateListener.of((update) => {
+        if (onSearchQueryChange) {
+          const query = getSearchQuery(update.state);
+          const previousQuery = getSearchQuery(update.startState);
+          const currentSpec = {
+            search: query?.search || "",
+            caseSensitive: Boolean(query?.caseSensitive),
+            regexp: Boolean(query?.regexp),
+            wholeWord: Boolean(query?.wholeWord)
+          };
+          const previousSpec = {
+            search: previousQuery?.search || "",
+            caseSensitive: Boolean(previousQuery?.caseSensitive),
+            regexp: Boolean(previousQuery?.regexp),
+            wholeWord: Boolean(previousQuery?.wholeWord)
+          };
+          if (JSON.stringify(currentSpec) !== JSON.stringify(previousSpec)) onSearchQueryChange(currentSpec);
+        }
         if (update.docChanged) onChange?.(update.state.doc.toString());
         if (update.docChanged || update.selectionSet) reportCursor(update.state);
         if (update.docChanged && onSlashCommand) {
@@ -48305,6 +48339,7 @@ function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, onChange, o
       view.dispatch({ changes: { from: line.from, to: line.to, insert: newText } });
       view.focus();
     },
+    openSearch: () => openSearchPanel(view),
     focus: () => view.focus(),
     destroy: () => view.destroy()
   };

@@ -28,7 +28,70 @@ let syncScrollEnabled = true;
 let currentAutoSaveSeconds = 30;
 let currentOnSaved = null;
 let currentOnSaveError = null;
+let currentPreviewContainer = null;
+let currentPreviewSearch = { search: '', caseSensitive: false, regexp: false, wholeWord: false };
 export function setSyncScrollEnabled(enabled) { syncScrollEnabled = enabled; }
+
+function clearPreviewSearchHighlights() {
+  if (!currentPreviewContainer) return;
+  currentPreviewContainer.querySelectorAll('mark.preview-search-match').forEach((mark) => {
+    mark.replaceWith(document.createTextNode(mark.textContent || ''));
+  });
+  currentPreviewContainer.normalize();
+}
+
+function buildPreviewSearchRegex(spec) {
+  if (!spec?.search) return null;
+  let source = spec.search;
+  if (!spec.regexp) source = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (spec.wholeWord) source = `\\b(?:${source})\\b`;
+  try { return new RegExp(source, spec.caseSensitive ? 'g' : 'gi'); }
+  catch { return null; }
+}
+
+function applyPreviewSearchHighlights() {
+  clearPreviewSearchHighlights();
+  const regex = buildPreviewSearchRegex(currentPreviewSearch);
+  if (!currentPreviewContainer || !regex) return;
+
+  const blocked = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION', 'BUTTON']);
+  const walker = document.createTreeWalker(currentPreviewContainer, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || blocked.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
+      return node.nodeValue ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    }
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+
+  nodes.forEach((node) => {
+    const text = node.nodeValue || '';
+    regex.lastIndex = 0;
+    let match;
+    let last = 0;
+    let found = false;
+    const fragment = document.createDocumentFragment();
+    while ((match = regex.exec(text))) {
+      if (!match[0]) { regex.lastIndex += 1; continue; }
+      found = true;
+      fragment.append(document.createTextNode(text.slice(last, match.index)));
+      const mark = document.createElement('mark');
+      mark.className = 'preview-search-match';
+      mark.textContent = match[0];
+      fragment.append(mark);
+      last = match.index + match[0].length;
+    }
+    if (!found) return;
+    fragment.append(document.createTextNode(text.slice(last)));
+    node.replaceWith(fragment);
+  });
+}
+
+export function openDocumentSearch() {
+  return currentEditor?.openSearch() ?? false;
+}
+
 
 // Auto-Save-Intervall live ändern (Bugfix/Nutzer-Feature) — wirkt sofort,
 // auch ohne die Notiz erneut zu öffnen. Läuft gerade ein Timer (es gibt
@@ -60,6 +123,7 @@ export async function openNoteInEditor({
 }) {
   closeEditor();
   currentProjectPath = projectPath || null;
+  currentPreviewContainer = previewContainer || null;
   currentAutoSaveSeconds = autoSaveSeconds;
   currentOnSaved = onSaved;
   currentOnSaveError = onSaveError;
@@ -69,7 +133,10 @@ export async function openNoteInEditor({
   dirty = false;
 
   function updatePreview(text) {
-    if (previewContainer) previewContainer.innerHTML = renderPreview(text, { noteIndex: getNoteIndex?.() || [], projectPath: currentProjectPath });
+    if (previewContainer) {
+      previewContainer.innerHTML = renderPreview(text, { noteIndex: getNoteIndex?.() || [], projectPath: currentProjectPath });
+      applyPreviewSearchHighlights();
+    }
   }
   // Entprellter Aufruf für Tastatureingaben (Nutzer-Feature) — exakt das
   // gleiche Prinzip wie scheduleAutosave weiter unten: Timer wird bei jeder
@@ -96,6 +163,10 @@ export async function openNoteInEditor({
     onCursorActivity,
     onSave: () => saveNow(onSaved, onSaveError),
     onSlashCommand,
+    onSearchQueryChange: (spec) => {
+      currentPreviewSearch = spec;
+      applyPreviewSearchHighlights();
+    },
     // Scroll-Verhältnis (0-1) 1:1 auf die Vorschau übertragen — nicht
     // Pixel-für-Pixel, da beide Seiten unterschiedlich hoch sind (siehe
     // Kommentar in editor-entry.js).
@@ -206,6 +277,9 @@ export function closeEditor() {
   clearTimeout(previewDebounceTimer);
   if (currentEditor) currentEditor.destroy();
   currentEditor = null;
+  clearPreviewSearchHighlights();
+  currentPreviewContainer = null;
+  currentPreviewSearch = { search: '', caseSensitive: false, regexp: false, wholeWord: false };
   currentRelPath = null;
   dirty = false;
 }

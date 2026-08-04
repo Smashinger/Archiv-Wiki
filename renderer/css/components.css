@@ -659,11 +659,22 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .note-toolbar #btnDeleteNote{ transition: color .15s ease, border-color .15s ease; }
 
 /* --- Split-View --- */
-.note-split{ display:flex; gap:0; height: calc(100vh - 280px); min-height: 320px; }
+.note-split{ display:flex; gap:0; height: calc(100vh - 280px); min-height: 320px; position:relative; }
 .note-split.mode-editor .preview-pane{ display:none; }
 .note-split.mode-editor .editor-pane{ flex:1; }
 .note-split.mode-preview .editor-pane{ display:none; }
+.note-split.mode-preview .editor-pane:has(.cm-search){
+  display:block; position:absolute; inset:0 0 auto 0; z-index:5; height:auto;
+  border:0; border-radius:0; overflow:visible; background:transparent;
+}
+.note-split.mode-preview .editor-pane:has(.cm-search) .cm-editor{ height:auto; }
+.note-split.mode-preview .editor-pane:has(.cm-search) .cm-scroller,
+.note-split.mode-preview .editor-pane:has(.cm-search) .cm-gutters{ display:none; }
 .note-split.mode-preview .preview-pane{ flex:1; }
+.preview-search-match{
+  background:color-mix(in srgb, var(--accent-color) 32%, transparent);
+  color:inherit; border-radius:2px; padding:0;
+}
 /* Übersteuert die im Editor-Bundle fest hinterlegte Schriftgröße von außen —
    !important nötig, da CodeMirrors eigenes, mitgeliefertes Theme sonst
    Vorrang hätte (siehe build/editor-entry.js, dort bleibt 13.5px als

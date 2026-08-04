@@ -11,7 +11,7 @@ import { markdown, markdownLanguage, markdownKeymap } from '@codemirror/lang-mar
 import { syntaxHighlighting, HighlightStyle, syntaxTree, indentUnit } from '@codemirror/language';
 import { GFM } from '@lezer/markdown';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
-import { search, searchKeymap, setSearchQuery, SearchQuery, findNext, findPrevious, closeSearchPanel } from '@codemirror/search';
+import { search, searchKeymap, setSearchQuery, SearchQuery, findNext, findPrevious, closeSearchPanel, openSearchPanel, getSearchQuery } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
 
 import { marked } from 'marked';
@@ -157,7 +157,7 @@ export function wikiLinkCompletionSource(getNoteIndex) {
 // ---------------------------------------------------------------------------
 // Editor-Factory
 // ---------------------------------------------------------------------------
-export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, onSave, onCursorActivity, getNoteIndex, onScroll, onSlashCommand }) {
+export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, onSave, onCursorActivity, getNoteIndex, onScroll, onSlashCommand, onSearchQueryChange }) {
   let view; // wird weiter unten zugewiesen — der updateListener (Teil von state,
   // das VOR view erstellt wird) greift per Funktionsabschluss später darauf zu,
   // erst wenn tatsächlich getippt wird, also lange nachdem view existiert.
@@ -185,6 +185,19 @@ export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, 
       history(),
       saveKeymap,
       search({ top: true }),
+      EditorState.phrases.of({
+        'Find': 'Suchen',
+        'Replace': 'Ersetzen',
+        'next': 'Nächster Treffer',
+        'previous': 'Vorheriger Treffer',
+        'all': 'Alle Treffer',
+        'match case': 'Groß-/Kleinschreibung beachten',
+        'regexp': 'Reguläre Ausdrücke',
+        'by word': 'Ganze Wörter suchen',
+        'replace': 'Ersetzen',
+        'replace all': 'Alle ersetzen',
+        'close': 'Suche schließen'
+      }),
       keymap.of([...markdownKeymap, indentWithTab, ...defaultKeymap, ...historyKeymap, ...completionKeymap, ...searchKeymap]),
       markdown({ base: markdownLanguage, extensions: [GFM] }),
       autocompletion({ override: [wikiLinkCompletionSource(getNoteIndex)] }),
@@ -220,6 +233,23 @@ export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, 
       // contentAttributes-Erweiterung hier ausdrücklich wieder aktiviert.
       EditorView.contentAttributes.of({ spellcheck: 'true' }),
       EditorView.updateListener.of((update) => {
+        if (onSearchQueryChange) {
+          const query = getSearchQuery(update.state);
+          const previousQuery = getSearchQuery(update.startState);
+          const currentSpec = {
+            search: query?.search || '',
+            caseSensitive: Boolean(query?.caseSensitive),
+            regexp: Boolean(query?.regexp),
+            wholeWord: Boolean(query?.wholeWord)
+          };
+          const previousSpec = {
+            search: previousQuery?.search || '',
+            caseSensitive: Boolean(previousQuery?.caseSensitive),
+            regexp: Boolean(previousQuery?.regexp),
+            wholeWord: Boolean(previousQuery?.wholeWord)
+          };
+          if (JSON.stringify(currentSpec) !== JSON.stringify(previousSpec)) onSearchQueryChange(currentSpec);
+        }
         if (update.docChanged) onChange?.(update.state.doc.toString());
         if (update.docChanged || update.selectionSet) reportCursor(update.state);
         // Slash-Befehl (Nutzer-Feature, neben Werkzeugleiste + Rechtsklick-Menü
@@ -340,6 +370,7 @@ export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, 
       view.dispatch({ changes: { from: line.from, to: line.to, insert: newText } });
       view.focus();
     },
+    openSearch: () => openSearchPanel(view),
     focus: () => view.focus(),
     destroy: () => view.destroy()
   };

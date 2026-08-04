@@ -11,7 +11,7 @@ import { showSettingsWindow } from './settings-window.js';
 import { animateIn, animateOut } from './motion.js';
 import { manageModalDialog, closeManagedDialogs, showMessageDialog, showConfirmDialog } from './dialog.js';
 import { initEllipsisTooltips } from './tooltip.js';
-import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor, focusEditor, setSyncScrollEnabled, setAutoSaveSeconds } from './editor.js';
+import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor, focusEditor, openDocumentSearch, setSyncScrollEnabled, setAutoSaveSeconds } from './editor.js';
 import { rebuildIndex, getSearchState, search as searchNotes, searchWithDetails } from './search.js';
 
 // ---------------------------------------------------------------------------
@@ -2602,6 +2602,12 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); els.navSearch.focus(); els.navSearch.select(); }
+  else if (mod && e.key.toLowerCase() === 'f' && getOpenRelPath() && (
+    state.viewMode === 'preview' || document.activeElement?.closest?.('#previewContainer')
+  )) {
+    e.preventDefault();
+    openDocumentSearch();
+  }
   else if (mod && e.key.toLowerCase() === 'b' && getOpenRelPath()) { e.preventDefault(); cycleViewMode(); }
   else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(currentOnSaved, currentOnSaveError); }
   else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && getOpenRelPath()) {
@@ -3918,6 +3924,7 @@ async function renderNote(relPath) {
         <button type="button" data-fmt="strike" title="Durchgestrichen (~~Text~~)"><s>D</s></button>
         <button type="button" data-fmt="underline" title="Unterstrichen (&lt;u&gt;Text&lt;/u&gt;)"><u>U</u></button>
         <button type="button" data-fmt="link" title="Link ([Text](URL))">↗</button>
+        <button type="button" data-fmt="inline-code" title="Inline-Code (&#96;Text&#96;)">&#96;</button>
         <button type="button" data-fmt="code" title="Code-Block (dreifache Backticks)">{ }</button>
         <button type="button" data-fmt="ul" title="Aufzählung (- Punkt)">•</button>
         <button type="button" data-fmt="ol" title="Nummerierte Liste (1. Punkt)">1.</button>
@@ -4082,6 +4089,7 @@ async function renderNote(relPath) {
       const url = await showPromptModal({ title: 'Link-URL', defaultValue: 'https://' });
       if (url) wrapSelection('[', `](${url})`, 'Linktext');
     }
+    else if (fmt === 'inline-code') wrapSelection('`', '`', 'code');
     else if (fmt === 'code') insertAtCursor('\n```\nCode hier\n```\n');
     else if (fmt === 'ul') insertAtCursor('\n- Punkt\n');
     else if (fmt === 'ol') insertAtCursor('\n1. Punkt\n');
