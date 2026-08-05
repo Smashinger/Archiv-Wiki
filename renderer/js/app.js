@@ -11,7 +11,7 @@ import { showSettingsWindow } from './settings-window.js';
 import { animateIn, animateOut } from './motion.js';
 import { manageModalDialog, closeManagedDialogs, showMessageDialog, showConfirmDialog } from './dialog.js';
 import { initEllipsisTooltips } from './tooltip.js';
-import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor, focusEditor, openDocumentSearch, setSyncScrollEnabled, setAutoSaveSeconds } from './editor.js';
+import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor, focusEditor, setSyncScrollEnabled, setAutoSaveSeconds } from './editor.js';
 import { rebuildIndex, getSearchState, search as searchNotes, searchWithDetails } from './search.js';
 
 // ---------------------------------------------------------------------------
@@ -2602,12 +2602,6 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); els.navSearch.focus(); els.navSearch.select(); }
-  else if (mod && e.key.toLowerCase() === 'f' && getOpenRelPath() && (
-    state.viewMode === 'preview' || document.activeElement?.closest?.('#previewContainer')
-  )) {
-    e.preventDefault();
-    openDocumentSearch();
-  }
   else if (mod && e.key.toLowerCase() === 'b' && getOpenRelPath()) { e.preventDefault(); cycleViewMode(); }
   else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(currentOnSaved, currentOnSaveError); }
   else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && getOpenRelPath()) {
@@ -2648,7 +2642,17 @@ function focusCurrentWritingArea() {
 // INTENSITÄT dagegen schon (Stil-Vorliebe, kein Sitzungs-Zustand, siehe
 // Einstellungen → Darstellung → Fokus-Modus).
 function toggleFocusMode({ focusWorkArea = false } = {}) {
-  setFocusMode(!document.body.classList.contains('focus-mode'), state.project?.config?.focusModeIntensity);
+  const activating = !document.body.classList.contains('focus-mode');
+
+  // Der Fokusmodus beginnt bewusst in der reinen Editoransicht. Dieser
+  // temporäre Ansichtswechsel wird nicht in der Projektkonfiguration
+  // gespeichert; danach bleiben Editor, Split und Vorschau frei umschaltbar.
+  if (activating && state.viewMode !== 'editor') {
+    state.viewMode = 'editor';
+    applyViewMode();
+  }
+
+  setFocusMode(activating, state.project?.config?.focusModeIntensity);
   if (focusWorkArea) focusCurrentWritingArea();
 }
 
@@ -3114,7 +3118,7 @@ const DASHBOARD_TIPS = [
     id: 'focus-mode',
     category: 'general',
     priority: 'medium',
-    text: 'Der Fokus-Modus in der Editor-Werkzeugleiste dimmt die übrige Oberfläche für konzentriertes Schreiben und Lesen.'
+    text: 'Der Fokus-Modus in der Editor-Werkzeugleiste blendet die Sidebar aus und schafft mehr Platz für konzentriertes Schreiben und Lesen.'
   },
   {
     id: 'templates',
@@ -3895,51 +3899,84 @@ async function renderNote(relPath) {
 
   els.contentScroll.innerHTML = `
     <div class="note-header">
-      <button type="button" class="pin-btn${node.frontmatter?.pinned ? ' active' : ''}" id="btnPinNote" title="${node.frontmatter?.pinned ? 'Von Favoriten entfernen' : 'Als Favorit anpinnen'}" aria-label="Anpinnen">${node.frontmatter?.pinned ? '★' : '☆'}</button>
-      <input type="text" class="note-title-input" id="noteTitleInput" value="${escapeHtml(title)}">
-      <button type="button" class="category-badge" id="noteCategoryBadge" title="In andere Kategorie verschieben">${escapeHtml(node.frontmatter?.category || node.frontmatter?.mainCategory || '')}</button>
-      <input type="text" class="tags-input" id="noteTagsInput" placeholder="tag1, tag2, …">
+      <div class="note-document-title">
+        <button type="button" class="pin-btn${node.frontmatter?.pinned ? ' active' : ''}" id="btnPinNote" title="${node.frontmatter?.pinned ? 'Von Favoriten entfernen' : 'Als Favorit anpinnen'}" aria-label="Anpinnen">${node.frontmatter?.pinned ? '★' : '☆'}</button>
+        <input type="text" class="note-title-input" id="noteTitleInput" value="${escapeHtml(title)}">
+      </div>
+      <div class="note-document-meta">
+        <div class="backlink-row" id="backlinkRow"></div>
+        <span class="note-meta-divider" aria-hidden="true"></span>
+        <span class="note-meta-label">Tags</span>
+        <button type="button" class="category-badge" id="noteCategoryBadge" title="In andere Kategorie verschieben">${escapeHtml(node.frontmatter?.category || node.frontmatter?.mainCategory || '')}</button>
+        <input type="text" class="tags-input" id="noteTagsInput" placeholder="tag1, tag2, …">
+      </div>
+      <div class="note-document-actions">
+        <span class="dirty-label" id="dirtyLabel">✓ gespeichert</span>
+        <button type="button" class="btn primary" id="btnSave" title="Speichern (Ctrl+S)">Speichern</button>
+        <button type="button" class="btn danger small" id="btnDeleteNote" title="Notiz in den Papierkorb verschieben" aria-label="Löschen">🗑</button>
+      </div>
     </div>
-    <div class="backlink-row" id="backlinkRow"></div>
     <div class="incoming-links" id="incomingLinks"></div>
-    <div class="note-toolbar">
-      <div class="view-toggle" id="viewToggle">
-        <button type="button" data-mode="editor">Editor</button>
-        <button type="button" data-mode="split">Split</button>
-        <button type="button" data-mode="preview">Vorschau</button>
+    <div class="note-toolbar" aria-label="Editor-Werkzeugleiste">
+      <div class="toolbar-group toolbar-view-group">
+        <span class="toolbar-group-label">Ansicht</span>
+        <div class="toolbar-group-controls">
+          <div class="view-toggle" id="viewToggle">
+            <button type="button" data-mode="editor">Editor</button>
+            <button type="button" data-mode="split">Split</button>
+            <button type="button" data-mode="preview">Vorschau</button>
+          </div>
+          <button type="button" class="icon-btn sync-scroll-toggle" id="btnSyncScroll" title="Sync-Scroll: Vorschau folgt beim Scrollen im Editor" aria-label="Sync-Scroll umschalten">🔗</button>
+          <button type="button" class="icon-btn" id="btnFocusMode" title="Fokus-Modus (Strg+Umschalt+F)" aria-label="Fokus-Modus umschalten" aria-pressed="false">◎</button>
+        </div>
       </div>
-      <button type="button" class="icon-btn sync-scroll-toggle" id="btnSyncScroll" title="Sync-Scroll: Vorschau folgt beim Scrollen im Editor" aria-label="Sync-Scroll umschalten">🔗</button>
-      <button type="button" class="icon-btn" id="btnFocusMode" title="Fokus-Modus (Strg+Umschalt+F)" aria-label="Fokus-Modus umschalten" aria-pressed="false">◎</button>
-      <select class="font-size-select" id="editorFontSizeSelect" title="Editor-Schriftgröße" aria-label="Editor-Schriftgröße">
-        <option value="12">12px</option>
-        <option value="13">13px</option>
-        <option value="14">14px</option>
-        <option value="16">16px</option>
-        <option value="18">18px</option>
-      </select>
-      <button type="button" class="icon-btn" id="btnEmoji" title="Icon/Emoji einfügen" aria-label="Icon/Emoji einfügen">😀</button>
       <div class="format-toolbar" id="formatToolbar">
-        <button type="button" data-fmt="bold" title="Fett (**Text**)"><strong>F</strong></button>
-        <button type="button" data-fmt="italic" title="Kursiv (*Text*)"><em>K</em></button>
-        <button type="button" data-fmt="strike" title="Durchgestrichen (~~Text~~)"><s>D</s></button>
-        <button type="button" data-fmt="underline" title="Unterstrichen (&lt;u&gt;Text&lt;/u&gt;)"><u>U</u></button>
-        <button type="button" class="icon-btn" id="btnHeadingMenu" title="Überschrift auswählen" aria-label="Überschrift auswählen" aria-haspopup="menu" aria-expanded="false">H ▾</button>
-        <button type="button" data-fmt="link" title="Link ([Text](URL))">↗</button>
-        <button type="button" id="btnImage" title="Bild einfügen" aria-label="Bild einfügen">🖼</button>
-        <button type="button" data-fmt="inline-code" title="Inline-Code (&#96;Text&#96;)">&#96;</button>
-        <button type="button" data-fmt="code" title="Code-Block (dreifache Backticks)">{ }</button>
-        <button type="button" id="btnTable" title="Tabelle einfügen" aria-label="Tabelle einfügen">▦</button>
-        <button type="button" data-fmt="ul" title="Aufzählung (- Punkt)">•</button>
-        <button type="button" data-fmt="ol" title="Nummerierte Liste (1. Punkt)">1.</button>
-        <button type="button" data-fmt="checklist" title="Checkliste (- [ ] Aufgabe)">☑</button>
-        <button type="button" id="btnCallout" title="Callout einfügen">💬</button>
+        <div class="toolbar-group">
+          <span class="toolbar-group-label">Formatierung</span>
+          <div class="toolbar-group-controls">
+            <select class="font-size-select" id="editorFontSizeSelect" title="Editor-Schriftgröße" aria-label="Editor-Schriftgröße">
+              <option value="12">12px</option>
+              <option value="13">13px</option>
+              <option value="14">14px</option>
+              <option value="16">16px</option>
+              <option value="18">18px</option>
+            </select>
+            <button type="button" class="icon-btn" id="btnEmoji" title="Icon/Emoji einfügen" aria-label="Icon/Emoji einfügen">😀</button>
+            <button type="button" data-fmt="bold" title="Fett (**Text**)"><strong>F</strong></button>
+            <button type="button" data-fmt="italic" title="Kursiv (*Text*)"><em>K</em></button>
+            <button type="button" data-fmt="strike" title="Durchgestrichen (~~Text~~)"><s>D</s></button>
+            <button type="button" data-fmt="underline" title="Unterstrichen (&lt;u&gt;Text&lt;/u&gt;)"><u>U</u></button>
+          </div>
+        </div>
+        <div class="toolbar-group">
+          <span class="toolbar-group-label">Listen</span>
+          <div class="toolbar-group-controls">
+            <button type="button" data-fmt="ul" title="Aufzählung (- Punkt)">•</button>
+            <button type="button" data-fmt="ol" title="Nummerierte Liste (1. Punkt)">1.</button>
+            <button type="button" data-fmt="checklist" title="Checkliste (- [ ] Aufgabe)">☑</button>
+          </div>
+        </div>
+        <div class="toolbar-group">
+          <span class="toolbar-group-label">Einfügen</span>
+          <div class="toolbar-group-controls">
+            <button type="button" data-fmt="link" title="Link ([Text](URL))">↗</button>
+          </div>
+        </div>
+        <div class="toolbar-group">
+          <span class="toolbar-group-label">Markdown</span>
+          <div class="toolbar-group-controls">
+            <button type="button" data-fmt="code" title="Code-Block (dreifache Backticks)">{ }</button>
+            <button type="button" id="btnCallout" title="Callout einfügen">▤</button>
+          </div>
+        </div>
       </div>
-      <button type="button" class="icon-btn" id="btnExport" title="Notiz exportieren" aria-label="Notiz exportieren">⬇</button>
-      <button type="button" class="icon-btn" id="btnSaveAsTemplate" title="Als eigene Vorlage speichern" aria-label="Als Vorlage speichern">📋</button>
-      <span class="spacer"></span>
-      <span class="dirty-label" id="dirtyLabel">✓ gespeichert</span>
-      <button type="button" class="btn primary" id="btnSave">Speichern (Ctrl+S)</button>
-      <button type="button" class="btn danger small" id="btnDeleteNote" title="Notiz in den Papierkorb verschieben" aria-label="Löschen">🗑</button>
+      <div class="toolbar-group toolbar-document-group">
+        <span class="toolbar-group-label">Dokument</span>
+        <div class="toolbar-group-controls">
+          <button type="button" class="icon-btn" id="btnExport" title="Notiz exportieren" aria-label="Notiz exportieren">⬇</button>
+          <button type="button" class="icon-btn" id="btnSaveAsTemplate" title="Als eigene Vorlage speichern" aria-label="Als Vorlage speichern">📋</button>
+        </div>
+      </div>
     </div>
     <div class="note-split mode-split" id="noteSplit">
       <div id="editorContainer" class="editor-pane"></div>
@@ -4092,50 +4129,10 @@ async function renderNote(relPath) {
       const url = await showPromptModal({ title: 'Link-URL', defaultValue: 'https://' });
       if (url) wrapSelection('[', `](${url})`, 'Linktext');
     }
-    else if (fmt === 'inline-code') wrapSelection('`', '`', 'code');
     else if (fmt === 'code') insertAtCursor('\n```\nCode hier\n```\n');
     else if (fmt === 'ul') insertAtCursor('\n- Punkt\n');
     else if (fmt === 'ol') insertAtCursor('\n1. Punkt\n');
     else if (fmt === 'checklist') insertAtCursor('\n- [ ] Aufgabe\n');
-  });
-
-  document.getElementById('btnHeadingMenu').addEventListener('click', (e) => {
-    e.stopPropagation();
-    const trigger = e.currentTarget;
-    trigger.setAttribute('aria-expanded', 'true');
-    const menu = createHtmlContextMenu({
-      className: 'context-menu',
-      trigger,
-      label: 'Überschrift auswählen',
-      html: [1, 2, 3, 4]
-        .map(level => `<button type="button" data-heading-level="${level}">H${level}</button>`)
-        .join(''),
-      onDismiss: () => trigger.setAttribute('aria-expanded', 'false')
-    });
-    menu.addEventListener('click', (menuEvent) => {
-      const item = menuEvent.target.closest('[data-heading-level]');
-      if (!item) return;
-      const level = Number(item.dataset.headingLevel);
-      closeHtmlContextMenu(menu, { restoreFocus: false, reason: 'action' });
-      trigger.setAttribute('aria-expanded', 'false');
-      transformCurrentLine(headingTransform(level));
-    });
-  });
-
-  document.getElementById('btnTable').addEventListener('click', (e) => {
-    e.stopPropagation();
-    showTablePicker(e.currentTarget);
-  });
-
-  document.getElementById('btnImage').addEventListener('click', () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.multiple = true;
-    input.addEventListener('change', () => {
-      insertImageFiles([...input.files]);
-    }, { once: true });
-    input.click();
   });
 
   document.getElementById('btnCallout').addEventListener('click', (e) => {
@@ -5052,46 +5049,42 @@ function wireEditorContextMenus() {
   });
 }
 
-// Bilder werden über dieselbe bestehende Attachment-Logik eingefügt —
-// unabhängig davon, ob sie per Toolbar-Dateiauswahl oder Drag&Drop kommen.
-// Dadurch gibt es nur einen Speicher- und Markdown-Pfad.
-const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-
-async function insertImageFiles(files) {
-  const imageFiles = [...(files || [])].filter(file => file?.type?.startsWith('image/'));
-  for (const file of imageFiles) {
-    if (file.size > MAX_IMAGE_BYTES) {
-      await showMessageDialog({
-        title: 'Bild ist zu groß',
-        message: `"${file.name}" ist ${(file.size / 1024 / 1024).toFixed(1)} MB groß. Maximal 20 MB pro Bild sind möglich.`
-      });
-      continue;
-    }
-    try {
-      const buffer = await file.arrayBuffer();
-      const { fileName } = await fs.saveAttachment(file.name, buffer);
-      insertAtCursor(`\n![${file.name.replace(/\.[^.]+$/, '')}](attachment:${fileName})\n`);
-    } catch (err) {
-      await showMessageDialog({ title: 'Bild konnte nicht eingefügt werden', message: err.message });
-      console.error('[Archiv Wiki] Bild konnte nicht eingefügt werden:', err);
-    }
-  }
-}
-
 // Bilder per Drag&Drop aus dem Dateimanager in den Editor ziehen. Datei wird
-// gelesen (File/ArrayBuffer, unabhängig von contextIsolation/nodeIntegration),
-// als Bytes an den Main-Prozess geschickt und dort in .attachments/ gespeichert.
+// gelesen (FileReader, funktioniert unabhängig von contextIsolation/
+// nodeIntegration-Einstellungen — robuster als sich auf File.path zu
+// verlassen), als Bytes an den Main-Prozess geschickt und dort in
+// .attachments/ gespeichert. Markdown nutzt bewusst ein eigenes
+// "attachment:dateiname"-Präfix statt eines relativen Pfades — macht die
+// Auflösung in der Vorschau unabhängig von der Verzeichnistiefe der Notiz
+// (siehe renderPreview in build/editor-entry.js).
 function wireImageDrop() {
+  const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB — großzügig für normale Fotos/Screenshots, verhindert aber das Einlesen von Riesendateien in den Speicher
   const editorEl = document.getElementById('editorContainer');
   if (!editorEl) return;
   editorEl.addEventListener('dragover', (e) => {
     if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault();
   });
   editorEl.addEventListener('drop', async (e) => {
-    const files = [...(e.dataTransfer?.files || [])].filter(file => file.type.startsWith('image/'));
-    if (files.length === 0) return;
+    const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/'));
+    if (files.length === 0) return; // kein Bild dabei — normales Text-Drop (Umsortieren etc.) unangetastet lassen
     e.preventDefault();
-    await insertImageFiles(files);
+    for (const file of files) {
+      if (file.size > MAX_IMAGE_BYTES) {
+        await showMessageDialog({
+          title: 'Bild ist zu groß',
+          message: `"${file.name}" ist ${(file.size / 1024 / 1024).toFixed(1)} MB groß. Maximal 20 MB pro Bild sind möglich.`
+        });
+        continue; // erst NACH der Prüfung wird überhaupt gelesen — vorher landete jede Dateigröße ungeprüft komplett im Speicher
+      }
+      try {
+        const buffer = await file.arrayBuffer();
+        const { fileName } = await fs.saveAttachment(file.name, buffer);
+        insertAtCursor(`\n![${file.name.replace(/\.[^.]+$/, '')}](attachment:${fileName})\n`);
+      } catch (err) {
+        await showMessageDialog({ title: 'Bild konnte nicht eingefügt werden', message: err.message });
+        console.error('[Archiv Wiki] Bild-Drop fehlgeschlagen:', err);
+      }
+    }
   });
 }
 

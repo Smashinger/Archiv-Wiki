@@ -124,65 +124,70 @@ body.sidebar-resizing .sidebar, body.sidebar-resizing .main-area{ transition: no
   body.sidebar-collapsed .main-area{ margin-left: 0; }
 }
 
-/* --- Fokus-Modus: editorgebundene Konzentrationsansicht ---
-   Vorheriges Verhalten (Sidebar/Kopfzeile/Werkzeugleiste komplett ausblenden)
-   ist bewusst NICHT mehr das Ziel — man verliert dabei zu leicht die
-   Orientierung. Neu: die restliche Oberfläche bleibt vollständig sichtbar
-   UND bedienbar (keine Klick-Sperre über pointer-events, keine display:none-
-   Regel mehr),
-   tritt nur optisch zurück (reduzierte Deckkraft + leichte Entsättigung).
-   Der Editor-Bereich bekommt stattdessen einen dezenten Hervorhebungs-Effekt
-   (etwas hellerer Hintergrund + weicher Schatten) — bewusst NEUTRAL, ohne
-   Akzentfarbe, damit es mit jeder gewählten Akzentfarbe gleich gut aussieht.
-   Kein echter Fullscreen (Fensterrahmen bleiben unangetastet). Zustand
-   (an/aus) bewusst NICHT gespeichert — Intensität dagegen schon (siehe
-   Einstellungen → Darstellung → Fokus-Modus), das ist eine Stil-Vorliebe,
-   kein Sitzungs-Zustand. */
-body.focus-mode{ --focus-dim-opacity: 0.55; } /* Standard = Mittel */
-body.focus-mode[data-focus-intensity="light"]{ --focus-dim-opacity: 0.78; }
-body.focus-mode[data-focus-intensity="strong"]{ --focus-dim-opacity: 0.35; }
-body.focus-mode[data-focus-intensity="stronger"]{ --focus-dim-opacity: 0.18; }
+/* --- Fokus-Modus: reduzierte Schreibansicht ---
+   Die Sidebar wird sauber ausgeblendet und der Hauptbereich nutzt die frei
+   gewordene Breite. Header, Titel/Metadaten, Speichern, Toolbar und
+   Statusleiste bleiben sichtbar und unverändert. Kein echter Fullscreen und
+   keine Änderung der Fenstergröße. Der Ein/Aus-Zustand wird bewusst nicht
+   über Programmstarts gespeichert. */
+body.focus-mode{ --focus-shadow-opacity: 0.20; }
+body.focus-mode[data-focus-intensity="light"]{ --focus-shadow-opacity: 0.10; }
+body.focus-mode[data-focus-intensity="strong"]{ --focus-shadow-opacity: 0.28; }
+body.focus-mode[data-focus-intensity="stronger"]{ --focus-shadow-opacity: 0.36; }
 
-body.focus-mode .sidebar,
-body.focus-mode .topbar,
-body.focus-mode .note-toolbar,
-body.focus-mode .note-bottombar{
-  opacity: var(--focus-dim-opacity);
-  filter: saturate(0.85);
-  transition: opacity 150ms ease, filter 150ms ease;
+body.focus-mode .sidebar{
+  transform: translateX(-100%);
 }
-/* Bleibt trotz Abdunkelung vollständig bedienbar (keine Klick-Sperre über
-   pointer-events) — beim Hovern/Fokussieren tritt der jeweilige Bereich kurz
-   wieder klar hervor, für spürbares, direktes Feedback bei der Bedienung. */
-body.focus-mode .sidebar:hover,
-body.focus-mode .sidebar:focus-within,
-body.focus-mode .topbar:hover,
-body.focus-mode .topbar:focus-within,
-body.focus-mode .note-toolbar:hover,
-body.focus-mode .note-toolbar:focus-within,
-body.focus-mode .note-bottombar:hover,
-body.focus-mode .note-bottombar:focus-within{
-  opacity: 1;
-  filter: none;
+body.focus-mode .sidebar-resize-handle{
+  pointer-events: none;
+}
+body.focus-mode .main-area{
+  margin-left: 0;
 }
 
-/* Editor-Bereich dezent hervorgehoben — etwas hellerer Hintergrund + weicher
-   Schatten, bewusst neutral (kein Akzentton), leichte Kontrastanhebung durch
-   den Helligkeitssprung selbst. Keine Breiten-/Größenänderung (siehe
-   Nutzer-Wunsch weiter oben in diesem Gespräch: volle Breite behalten). */
+/* Nur der eigentliche Schreibbereich wird dezent hervorgehoben. */
 body.focus-mode .note-split{
   background: var(--bg-elev);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 28px rgba(0,0,0,.28);
+  box-shadow: 0 8px 28px rgba(0,0,0,var(--focus-shadow-opacity));
   transition: box-shadow 150ms ease;
+}
+
+/* Im Fokusmodus wird ausschließlich der Schreibbereich gezeigt. Die normale
+   Split-Breite bleibt als Inline-/Projektzustand unangetastet und greift nach
+   dem Verlassen des Fokusmodus automatisch wieder. */
+body.focus-mode .note-split.mode-editor .preview-pane{
+  display: none !important;
+}
+body.focus-mode .note-split.mode-editor .split-resizer{
+  display: none !important;
+}
+body.focus-mode .note-split.mode-editor .editor-pane{
+  display: block !important;
+  flex: 1 1 0 !important;
+  width: auto !important;
+  min-width: 0;
 }
 
 @media (prefers-reduced-motion: reduce){
   body.focus-mode .sidebar,
-  body.focus-mode .topbar,
-  body.focus-mode .note-toolbar,
-  body.focus-mode .note-bottombar,
+  body.focus-mode .main-area,
   body.focus-mode .note-split{
     transition: none;
   }
+}
+
+/* Editor-zentriertes Standardlayout: Die Notizansicht nutzt die gesamte
+   verbleibende Fensterhöhe als Arbeitsfläche. Allgemeine Dashboard-/Listen-
+   Seiten behalten ihre bisherigen großzügigen Seitenabstände. */
+.content-scroll.note-view{
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+  overflow:hidden;
+  padding:12px 24px 0;
+}
+
+@media (max-width:900px){
+  .content-scroll.note-view{ padding:10px 14px 0; }
 }

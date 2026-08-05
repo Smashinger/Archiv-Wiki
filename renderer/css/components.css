@@ -1386,3 +1386,251 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
   border-color: var(--red);
   color: var(--red);
 }
+
+/* --- Editor-Workspace: dreizeiliger Desktop-Header (nur Notizansicht) ---
+   Bestehende IDs und Ereigniswege bleiben unverändert. Die Regeln sind
+   bewusst auf .note-header/.note-toolbar begrenzt, damit Sidebar, Dialoge,
+   Dashboard und Editorflächen nicht beeinflusst werden. */
+.note-header{
+  display:grid;
+  grid-template-columns:minmax(220px, 1fr) minmax(360px, auto) auto;
+  align-items:center;
+  column-gap:20px;
+  min-height:56px;
+  margin:0;
+  padding:8px 12px;
+  border:1px solid var(--border);
+  border-bottom:none;
+  border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+  background:var(--bg-color);
+  flex-wrap:initial;
+}
+.note-document-title{
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.note-document-title .pin-btn{
+  width:32px;
+  height:32px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:0;
+  border:1px solid transparent;
+  border-radius:var(--radius-sm);
+}
+.note-document-title .pin-btn:hover,
+.note-document-title .pin-btn:focus-visible{
+  background:var(--bg-elev-2);
+  border-color:var(--border);
+}
+.note-title-input{
+  width:100%;
+  min-width:0;
+  height:36px;
+  padding:3px 8px;
+  font-size:24px;
+  line-height:1.2;
+}
+.note-document-meta{
+  min-width:0;
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+  color:var(--text-faint);
+}
+.note-document-meta .backlink-row{
+  min-width:0;
+  min-height:32px;
+  margin:0;
+  flex-wrap:nowrap;
+}
+.note-document-meta .backlink-row:empty{ display:none; }
+.note-meta-divider{
+  width:1px;
+  height:24px;
+  flex:0 0 1px;
+  background:var(--border-soft);
+}
+.note-meta-label{
+  flex:0 0 auto;
+  font-family:var(--mono);
+  font-size:11px;
+  color:var(--text-faint);
+}
+.note-document-meta .category-badge{
+  width:auto;
+  max-width:110px;
+  height:32px;
+  padding:0 10px;
+  background:var(--bg-elev);
+}
+.note-document-meta .tags-input{
+  flex:0 1 260px;
+  width:clamp(150px, 20vw, 300px);
+  min-width:130px;
+  height:32px;
+  padding:0 10px;
+  background:var(--bg-elev-2);
+}
+.note-document-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+  white-space:nowrap;
+}
+.note-document-actions .dirty-label{
+  display:inline-flex;
+  align-items:center;
+  min-height:32px;
+}
+.note-document-actions #btnSave{
+  height:32px;
+  padding:0 14px;
+}
+.note-document-actions #btnDeleteNote{
+  width:32px;
+  height:32px;
+  padding:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.note-toolbar{
+  display:grid;
+  grid-template-columns:repeat(6, max-content);
+  align-items:stretch;
+  justify-content:space-between;
+  column-gap:clamp(10px, 1.25vw, 24px);
+  min-height:62px;
+  margin:0 0 4px;
+  padding:7px 10px 6px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  border:1px solid var(--border);
+  border-radius:0 0 var(--radius-lg) var(--radius-lg);
+  background:var(--bg-color);
+  scrollbar-width:thin;
+}
+.toolbar-group{
+  flex:0 0 auto;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  justify-content:flex-end;
+  gap:4px;
+  padding:0 12px;
+  border-left:1px solid var(--border-soft);
+}
+.toolbar-group:first-child{
+  padding-left:0;
+  border-left:none;
+}
+.toolbar-document-group{ padding-right:0; }
+.toolbar-group-label{
+  display:block;
+  font-family:var(--mono);
+  font-size:9.5px;
+  line-height:1;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:var(--text-faint);
+  user-select:none;
+}
+.toolbar-group-controls{
+  height:32px;
+  display:flex;
+  align-items:center;
+  gap:2px;
+}
+.format-toolbar{
+  display:flex;
+  flex:0 0 auto;
+  align-items:stretch;
+  gap:0;
+  margin:0;
+  padding:0;
+  border-left:none;
+  flex-wrap:nowrap;
+}
+.note-toolbar .icon-btn,
+.note-toolbar .font-size-select,
+.note-toolbar .view-toggle,
+.note-toolbar .format-toolbar button{
+  height:32px;
+}
+.note-toolbar .icon-btn,
+.note-toolbar .format-toolbar button{
+  width:32px;
+  min-width:32px;
+  border:1px solid transparent;
+  background:transparent;
+  border-radius:var(--radius-sm);
+}
+.note-toolbar .icon-btn:hover,
+.note-toolbar .format-toolbar button:hover{
+  color:var(--text-main);
+  border-color:var(--border);
+  background:var(--bg-elev-2);
+}
+.note-toolbar .icon-btn:focus-visible,
+.note-toolbar .format-toolbar button:focus-visible,
+.note-toolbar .view-toggle button:focus-visible,
+.note-toolbar .font-size-select:focus-visible{
+  outline:1px solid var(--accent-color);
+  outline-offset:1px;
+}
+.note-toolbar .icon-btn.active,
+.note-toolbar .format-toolbar button.active{
+  color:var(--accent-color);
+  border-color:var(--accent-dim);
+  background:var(--bg-elev);
+}
+.note-toolbar .view-toggle{
+  flex:0 0 auto;
+  padding:2px;
+}
+.note-toolbar .view-toggle button{
+  padding:0 10px;
+}
+.note-toolbar .font-size-select{
+  min-width:58px;
+  padding:0 6px;
+}
+.incoming-links:not(:empty){ margin:4px 0; }
+
+@media (max-width:1480px){
+  .note-header{
+    grid-template-columns:minmax(200px, .9fr) minmax(300px, 1.1fr) auto;
+    column-gap:12px;
+  }
+  .note-document-meta .tags-input{ width:clamp(130px, 16vw, 220px); }
+  .toolbar-group{ padding-inline:9px; }
+}
+
+@media (max-width:1180px){
+  .note-header{
+    grid-template-columns:minmax(210px, 1fr) auto;
+    row-gap:5px;
+    min-height:88px;
+  }
+  .note-document-meta{
+    grid-column:1 / -1;
+    grid-row:2;
+    justify-content:flex-start;
+  }
+  .note-document-actions{
+    grid-column:2;
+    grid-row:1;
+  }
+  .note-document-meta .tags-input{
+    flex:1 1 auto;
+    width:auto;
+    max-width:none;
+  }
+}
