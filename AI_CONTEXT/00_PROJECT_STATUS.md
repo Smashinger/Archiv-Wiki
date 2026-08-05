@@ -2,7 +2,7 @@
 
 ## Aktuelle Version
 
-v2.0.0 (technischer Release-Kandidat)
+v2.0.0 (veröffentlicht — über die GitHub-API als `draft: false` bestätigt)
 
 ## Aktueller Entwicklungsstand
 
@@ -45,9 +45,16 @@ Aufbau der `AI_CONTEXT`-Wissensbasis, damit künftige Arbeit (durch Menschen ode
 
 ## Technischer Abschlussstand für 2.0.0
 
+2.0.0 ist veröffentlicht (über die GitHub-API als `draft: false` bestätigt), kein Release-Kandidat mehr.
+
 - Kritische Primärschreibpfade für Notizen, `.wiki-config.json`, `app-state.json` und WebDAV-Downloads verwenden die gemeinsame atomare Schreibstrategie. Vorhandene Dateien bleiben bei einem fehlgeschlagenen Schreiben unverändert; temporäre Dateien werden bestmöglich entfernt.
 - Eine `package-lock.json` für den tatsächlich bisher verwendeten Abhängigkeitsstand ist Bestandteil des Projekts. Sie fixiert unter anderem Electron 28.3.3 und electron-updater 6.8.9.
 - Der atomare Schreibhelfer sowie die Anbindung von Notizen, Projektkonfiguration und App-State wurden mit Erfolg und simuliertem Übernahmefehler geprüft. JavaScript-Syntax und Lockdatei-Metadaten wurden erfolgreich validiert.
 - WebDAV wurde vom Nutzer im realen Betrieb als zuverlässig bestätigt. Die Downloadpfade übernehmen lokale Dateien erst nach vollständig abgeschlossenem Download atomar.
-- Bekannte Einschränkung der isolierten Build-Umgebung: `npm ci` konnte hier nicht vollständig ausgeführt werden, weil die bereitgestellte npm-Paketquelle benötigte Pakete mit HTTP 404 nicht auslieferte. Ein lokaler `npm ci`-Test mit normalem npm-Registry-Zugriff bleibt vor Veröffentlichung erforderlich.
-- Der echte AppImage-zu-AppImage-End-to-End-Test bleibt der abschließende manuelle technische Release-Test.
+- Bekannte, zum Zeitpunkt der Erstprüfung bestehende Einschränkung der isolierten Build-Umgebung: `npm ci` konnte dort nicht vollständig ausgeführt werden, weil die bereitgestellte npm-Paketquelle benötigte Pakete mit HTTP 404 nicht auslieferte. Da 2.0.0 inzwischen erfolgreich veröffentlicht wurde, wurde dies außerhalb dieser isolierten Umgebung gelöst.
+
+## Versionshistorie
+
+- **v2.0.0** — veröffentlicht
+- **v1.13.2**
+- **v1.13.1**
