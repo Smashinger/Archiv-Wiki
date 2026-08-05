@@ -7,7 +7,7 @@
 
 'use strict';
 
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell, Tray, clipboard } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, Tray, clipboard, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -396,6 +396,41 @@ async function runBackup(force = false) {
   return { ...result, status: broadcastBackupStatus() };
 }
 
+// Erlaubte Startmodi für das Hauptfenster. Diese Einstellung ist bewusst
+// app-weit (app-state.json), weil sie das Programmfenster und nicht den Inhalt
+// eines einzelnen Wiki-Projekts betrifft.
+const WINDOW_START_BEHAVIORS = new Set(['maximized', 'restore', 'centered']);
+
+function getWindowStartBehavior() {
+  const value = readAppState().windowStartBehavior;
+  return WINDOW_START_BEHAVIORS.has(value) ? value : 'maximized';
+}
+
+function getRestoredWindowBounds() {
+  const bounds = readAppState().mainWindowBounds;
+  if (!bounds || !Number.isFinite(bounds.x) || !Number.isFinite(bounds.y)
+      || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return null;
+  if (bounds.width < 960 || bounds.height < 600) return null;
+
+  // Verhindert, dass ein gespeichertes Fenster nach einem Monitorwechsel
+  // vollständig außerhalb aller aktuell verfügbaren Bildschirme erscheint.
+  const visible = screen.getAllDisplays().some(({ workArea }) => {
+    const overlapWidth = Math.max(0, Math.min(bounds.x + bounds.width, workArea.x + workArea.width) - Math.max(bounds.x, workArea.x));
+    const overlapHeight = Math.max(0, Math.min(bounds.y + bounds.height, workArea.y + workArea.height) - Math.max(bounds.y, workArea.y));
+    return overlapWidth >= 120 && overlapHeight >= 80;
+  });
+  return visible ? bounds : null;
+}
+
+function rememberMainWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return;
+  const patch = { mainWindowMaximized: mainWindow.isMaximized() };
+  if (!mainWindow.isMaximized() && !mainWindow.isFullScreen()) {
+    patch.mainWindowBounds = mainWindow.getBounds();
+  }
+  writeAppState(patch);
+}
+
 // ---------------------------------------------------------------------------
 // Fenster-Erstellung
 // ---------------------------------------------------------------------------
@@ -447,9 +482,10 @@ function handleProjectReady(projectPath, config) {
 }
 
 function createMainWindow() {
+  const startBehavior = getWindowStartBehavior();
+  const restoredBounds = startBehavior === 'restore' ? getRestoredWindowBounds() : null;
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    ...(restoredBounds || { width: 1280, height: 800 }),
     minWidth: 960,
     minHeight: 600,
     show: false, // erst zeigen, wenn Inhalt bereit ist (kein weißer Blitz)
@@ -465,7 +501,13 @@ function createMainWindow() {
     }
   });
 
-  mainWindow.once('ready-to-show', () => { mainWindow.show(); mainWindow.focus(); });
+  mainWindow.once('ready-to-show', () => {
+    if (startBehavior === 'maximized') mainWindow.maximize();
+    else if (startBehavior === 'centered') mainWindow.center();
+    else if (startBehavior === 'restore' && readAppState().mainWindowMaximized) mainWindow.maximize();
+    mainWindow.show();
+    mainWindow.focus();
+  });
 
   // Ladefehler NIE stillschweigend verschlucken — im Terminal sichtbar machen.
   mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
@@ -539,7 +581,20 @@ function createMainWindow() {
     handleCloseRequest();
   });
 
-  mainWindow.on('closed', () => { mainWindow = null; });
+  let rememberWindowTimer = null;
+  const scheduleRememberWindowState = () => {
+    clearTimeout(rememberWindowTimer);
+    rememberWindowTimer = setTimeout(rememberMainWindowState, 250);
+  };
+  mainWindow.on('resize', scheduleRememberWindowState);
+  mainWindow.on('move', scheduleRememberWindowState);
+  mainWindow.on('maximize', scheduleRememberWindowState);
+  mainWindow.on('unmaximize', scheduleRememberWindowState);
+
+  mainWindow.on('closed', () => {
+    clearTimeout(rememberWindowTimer);
+    mainWindow = null;
+  });
 }
 
 // Einzige Stelle, an der "X geklickt" ausgewertet wird — Tray-Menü,
@@ -773,6 +828,13 @@ function registerCoreIpc() {
   // das betrifft die App als Ganzes, nicht den Wiki-Inhalt. Wird trotzdem im
   // selben "Allgemein"-Tab des Einstellungsfensters angezeigt.
   ipcMain.handle('app:getCloseBehavior', () => readAppState().closeBehavior || 'ask');
+  ipcMain.handle('app:getWindowStartBehavior', () => getWindowStartBehavior());
+  ipcMain.handle('app:setWindowStartBehavior', (_e, value) => {
+    if (!WINDOW_START_BEHAVIORS.has(value)) throw new Error('Ungültiges Fenster-Startverhalten.');
+    rememberMainWindowState();
+    writeAppState({ windowStartBehavior: value });
+    return value;
+  });
 
   // Bugfix (Nutzer-Meldung: "Einfügen" im Rechtsklick-Menü funktioniert nicht,
   // besonders aus anderen Programmen): Electrons clipboard-Modul ist in einem

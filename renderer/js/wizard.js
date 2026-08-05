@@ -253,6 +253,7 @@ els.btnFinish.addEventListener('click', async () => {
       sync,
       password: syncPassword,
       rememberPassword,
+      windowStartBehavior: document.querySelector('input[name="wizardWindowStart"]:checked')?.value || 'maximized',
     });
     // Main-Prozess öffnet jetzt das Hauptfenster und schließt dieses hier.
   } catch (err) {

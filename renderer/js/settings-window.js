@@ -242,12 +242,20 @@ export async function showSettingsWindow(context = {}) {
 // --- Allgemein ---
 async function renderGeneralSection(el, config, updateSetting, context, lifecycle) {
   renderSettingsLoading(el, 'Allgemein', 'Lade Einstellungen …');
-  const closeBehavior = await window.archivAPI.getCloseBehavior();
+  const [closeBehavior, windowStartBehavior] = await Promise.all([
+    window.archivAPI.getCloseBehavior(),
+    window.archivAPI.getWindowStartBehavior()
+  ]);
   if (!lifecycle.isCurrent()) return;
   const closeOptions = [
     { value: 'ask', label: 'Immer nachfragen (Standard)' },
     { value: 'tray', label: 'Immer in den System-Tray minimieren' },
     { value: 'quit', label: 'Immer vollständig beenden' }
+  ];
+  const windowStartOptions = [
+    { value: 'maximized', label: 'Maximiert (empfohlen)' },
+    { value: 'restore', label: 'Letzten Zustand wiederherstellen' },
+    { value: 'centered', label: 'Zentriert' }
   ];
   const categoryStartupOptions = [
     { value: 'closed', label: 'Alles geschlossen (Standard)' },
@@ -273,6 +281,13 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
     </section>
     <section class="settings-group" aria-labelledby="stGeneralBehaviorGroup">
       <h4 id="stGeneralBehaviorGroup">Start und Schließen</h4>
+    <div class="settings-field">
+      <span>Fensterverhalten</span>
+      <div class="close-dialog-options" id="stWindowStartOptions">
+        ${windowStartOptions.map(o => `<label class="close-dialog-option"><input type="radio" name="stWindowStart" value="${o.value}" ${windowStartBehavior === o.value ? 'checked' : ''}> ${escapeAttr(o.label)}</label>`).join('')}
+      </div>
+      <p class="settings-hint">Die Änderung gilt beim nächsten Programmstart.</p>
+    </div>
     <div class="settings-field">
       <span>Kategorien beim Start</span>
       <div class="close-dialog-options" id="stCategoryStartupOptions">
@@ -307,6 +322,16 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
     if (brandText && brand) {
       if (name) { brandText.textContent = `Wiki von ${name}`; brand.style.display = ''; }
       else { brand.style.display = 'none'; }
+    }
+  });
+  el.querySelector('#stWindowStartOptions').addEventListener('change', async (e) => {
+    if (e.target.name !== 'stWindowStart') return;
+    clearInlineSettingsError(el);
+    try {
+      await window.archivAPI.setWindowStartBehavior(e.target.value);
+    } catch (error) {
+      console.error('Fenster-Startverhalten konnte nicht gespeichert werden:', error);
+      showInlineSettingsError(el, 'Das Fenster-Startverhalten konnte nicht gespeichert werden.');
     }
   });
   el.querySelector('#stCategoryStartupOptions').addEventListener('change', async (e) => {

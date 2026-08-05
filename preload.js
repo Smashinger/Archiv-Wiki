@@ -114,6 +114,8 @@ contextBridge.exposeInMainWorld('archivAPI', {
   },
 
   getCloseBehavior: () => ipcRenderer.invoke('app:getCloseBehavior'),
+  getWindowStartBehavior: () => ipcRenderer.invoke('app:getWindowStartBehavior'),
+  setWindowStartBehavior: (value) => ipcRenderer.invoke('app:setWindowStartBehavior', value),
 
   // Zentrale Zwischenablage-API (Nutzer-Meldung: Kopieren/Ausschneiden/
   // Einfügen über das Rechtsklick-Menü unzuverlässig, besonders Einfügen aus

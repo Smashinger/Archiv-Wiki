@@ -240,3 +240,27 @@ button.btn.ghost.subtle:hover{ color: var(--text-muted); }
   border-color: var(--red);
   color: var(--red);
 }
+
+/* Fensterstart-Auswahl im Einrichtungs-Wizard. Verwendet dieselbe ruhige
+   Radio-Button-Sprache wie das spätere Einstellungsfenster, ohne eine neue
+   Komponente oder abweichende Farben einzuführen. */
+#wizardWindowStartOptions{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  min-width:260px;
+}
+#wizardWindowStartOptions .close-dialog-option{
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  font-size:12px;
+  color:var(--text-muted);
+  line-height:1.35;
+  cursor:pointer;
+}
+#wizardWindowStartOptions input[type="radio"]{
+  margin:2px 0 0;
+  flex-shrink:0;
+  accent-color:var(--accent-color);
+}

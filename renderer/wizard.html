@@ -73,6 +73,14 @@
             <option value="0">Aus</option>
           </select>
         </div>
+        <div class="form-row">
+          <label>Fensterstart<span class="hint">Wie soll Archiv-Wiki nach dem Start angezeigt werden?</span></label>
+          <div class="close-dialog-options" id="wizardWindowStartOptions">
+            <label class="close-dialog-option"><input type="radio" name="wizardWindowStart" value="maximized" checked> Maximiert (empfohlen)</label>
+            <label class="close-dialog-option"><input type="radio" name="wizardWindowStart" value="restore"> Letzten Zustand wiederherstellen</label>
+            <label class="close-dialog-option"><input type="radio" name="wizardWindowStart" value="centered"> Zentriert</label>
+          </div>
+        </div>
         <div class="form-row backup-row">
           <label>Backup-Pfad<span class="hint">Standard: ~/.local/share/archiv-wiki/backups</span></label>
           <div class="backup-value">

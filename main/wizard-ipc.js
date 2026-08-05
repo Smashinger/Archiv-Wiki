@@ -81,7 +81,7 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
   // Neues Projekt anlegen: .wiki-config.json + .wiki-trash/ + Backup-Ordner erzeugen
   ipcMain.handle('wizard:finish', async (_event, payload) => {
-    const { projectPath, editorConfig, wikiName, accentKey, appLockPassword, backupPath, sync, password, rememberPassword } = payload || {};
+    const { projectPath, editorConfig, wikiName, accentKey, appLockPassword, backupPath, sync, password, rememberPassword, windowStartBehavior } = payload || {};
 
     if (!projectPath || !isDirWritable(projectPath)) {
       throw new Error('Projektordner fehlt oder ist nicht beschreibbar.');
@@ -124,7 +124,11 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
       catch (err) { console.error('[Archiv Wiki] Passwort konnte im Wizard nicht gespeichert werden:', err.message); }
     }
 
-    writeAppState({ lastProjectPath: projectPath });
+    const allowedWindowStartBehaviors = new Set(['maximized', 'restore', 'centered']);
+    writeAppState({
+      lastProjectPath: projectPath,
+      windowStartBehavior: allowedWindowStartBehaviors.has(windowStartBehavior) ? windowStartBehavior : 'maximized'
+    });
     onProjectReady(projectPath, config);
     return { ok: true };
   });

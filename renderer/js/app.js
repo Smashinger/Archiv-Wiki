@@ -3923,13 +3923,16 @@ async function renderNote(relPath) {
         <button type="button" data-fmt="italic" title="Kursiv (*Text*)"><em>K</em></button>
         <button type="button" data-fmt="strike" title="Durchgestrichen (~~Text~~)"><s>D</s></button>
         <button type="button" data-fmt="underline" title="Unterstrichen (&lt;u&gt;Text&lt;/u&gt;)"><u>U</u></button>
+        <button type="button" class="icon-btn" id="btnHeadingMenu" title="Überschrift auswählen" aria-label="Überschrift auswählen" aria-haspopup="menu" aria-expanded="false">H ▾</button>
         <button type="button" data-fmt="link" title="Link ([Text](URL))">↗</button>
+        <button type="button" id="btnImage" title="Bild einfügen" aria-label="Bild einfügen">🖼</button>
         <button type="button" data-fmt="inline-code" title="Inline-Code (&#96;Text&#96;)">&#96;</button>
         <button type="button" data-fmt="code" title="Code-Block (dreifache Backticks)">{ }</button>
+        <button type="button" id="btnTable" title="Tabelle einfügen" aria-label="Tabelle einfügen">▦</button>
         <button type="button" data-fmt="ul" title="Aufzählung (- Punkt)">•</button>
         <button type="button" data-fmt="ol" title="Nummerierte Liste (1. Punkt)">1.</button>
         <button type="button" data-fmt="checklist" title="Checkliste (- [ ] Aufgabe)">☑</button>
-        <button type="button" id="btnCallout" title="Callout einfügen">▤</button>
+        <button type="button" id="btnCallout" title="Callout einfügen">💬</button>
       </div>
       <button type="button" class="icon-btn" id="btnExport" title="Notiz exportieren" aria-label="Notiz exportieren">⬇</button>
       <button type="button" class="icon-btn" id="btnSaveAsTemplate" title="Als eigene Vorlage speichern" aria-label="Als Vorlage speichern">📋</button>
@@ -4094,6 +4097,45 @@ async function renderNote(relPath) {
     else if (fmt === 'ul') insertAtCursor('\n- Punkt\n');
     else if (fmt === 'ol') insertAtCursor('\n1. Punkt\n');
     else if (fmt === 'checklist') insertAtCursor('\n- [ ] Aufgabe\n');
+  });
+
+  document.getElementById('btnHeadingMenu').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const trigger = e.currentTarget;
+    trigger.setAttribute('aria-expanded', 'true');
+    const menu = createHtmlContextMenu({
+      className: 'context-menu',
+      trigger,
+      label: 'Überschrift auswählen',
+      html: [1, 2, 3, 4]
+        .map(level => `<button type="button" data-heading-level="${level}">H${level}</button>`)
+        .join(''),
+      onDismiss: () => trigger.setAttribute('aria-expanded', 'false')
+    });
+    menu.addEventListener('click', (menuEvent) => {
+      const item = menuEvent.target.closest('[data-heading-level]');
+      if (!item) return;
+      const level = Number(item.dataset.headingLevel);
+      closeHtmlContextMenu(menu, { restoreFocus: false, reason: 'action' });
+      trigger.setAttribute('aria-expanded', 'false');
+      transformCurrentLine(headingTransform(level));
+    });
+  });
+
+  document.getElementById('btnTable').addEventListener('click', (e) => {
+    e.stopPropagation();
+    showTablePicker(e.currentTarget);
+  });
+
+  document.getElementById('btnImage').addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.multiple = true;
+    input.addEventListener('change', () => {
+      insertImageFiles([...input.files]);
+    }, { once: true });
+    input.click();
   });
 
   document.getElementById('btnCallout').addEventListener('click', (e) => {
@@ -5010,42 +5052,46 @@ function wireEditorContextMenus() {
   });
 }
 
+// Bilder werden über dieselbe bestehende Attachment-Logik eingefügt —
+// unabhängig davon, ob sie per Toolbar-Dateiauswahl oder Drag&Drop kommen.
+// Dadurch gibt es nur einen Speicher- und Markdown-Pfad.
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+async function insertImageFiles(files) {
+  const imageFiles = [...(files || [])].filter(file => file?.type?.startsWith('image/'));
+  for (const file of imageFiles) {
+    if (file.size > MAX_IMAGE_BYTES) {
+      await showMessageDialog({
+        title: 'Bild ist zu groß',
+        message: `"${file.name}" ist ${(file.size / 1024 / 1024).toFixed(1)} MB groß. Maximal 20 MB pro Bild sind möglich.`
+      });
+      continue;
+    }
+    try {
+      const buffer = await file.arrayBuffer();
+      const { fileName } = await fs.saveAttachment(file.name, buffer);
+      insertAtCursor(`\n![${file.name.replace(/\.[^.]+$/, '')}](attachment:${fileName})\n`);
+    } catch (err) {
+      await showMessageDialog({ title: 'Bild konnte nicht eingefügt werden', message: err.message });
+      console.error('[Archiv Wiki] Bild konnte nicht eingefügt werden:', err);
+    }
+  }
+}
+
 // Bilder per Drag&Drop aus dem Dateimanager in den Editor ziehen. Datei wird
-// gelesen (FileReader, funktioniert unabhängig von contextIsolation/
-// nodeIntegration-Einstellungen — robuster als sich auf File.path zu
-// verlassen), als Bytes an den Main-Prozess geschickt und dort in
-// .attachments/ gespeichert. Markdown nutzt bewusst ein eigenes
-// "attachment:dateiname"-Präfix statt eines relativen Pfades — macht die
-// Auflösung in der Vorschau unabhängig von der Verzeichnistiefe der Notiz
-// (siehe renderPreview in build/editor-entry.js).
+// gelesen (File/ArrayBuffer, unabhängig von contextIsolation/nodeIntegration),
+// als Bytes an den Main-Prozess geschickt und dort in .attachments/ gespeichert.
 function wireImageDrop() {
-  const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB — großzügig für normale Fotos/Screenshots, verhindert aber das Einlesen von Riesendateien in den Speicher
   const editorEl = document.getElementById('editorContainer');
   if (!editorEl) return;
   editorEl.addEventListener('dragover', (e) => {
     if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault();
   });
   editorEl.addEventListener('drop', async (e) => {
-    const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/'));
-    if (files.length === 0) return; // kein Bild dabei — normales Text-Drop (Umsortieren etc.) unangetastet lassen
+    const files = [...(e.dataTransfer?.files || [])].filter(file => file.type.startsWith('image/'));
+    if (files.length === 0) return;
     e.preventDefault();
-    for (const file of files) {
-      if (file.size > MAX_IMAGE_BYTES) {
-        await showMessageDialog({
-          title: 'Bild ist zu groß',
-          message: `"${file.name}" ist ${(file.size / 1024 / 1024).toFixed(1)} MB groß. Maximal 20 MB pro Bild sind möglich.`
-        });
-        continue; // erst NACH der Prüfung wird überhaupt gelesen — vorher landete jede Dateigröße ungeprüft komplett im Speicher
-      }
-      try {
-        const buffer = await file.arrayBuffer();
-        const { fileName } = await fs.saveAttachment(file.name, buffer);
-        insertAtCursor(`\n![${file.name.replace(/\.[^.]+$/, '')}](attachment:${fileName})\n`);
-      } catch (err) {
-        await showMessageDialog({ title: 'Bild konnte nicht eingefügt werden', message: err.message });
-        console.error('[Archiv Wiki] Bild-Drop fehlgeschlagen:', err);
-      }
-    }
+    await insertImageFiles(files);
   });
 }
 
