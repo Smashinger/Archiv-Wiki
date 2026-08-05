@@ -3923,9 +3923,11 @@ async function renderNote(relPath) {
         <button type="button" data-fmt="italic" title="Kursiv (*Text*)"><em>K</em></button>
         <button type="button" data-fmt="strike" title="Durchgestrichen (~~Text~~)"><s>D</s></button>
         <button type="button" data-fmt="underline" title="Unterstrichen (&lt;u&gt;Text&lt;/u&gt;)"><u>U</u></button>
+        <button type="button" class="icon-btn" id="btnHeadingMenu" title="Überschrift auswählen" aria-label="Überschrift auswählen" aria-haspopup="menu" aria-expanded="false">H ▾</button>
         <button type="button" data-fmt="link" title="Link ([Text](URL))">↗</button>
         <button type="button" data-fmt="inline-code" title="Inline-Code (&#96;Text&#96;)">&#96;</button>
         <button type="button" data-fmt="code" title="Code-Block (dreifache Backticks)">{ }</button>
+        <button type="button" id="btnTable" title="Neue Tabelle einfügen" aria-label="Neue Tabelle einfügen">▦</button>
         <button type="button" data-fmt="ul" title="Aufzählung (- Punkt)">•</button>
         <button type="button" data-fmt="ol" title="Nummerierte Liste (1. Punkt)">1.</button>
         <button type="button" data-fmt="checklist" title="Checkliste (- [ ] Aufgabe)">☑</button>
@@ -4094,6 +4096,34 @@ async function renderNote(relPath) {
     else if (fmt === 'ul') insertAtCursor('\n- Punkt\n');
     else if (fmt === 'ol') insertAtCursor('\n1. Punkt\n');
     else if (fmt === 'checklist') insertAtCursor('\n- [ ] Aufgabe\n');
+  });
+
+  document.getElementById('btnHeadingMenu').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const trigger = e.currentTarget;
+    trigger.setAttribute('aria-expanded', 'true');
+    const menu = createHtmlContextMenu({
+      className: 'context-menu',
+      trigger,
+      label: 'Überschrift auswählen',
+      html: [1, 2, 3, 4, 5, 6]
+        .map(level => `<button type="button" data-heading-level="${level}">H${level}</button>`)
+        .join('') + '<hr><button type="button" data-heading-level="0">Keine Überschrift</button>',
+      onDismiss: () => trigger.setAttribute('aria-expanded', 'false')
+    });
+    menu.addEventListener('click', (menuEvent) => {
+      const item = menuEvent.target.closest('[data-heading-level]');
+      if (!item) return;
+      const level = Number(item.dataset.headingLevel);
+      closeHtmlContextMenu(menu, { restoreFocus: false, reason: 'action' });
+      trigger.setAttribute('aria-expanded', 'false');
+      transformCurrentLine(headingTransform(level));
+    });
+  });
+
+  document.getElementById('btnTable').addEventListener('click', (e) => {
+    e.stopPropagation();
+    showTablePicker(e.currentTarget);
   });
 
   document.getElementById('btnCallout').addEventListener('click', (e) => {
