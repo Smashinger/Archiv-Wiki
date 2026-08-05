@@ -4289,6 +4289,14 @@ async function renderNote(relPath) {
     onSlashCommand: (command, pos) => { if (command === 'table') showTablePicker(pos); }
   });
 
+  // Nach dem vollständigen Aufbau erhält der sichtbare Arbeitsbereich den
+  // Fokus. Editor und Split sind sofort schreibbereit; in der reinen
+  // Vorschau bleibt der wiederhergestellte Ansichtsmodus maßgeblich.
+  requestAnimationFrame(() => {
+    if (getOpenRelPath() !== relPath) return;
+    focusCurrentWritingArea();
+  });
+
   await renderIncomingLinks(relPath, title);
 
   // Wiki-Links [[Notizname]] in der Vorschau: Klick navigiert zur Notiz,
@@ -5267,8 +5275,35 @@ function showIconPicker(anchorEl, onSelect) {
 function applyViewMode() {
   const split = document.getElementById('noteSplit');
   if (!split) return;
+
+  const editorPane = document.getElementById('editorContainer');
+  const previewPane = document.getElementById('previewContainer');
+
   split.className = 'note-split mode-' + state.viewMode;
-  document.querySelectorAll('#viewToggle button').forEach(b => b.classList.toggle('active', b.dataset.mode === state.viewMode));
+
+  // Die gespeicherte Trennerposition gehört ausschließlich zur Split-Ansicht.
+  // Reine Editor-/Vorschauansichten übersteuern sie nur vorübergehend und
+  // verändern weder den Projektwert noch die Splitter-Speicherung.
+  if (editorPane && previewPane) {
+    if (state.viewMode === 'editor') {
+      editorPane.style.flex = '1 1 0';
+      previewPane.style.flex = '1 1 0';
+    } else if (state.viewMode === 'preview') {
+      editorPane.style.flex = '1 1 0';
+      previewPane.style.flex = '1 1 0';
+    } else {
+      const savedWidth = state.project?.config?.splitEditorWidth;
+      editorPane.style.flex =
+        typeof savedWidth === 'number' && savedWidth > 0
+          ? `0 0 ${savedWidth}px`
+          : '1 1 0';
+      previewPane.style.flex = '1 1 0';
+    }
+  }
+
+  document.querySelectorAll('#viewToggle button').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === state.viewMode)
+  );
 }
 
 // ---------------------------------------------------------------------------
