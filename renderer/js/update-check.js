@@ -36,18 +36,18 @@ export function renderUpdateStatus(dotEl, labelEl, status, labelBaseClass = '') 
   let label = 'Noch nicht geprüft';
   let available = false;
 
-  if (phase === 'checking') label = 'Wird geprüft …';
-  else if (phase === 'upToDate') label = 'Auf dem neuesten Stand';
+  if (phase === 'checking') label = 'Suche nach Updates...';
+  else if (phase === 'upToDate') label = 'Du verwendest die aktuelle Version';
   else if (phase === 'updateAvailable') {
-    label = status.availableVersion ? `Neue Version verfügbar ${status.availableVersion}` : 'Neue Version verfügbar';
+    label = 'Update verfügbar';
     available = true;
   } else if (phase === 'downloading') {
     label = Number.isFinite(status.downloadPercent)
-      ? `Update wird heruntergeladen … ${status.downloadPercent} %`
-      : 'Update wird heruntergeladen …';
+      ? `Update wird heruntergeladen · ${status.downloadPercent} %`
+      : 'Update wird heruntergeladen';
     available = true;
   } else if (phase === 'downloaded') {
-    label = 'Neustart erforderlich';
+    label = 'Update bereit';
     available = true;
   } else if (phase === 'installing') {
     label = 'Update wird installiert …';

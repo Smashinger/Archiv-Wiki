@@ -107,6 +107,77 @@ export function setAutoSaveSeconds(seconds) {
 // Öffnet eine Notiz im Editor. Räumt einen evtl. vorher offenen Editor sauber
 // auf (destroy), damit nie zwei CodeMirror-Instanzen um denselben Container
 // konkurrieren.
+function mountEditorDocument({
+  doc = '',
+  relPath = null,
+  editorContainer,
+  previewContainer,
+  tabSize = 2,
+  autoSaveSeconds = 30,
+  readOnly = false,
+  onChange,
+  onCursorActivity,
+  onSaved,
+  onSaveError,
+  getNoteIndex,
+  projectPath,
+  onSlashCommand,
+  onPreviewRendered
+}) {
+  closeEditor();
+  currentProjectPath = projectPath || null;
+  currentPreviewContainer = previewContainer || null;
+  currentAutoSaveSeconds = readOnly ? 0 : autoSaveSeconds;
+  currentOnSaved = readOnly ? null : onSaved;
+  currentOnSaveError = readOnly ? null : onSaveError;
+  currentRelPath = relPath;
+  dirty = false;
+
+  function updatePreview(text) {
+    if (previewContainer) {
+      previewContainer.innerHTML = renderPreview(text, { noteIndex: getNoteIndex?.() || [], projectPath: currentProjectPath });
+      onPreviewRendered?.(previewContainer, text);
+      applyPreviewSearchHighlights();
+    }
+  }
+
+  function schedulePreviewUpdate(text) {
+    clearTimeout(previewDebounceTimer);
+    previewDebounceTimer = setTimeout(() => updatePreview(text), 180);
+  }
+
+  updatePreview(doc);
+
+  currentEditor = createMarkdownEditor({
+    parent: editorContainer,
+    doc,
+    tabSize,
+    readOnly,
+    getNoteIndex,
+    onChange: readOnly ? undefined : (text) => {
+      schedulePreviewUpdate(text);
+      dirty = true;
+      onChange?.(true, text);
+      scheduleAutosave(onSaved, onSaveError);
+    },
+    onCursorActivity,
+    onSave: readOnly ? undefined : () => saveNow(onSaved, onSaveError),
+    onSlashCommand: readOnly ? undefined : onSlashCommand,
+    onSearchQueryChange: (spec) => {
+      currentPreviewSearch = spec;
+      applyPreviewSearchHighlights();
+    },
+    onScroll: (ratio) => {
+      if (!syncScrollEnabled || !previewContainer) return;
+      const maxScroll = previewContainer.scrollHeight - previewContainer.clientHeight;
+      if (maxScroll > 0) previewContainer.scrollTop = ratio * maxScroll;
+    }
+  });
+}
+
+// Öffnet eine normale Notiz über denselben Editor-Aufbau wie bisher. Das
+// Lesen/Speichern der Notiz bleibt vollständig an den bestehenden Dateisystem-
+// Service gebunden.
 export async function openNoteInEditor({
   relPath,
   editorContainer,
@@ -121,63 +192,83 @@ export async function openNoteInEditor({
   projectPath,
   onSlashCommand
 }) {
-  closeEditor();
-  currentProjectPath = projectPath || null;
-  currentPreviewContainer = previewContainer || null;
-  currentAutoSaveSeconds = autoSaveSeconds;
-  currentOnSaved = onSaved;
-  currentOnSaveError = onSaveError;
-
   const note = await readNote(relPath);
-  currentRelPath = relPath;
-  dirty = false;
-
-  function updatePreview(text) {
-    if (previewContainer) {
-      previewContainer.innerHTML = renderPreview(text, { noteIndex: getNoteIndex?.() || [], projectPath: currentProjectPath });
-      applyPreviewSearchHighlights();
-    }
-  }
-  // Entprellter Aufruf für Tastatureingaben (Nutzer-Feature) — exakt das
-  // gleiche Prinzip wie scheduleAutosave weiter unten: Timer wird bei jeder
-  // Änderung zurückgesetzt, updatePreview() selbst bleibt unverändert und
-  // liefert dasselbe Render-Ergebnis wie vorher, nur eben leicht verzögert
-  // statt bei jedem einzelnen Tastendruck.
-  function schedulePreviewUpdate(text) {
-    clearTimeout(previewDebounceTimer);
-    previewDebounceTimer = setTimeout(() => updatePreview(text), 180);
-  }
-  updatePreview(note.body);
-
-  currentEditor = createMarkdownEditor({
-    parent: editorContainer,
+  mountEditorDocument({
     doc: note.body,
+    relPath,
+    editorContainer,
+    previewContainer,
     tabSize,
-    getNoteIndex,
-    onChange: (text) => {
-      schedulePreviewUpdate(text);
-      dirty = true;
-      onChange?.(true, text);
-      scheduleAutosave(onSaved, onSaveError);
-    },
+    autoSaveSeconds,
+    onChange,
     onCursorActivity,
-    onSave: () => saveNow(onSaved, onSaveError),
-    onSlashCommand,
-    onSearchQueryChange: (spec) => {
-      currentPreviewSearch = spec;
-      applyPreviewSearchHighlights();
-    },
-    // Scroll-Verhältnis (0-1) 1:1 auf die Vorschau übertragen — nicht
-    // Pixel-für-Pixel, da beide Seiten unterschiedlich hoch sind (siehe
-    // Kommentar in editor-entry.js).
-    onScroll: (ratio) => {
-      if (!syncScrollEnabled || !previewContainer) return;
-      const maxScroll = previewContainer.scrollHeight - previewContainer.clientHeight;
-      if (maxScroll > 0) previewContainer.scrollTop = ratio * maxScroll;
-    }
+    onSaved,
+    onSaveError,
+    getNoteIndex,
+    projectPath,
+    onSlashCommand
   });
-
   return { frontmatter: note.frontmatter, body: note.body };
+}
+
+// Eingänge nutzen denselben CodeMirror-/Vorschau-Arbeitsbereich, bleiben in
+// diesem Vorbereitungsschritt aber bewusst schreibgeschützt. Dadurch entsteht
+// keine zweite Editor-Implementierung und es kann nichts versehentlich als
+// Notiz oder Eingang gespeichert werden.
+export function openIncomingInEditor({
+  content = '',
+  editorContainer,
+  previewContainer,
+  tabSize = 2,
+  onCursorActivity,
+  getNoteIndex,
+  projectPath
+}) {
+  mountEditorDocument({
+    doc: String(content ?? ''),
+    editorContainer,
+    previewContainer,
+    tabSize,
+    readOnly: true,
+    onCursorActivity,
+    getNoteIndex,
+    projectPath
+  });
+}
+
+// Ein neuer Notiz-Entwurf aus einem Eingang verwendet denselben Editor wie
+// normale Notizen, besitzt aber noch keinen Dateipfad. Dadurch ist der Inhalt
+// vollständig bearbeitbar, während saveNow() mangels relPath bewusst nichts
+// auf das Dateisystem schreibt. Auto-Save bleibt für diesen Zwischenzustand
+// deaktiviert; gespeichert wird der Entwurf ausschließlich über den expliziten
+// Eingang-Verarbeitungsweg in app.js.
+export function openNoteDraftInEditor({
+  content = '',
+  editorContainer,
+  previewContainer,
+  tabSize = 2,
+  onChange,
+  onCursorActivity,
+  getNoteIndex,
+  projectPath,
+  onSlashCommand,
+  onPreviewRendered
+}) {
+  mountEditorDocument({
+    doc: String(content ?? ''),
+    relPath: null,
+    editorContainer,
+    previewContainer,
+    tabSize,
+    autoSaveSeconds: 0,
+    readOnly: false,
+    onChange,
+    onCursorActivity,
+    getNoteIndex,
+    projectPath,
+    onSlashCommand,
+    onPreviewRendered
+  });
 }
 
 function scheduleAutosave(onSaved, onSaveError) {

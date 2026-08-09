@@ -50,7 +50,14 @@
       </div>
 
       <ul class="nav-top">
-        <li><a class="nav-link" id="homeLink" data-route="home"><span class="nl-icon">🏠</span><span class="nl-title">Start</span></a></li>
+        <li class="nav-home-row">
+          <a class="nav-link" id="homeLink" data-route="home"><span class="nl-icon"><img class="lib-icon ui-nav-icon" src="assets/icon-library/navigation/home.svg" alt=""></span><span class="nl-title">Start</span></a>
+          <button type="button" class="nav-home-lock" id="btnLockWiki" title="Wiki sperren" aria-label="Wiki sperren" hidden>
+            <img class="lib-icon" src="assets/icon-library/network/shield.svg" alt="">
+          </button>
+        </li>
+        <li><a class="nav-link" id="incomingLink" data-route="incoming"><span class="nl-icon"><img class="lib-icon ui-nav-icon" src="assets/icon-library/navigation/inbox.svg" alt=""></span><span class="nl-title">Eingang</span></a></li>
+        <li><a class="nav-link" id="knowledgeCareLink" data-route="knowledge-care"><span class="nl-icon">✓</span><span class="nl-title">Wissenspflege</span></a></li>
       </ul>
 
       <div class="sidebar-scroll">
@@ -74,13 +81,13 @@
         <div class="breadcrumb" id="breadcrumb">Start</div>
         <span class="spacer"></span>
         <span class="topbar-dates" id="topbarNoteDates"></span>
-        <button class="icon-btn" id="btnSync" type="button" title="Cloud-Sync-Einstellungen" aria-label="Cloud-Sync-Einstellungen">☁</button>
+        <button class="icon-btn" id="btnSync" type="button" title="Synchronisationseinstellungen" aria-label="Synchronisationseinstellungen"><img class="lib-icon ui-action-icon" src="assets/icon-library/network/cloud.svg" alt=""></button>
         <button class="icon-btn backup-warning-btn" id="btnBackupWarning" type="button" title="" aria-label="Backup-Warnung" style="display:none;"><img class="lib-icon" src="assets/icon-library/security/alert-triangle.svg" alt=""></button>
-        <button class="icon-btn trash-btn" id="btnTrash" type="button" title="Papierkorb" aria-label="Papierkorb">🗑<span class="trash-count" id="trashCount" style="display:none;"></span></button>
-        <button class="icon-btn" id="btnBugReport" type="button" title="Fehler melden" aria-label="Fehler melden">🐛</button>
+        <button class="icon-btn trash-btn" id="btnTrash" type="button" title="Papierkorb" aria-label="Papierkorb"><img class="lib-icon ui-action-icon" src="assets/icon-library/actions/trash.svg" alt=""><span class="trash-count" id="trashCount" style="display:none;"></span></button>
+        <button class="icon-btn" id="btnBugReport" type="button" title="Fehler melden" aria-label="Fehler melden"><img class="lib-icon ui-action-icon" src="assets/icon-library/dev/bug.svg" alt=""></button>
         <button class="icon-btn" id="btnAbout" type="button" title="Über Archiv Wiki" aria-label="Über Archiv Wiki">ℹ</button>
         <span class="topbar-icon-divider"></span>
-        <button class="icon-btn" id="btnSettings" type="button" title="Einstellungen" aria-label="Einstellungen">⚙️</button>
+        <button class="icon-btn" id="btnSettings" type="button" title="Einstellungen" aria-label="Einstellungen"><img class="lib-icon ui-action-icon" src="assets/icon-library/projects/settings.svg" alt=""></button>
       </header>
 
       <main class="content-scroll" id="contentScroll">

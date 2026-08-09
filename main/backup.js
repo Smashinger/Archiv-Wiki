@@ -64,7 +64,9 @@ function backupUserMessage(code) {
     BACKUP_PATH_INSIDE_PROJECT: 'Der Backup-Ordner darf nicht im Wiki-Ordner liegen.',
     BACKUP_ZIP_INVALID: 'Das erstellte Backup war beschädigt und wurde nicht übernommen.',
     BACKUP_ZIP_UNSUPPORTED: 'Das erstellte Backup verwendet ein nicht unterstütztes ZIP-Format.',
-    BACKUP_ABORTED: 'Das Backup wurde beim Beenden kontrolliert abgebrochen.'
+    BACKUP_ABORTED: 'Das Backup wurde beim Beenden kontrolliert abgebrochen.',
+    BACKUP_PATH_MISSING: 'Es wurde kein Backup-Ordner ausgewählt.',
+    BACKUP_PATH_INVALID: 'Der Backup-Ordner ist nicht verwendbar.'
   };
   return messages[code] || 'Das Backup konnte nicht erstellt werden.';
 }
@@ -114,6 +116,45 @@ function validateBackupDestination(projectPath, backupPath) {
 
 // Entfernt ausschließlich eindeutig von Archiv-Wiki angelegte, unvollständige
 // Temp-Dateien. Normale ZIP-Dateien und fremde Dateien bleiben unangetastet.
+
+function validateBackupDestinationAccess(projectPath, backupPath) {
+  try {
+    if (!backupPath || typeof backupPath !== 'string') {
+      throw createBackupError('Es wurde kein Backup-Ordner ausgewählt.', 'BACKUP_PATH_MISSING');
+    }
+
+    const { backupRoot } = validateBackupDestination(projectPath, backupPath);
+    fs.mkdirSync(backupRoot, { recursive: true });
+
+    const stat = fs.statSync(backupRoot);
+    if (!stat.isDirectory()) {
+      throw createBackupError('Der ausgewählte Backup-Pfad ist kein Ordner.', 'ENOTDIR');
+    }
+
+    const probeName = `.archiv-wiki-write-test-${process.pid}-${Date.now()}`;
+    const probePath = path.join(backupRoot, probeName);
+    let created = false;
+    try {
+      fs.writeFileSync(probePath, 'Archiv-Wiki Schreibtest', { flag: 'wx' });
+      created = true;
+    } finally {
+      if (created) {
+        try { fs.unlinkSync(probePath); } catch {}
+      }
+    }
+
+    return { valid: true, path: backupRoot, message: 'Backup-Ordner verfügbar' };
+  } catch (error) {
+    const code = error?.code || 'BACKUP_PATH_INVALID';
+    return {
+      valid: false,
+      code,
+      message: backupUserMessage(code),
+      details: error?.message || 'Der Backup-Ordner ist nicht verwendbar.'
+    };
+  }
+}
+
 function cleanupStaleBackupTemps(backupPath) {
   const errors = [];
   let files;
@@ -513,6 +554,7 @@ module.exports = {
   isBackupInProgress,
   readProjectBackupStatus,
   validateBackupDestination,
+  validateBackupDestinationAccess,
   cleanupStaleBackupTemps,
   validateZipArchive,
   finishBackupBeforeQuit

@@ -1,0 +1,174 @@
+:root {
+  color-scheme: dark;
+  --bg-color: #121519;
+  --bg-elev: #171b21;
+  --bg-elev-2: #2b2b2b;
+  --border: #333333;
+  --text-main: #e0e0e0;
+  --text-muted: #a0a0a0;
+  --text-faint: #6e6e6e;
+  --accent-color: #c17d45;
+  --accent-dim: #9c6537;
+  --red: #e2585a;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 330px;
+  background: var(--bg-color);
+  color: var(--text-main);
+  font: 13px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.clipper-popup {
+  padding: 14px;
+}
+
+.clipper-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.clipper-logo {
+  flex: 0 0 auto;
+}
+
+.clipper-header h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.clipper-header p {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.capture-options {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.capture-option {
+  display: grid;
+  grid-template-columns: 18px 22px 1fr auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elev);
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.capture-option:hover {
+  background: var(--bg-elev-2);
+  border-color: var(--accent-dim);
+}
+
+.capture-option:has(input:checked) {
+  border-color: var(--accent-dim);
+}
+
+.capture-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
+}
+
+.capture-option input {
+  margin: 0;
+  accent-color: var(--accent-color);
+}
+
+.capture-symbol {
+  text-align: center;
+  font-size: 15px;
+}
+
+.capture-label {
+  min-width: 0;
+}
+
+.capture-default {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.clipper-hint {
+  margin: 10px 2px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.clipper-status {
+  min-height: 18px;
+  margin: 6px 2px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.clipper-status[data-state="error"] {
+  color: var(--red);
+}
+
+.clipper-submit {
+  width: 100%;
+  min-height: 34px;
+  margin-top: 6px;
+  border: 1px solid var(--accent-color);
+  border-radius: var(--radius-sm);
+  background: var(--accent-color);
+  color: var(--bg-color);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  transition: filter 150ms ease;
+}
+
+.clipper-submit:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.clipper-submit:focus-visible {
+  outline: 2px solid var(--text-main);
+  outline-offset: 2px;
+}
+
+.clipper-submit:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capture-option,
+  .clipper-submit {
+    transition: none;
+  }
+}

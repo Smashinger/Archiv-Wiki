@@ -659,22 +659,11 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .note-toolbar #btnDeleteNote{ transition: color .15s ease, border-color .15s ease; }
 
 /* --- Split-View --- */
-.note-split{ display:flex; gap:0; height: calc(100vh - 280px); min-height: 320px; position:relative; }
+.note-split{ display:flex; gap:0; height: calc(100vh - 280px); min-height: 320px; }
 .note-split.mode-editor .preview-pane{ display:none; }
 .note-split.mode-editor .editor-pane{ flex:1; }
 .note-split.mode-preview .editor-pane{ display:none; }
-.note-split.mode-preview .editor-pane:has(.cm-search){
-  display:block; position:absolute; inset:0 0 auto 0; z-index:5; height:auto;
-  border:0; border-radius:0; overflow:visible; background:transparent;
-}
-.note-split.mode-preview .editor-pane:has(.cm-search) .cm-editor{ height:auto; }
-.note-split.mode-preview .editor-pane:has(.cm-search) .cm-scroller,
-.note-split.mode-preview .editor-pane:has(.cm-search) .cm-gutters{ display:none; }
 .note-split.mode-preview .preview-pane{ flex:1; }
-.preview-search-match{
-  background:color-mix(in srgb, var(--accent-color) 32%, transparent);
-  color:inherit; border-radius:2px; padding:0;
-}
 /* Übersteuert die im Editor-Bundle fest hinterlegte Schriftgröße von außen —
    !important nötig, da CodeMirrors eigenes, mitgeliefertes Theme sonst
    Vorrang hätte (siehe build/editor-entry.js, dort bleibt 13.5px als
@@ -1633,4 +1622,352 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
     width:auto;
     max-width:none;
   }
+}
+
+/* Kompakter leerer Zustand für aktivierte Dashboard-Bereiche.
+   Verwendet ausschließlich bestehende Dashboard-Farben und Rundungen. */
+.dashboard-empty-compact{
+  padding:12px 14px;
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  background:var(--bg-elev);
+}
+
+.dashboard-empty-compact-title{
+  color:var(--text-main);
+  font-size:13px;
+  font-weight:600;
+  line-height:1.35;
+}
+
+.dashboard-empty-compact-body{
+  margin-top:4px;
+  color:var(--text-muted);
+  font-size:12px;
+  line-height:1.45;
+}
+
+/* Kompakter Hinweis innerhalb leerer Statistik-Kacheln.
+   Nutzt die bestehende Dashboard-Kachel ohne neue visuelle Sprache. */
+.stat-chip.is-empty{
+  align-items:flex-start;
+  text-align:left;
+}
+
+.stat-empty-hint{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  margin-top:8px;
+  color:var(--text-muted);
+  font-size:11px;
+  line-height:1.4;
+  white-space:normal;
+}
+
+.stat-empty-hint strong{
+  color:var(--text-main);
+  font-size:12px;
+  font-weight:600;
+}
+
+/* Kompakte Transparenz-Information im Backup-Bereich.
+   Nutzt ausschließlich bestehende Einstellungsfarben und Rundungen. */
+.backup-info-card{
+  margin:0 0 14px;
+  padding:12px 14px;
+  background:var(--bg-elev-2);
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius-sm);
+}
+
+.backup-info-title{
+  color:var(--text-main);
+  font-size:13px;
+  font-weight:600;
+  line-height:1.35;
+}
+
+.backup-info-text{
+  margin:7px 0 3px;
+  color:var(--text-muted);
+  font-size:11.5px;
+  line-height:1.45;
+}
+
+.backup-info-list{
+  margin:0;
+  padding-left:18px;
+  color:var(--text-muted);
+  font-size:11.5px;
+  line-height:1.5;
+}
+
+.backup-info-status{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px solid var(--border-soft);
+}
+
+.backup-info-status > div{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  min-width:0;
+}
+
+.backup-info-status span{
+  color:var(--text-faint);
+  font-size:11px;
+  line-height:1.35;
+}
+
+.backup-info-status strong{
+  color:var(--text-main);
+  font-family:var(--mono);
+  font-size:11.5px;
+  font-weight:600;
+  line-height:1.4;
+  overflow-wrap:anywhere;
+}
+
+@media (max-width:700px){
+  .backup-info-status{
+    grid-template-columns:1fr;
+  }
+}
+
+.backup-primary-actions{
+  margin:-4px 0 14px;
+}
+
+.backup-action-area{
+  margin:-4px 0 14px;
+}
+
+.backup-action-area .backup-primary-actions{
+  margin:0;
+}
+
+.backup-action-feedback{
+  margin:7px 0 0;
+  font-size:11.5px;
+  line-height:1.45;
+}
+
+.backup-folder-validation{
+  display:none;
+  flex-direction:column;
+  gap:3px;
+  margin-top:6px;
+  font-size:11.5px;
+  line-height:1.45;
+}
+.backup-folder-validation.is-success,
+.backup-folder-validation.is-error{ display:flex; }
+.backup-folder-validation.is-success{ color:var(--green); }
+.backup-folder-validation.is-error{ color:var(--red); }
+.backup-folder-validation strong{ font-weight:600; }
+.backup-folder-validation span{ color:var(--text-muted); }
+
+.settings-save-feedback{
+  position:absolute;
+  right:18px;
+  bottom:16px;
+  z-index:4;
+  pointer-events:none;
+  padding:6px 9px;
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius-sm);
+  background:var(--bg-elev-2);
+  color:var(--green);
+  font-size:11.5px;
+  font-weight:600;
+  line-height:1.35;
+  opacity:0;
+  transform:translateY(4px);
+  visibility:hidden;
+  transition:opacity .16s ease, transform .16s ease, visibility 0s linear .16s;
+}
+
+.settings-save-feedback.is-visible{
+  opacity:1;
+  transform:translateY(0);
+  visibility:visible;
+  transition-delay:0s;
+}
+
+.settings-general-compact .settings-group{
+  gap:8px;
+  margin-bottom:10px;
+  padding:12px 14px;
+}
+
+.settings-general-compact .settings-group-description{
+  margin:-3px 0 1px;
+}
+
+.settings-general-compact .settings-field{
+  gap:5px;
+  margin:0;
+}
+
+.settings-general-compact .close-dialog-options{
+  gap:5px;
+}
+
+.settings-general-compact .settings-hint{
+  line-height:1.35;
+}
+
+.nav-home-row{
+  position:relative;
+}
+
+.nav-home-row #homeLink{
+  padding-right:36px;
+}
+
+.nav-home-lock{
+  position:absolute;
+  top:50%;
+  right:6px;
+  transform:translateY(-50%);
+  width:26px;
+  height:26px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:0;
+  border:0;
+  border-radius:var(--radius-sm);
+  background:transparent;
+  color:var(--text-muted);
+  cursor:pointer;
+}
+
+.nav-home-lock:hover,
+.nav-home-lock:focus-visible{
+  color:var(--text-main);
+  background:var(--bg-elev-2);
+}
+
+.nav-home-lock .lib-icon{
+  width:15px;
+  height:15px;
+}
+
+.nav-home-lock[hidden]{
+  display:none;
+}
+
+.backup-security-hint{
+  margin:10px 0 0;
+}
+
+.export-security-hint{
+  margin:6px 8px 4px;
+  padding-top:8px;
+  border-top:1px solid var(--border-soft);
+  color:var(--text-faint);
+  font-family:var(--sans);
+  font-size:10.5px;
+  line-height:1.45;
+}
+
+.privacy-overview{
+  margin-top:14px;
+}
+
+.privacy-overview-intro{
+  margin:0;
+}
+
+.privacy-overview-list{
+  list-style:none;
+  margin:2px 0 0;
+  padding:0;
+  display:grid;
+  gap:7px;
+}
+
+.privacy-overview-list li{
+  position:relative;
+  padding-left:20px;
+  color:var(--text-muted);
+  font-size:11.5px;
+  line-height:1.45;
+}
+
+.privacy-overview-list li::before{
+  content:'✓';
+  position:absolute;
+  left:0;
+  top:0;
+  color:var(--green);
+  font-weight:700;
+}
+
+.ui-nav-icon,
+.ui-action-icon{
+  width:16px;
+  height:16px;
+  display:block;
+}
+
+.context-menu button{
+  display:flex;
+  align-items:center;
+}
+
+.context-menu-icon{
+  width:15px;
+  height:15px;
+  flex:0 0 15px;
+  margin-right:8px;
+}
+
+/* --- Eingang: bestehende Dashboard-Liste als ruhige, rein lesende Übersicht --- */
+.incoming-view .dashboard-section{
+  background: var(--bg-elev);
+}
+.incoming-view .incoming-row{
+  cursor: default;
+}
+.incoming-view .incoming-row:hover{
+  background: transparent;
+  border-left-color: transparent;
+}
+.incoming-view .incoming-row .dr-icon .lib-icon{
+  width: 15px;
+  height: 15px;
+}
+
+/* --- Eingang: Bild-Anhang innerhalb des bestehenden Vorschau-Panels --- */
+.incoming-image-preview{
+  height:100%;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  padding:16px;
+  box-sizing:border-box;
+}
+.incoming-image-preview img{
+  display:block;
+  max-width:100%;
+  max-height:100%;
+  object-fit:contain;
+  border-radius:var(--radius-sm);
+}
+.incoming-image-caption{
+  color:var(--text-muted);
+  font-family:var(--mono);
+  font-size:11px;
+  line-height:1.4;
+  overflow-wrap:anywhere;
 }

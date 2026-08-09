@@ -157,7 +157,7 @@ export function wikiLinkCompletionSource(getNoteIndex) {
 // ---------------------------------------------------------------------------
 // Editor-Factory
 // ---------------------------------------------------------------------------
-export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, onSave, onCursorActivity, getNoteIndex, onScroll, onSlashCommand, onSearchQueryChange }) {
+export function createMarkdownEditor({ parent, doc = '', tabSize = 2, readOnly = false, onChange, onSave, onCursorActivity, getNoteIndex, onScroll, onSlashCommand, onSearchQueryChange }) {
   let view; // wird weiter unten zugewiesen — der updateListener (Teil von state,
   // das VOR view erstellt wird) greift per Funktionsabschluss später darauf zu,
   // erst wenn tatsächlich getippt wird, also lange nachdem view existiert.
@@ -204,6 +204,8 @@ export function createMarkdownEditor({ parent, doc = '', tabSize = 2, onChange, 
       syntaxHighlighting(highlightStyle),
       editorTheme,
       EditorState.tabSize.of(tabSize),
+      EditorState.readOnly.of(Boolean(readOnly)),
+      EditorView.editable.of(!readOnly),
       // Bugfix (Editor-Audit Phase 10): tabSize allein steuert nur die
       // visuelle Breite eines bereits vorhandenen Tab-Zeichens, NICHT wie
       // viele Leerzeichen indentWithTab beim Drücken der Tab-Taste

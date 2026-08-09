@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Archiv-Wiki Web Clipper</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="clipper-popup">
+    <header class="clipper-header">
+      <img class="clipper-logo" src="icons/icon-48.png" alt="" width="28" height="28">
+      <div>
+        <h1>Im Eingang sammeln</h1>
+        <p>Wähle die Sammelart für diesen Clip.</p>
+      </div>
+    </header>
+
+    <form id="clipForm">
+      <fieldset class="capture-options">
+        <legend class="sr-only">Sammelart</legend>
+
+        <label class="capture-option">
+          <input type="radio" name="captureMode" value="selection" checked>
+          <span class="capture-symbol" aria-hidden="true">✍</span>
+          <span class="capture-label">Markierter Text</span>
+          <span class="capture-default">Standard</span>
+        </label>
+
+        <label class="capture-option">
+          <input type="radio" name="captureMode" value="url">
+          <span class="capture-symbol" aria-hidden="true">🔗</span>
+          <span class="capture-label">Nur URL</span>
+        </label>
+
+        <label class="capture-option">
+          <input type="radio" name="captureMode" value="page">
+          <span class="capture-symbol" aria-hidden="true">🌐</span>
+          <span class="capture-label">Ganze Seite</span>
+        </label>
+
+        <label class="capture-option">
+          <input type="radio" name="captureMode" value="images">
+          <span class="capture-symbol" aria-hidden="true">🖼</span>
+          <span class="capture-label">Bilder</span>
+        </label>
+      </fieldset>
+
+      <p class="clipper-hint">Markierter Text übernimmt die aktuelle Auswahl. Ganze Seite sammelt den sichtbaren Text. Bilder lässt dich gezielt ein Bild auf der Seite auswählen.</p>
+      <p id="clipStatus" class="clipper-status" role="status" aria-live="polite"></p>
+
+      <button id="clipButton" class="clipper-submit" type="submit">Sammeln</button>
+    </form>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

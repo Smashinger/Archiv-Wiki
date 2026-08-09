@@ -12,6 +12,8 @@ const { atomicWriteFileSync } = require('./atomic-write');
 
 const CONFIG_FILENAME = '.wiki-config.json';
 const TRASH_DIRNAME = '.wiki-trash';
+const INCOMING_DIRNAME = 'incoming';
+const INCOMING_MARKER_FILENAME = '.archiv-wiki-incoming';
 
 function isDirWritable(dirPath) {
   try {
@@ -62,6 +64,8 @@ function isValidProject(projectPath) {
 module.exports = {
   CONFIG_FILENAME,
   TRASH_DIRNAME,
+  INCOMING_DIRNAME,
+  INCOMING_MARKER_FILENAME,
   isDirWritable,
   hasExistingConfig,
   readProjectConfig,

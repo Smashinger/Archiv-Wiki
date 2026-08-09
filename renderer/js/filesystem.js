@@ -25,6 +25,10 @@ export async function saveAttachment(fileName, data) {
   return window.archivAPI.fs.saveAttachment(fileName, data);
 }
 
+export async function deleteAttachment(fileName) {
+  return window.archivAPI.fs.deleteAttachment(fileName);
+}
+
 export async function getSearchDocuments() {
   return window.archivAPI.fs.getSearchDocuments();
 }
@@ -61,8 +65,8 @@ export async function createSubCategory(mainCategoryRelPath, name) {
   return window.archivAPI.fs.createSubCategory(mainCategoryRelPath, name);
 }
 
-export async function createNote(categoryRelPath, title, templateBody) {
-  return window.archivAPI.fs.createNote(categoryRelPath, title, templateBody);
+export async function createNote(categoryRelPath, title, templateBody, options) {
+  return window.archivAPI.fs.createNote(categoryRelPath, title, templateBody, options);
 }
 
 export async function readNote(relPath) {

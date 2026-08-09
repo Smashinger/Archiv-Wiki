@@ -11,10 +11,13 @@ const { app, BrowserWindow, Menu, ipcMain, dialog, shell, Tray, clipboard, scree
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
 const { readAppState, writeAppState } = require('./main/app-state');
 const { isValidProject, readProjectConfig } = require('./main/project');
 const { registerWizardIpc } = require('./main/wizard-ipc');
 const { registerFilesystemIpc } = require('./main/filesystem-ipc');
+const { registerIncomingIpc } = require('./main/incoming-ipc');
+const { startWebClipReceiver } = require('./main/webclip-receiver');
 const { registerExportIpc, exportProjectZip } = require('./main/export-ipc');
 const { registerSyncIpc, isSyncInProgress } = require('./main/sync-ipc');
 const { registerSettingsIpc } = require('./main/settings-ipc');
@@ -275,6 +278,48 @@ function startUpdateDownload() {
 
 const isDev = process.argv.includes('--dev');
 
+/**
+ * Registriert den mitgelieferten Native Host nur für eine verpackte Linux-
+ * AppImage-Ausführung. Der vorhandene Shell-Installer bleibt damit die einzige
+ * Stelle für Browser-IDs, Manifestformate und Installationspfade; main.js stößt
+ * den idempotenten Endnutzer-Modus lediglich im Hintergrund an.
+ */
+function prepareAppImageNativeHost() {
+  if (process.platform !== 'linux' || !app.isPackaged) {
+    return Promise.resolve({ skipped: true });
+  }
+
+  const appImagePath = process.env.APPIMAGE;
+  if (!appImagePath || !path.isAbsolute(appImagePath)) {
+    // Ein entpackter linux-unpacked-Build ist verpackt, aber kein AppImage.
+    // Dort darf kein kurzlebiger Ressourcenpfad dauerhaft registriert werden.
+    return Promise.resolve({ skipped: true });
+  }
+
+  const installerPath = path.join(
+    process.resourcesPath,
+    'native-host',
+    'extension',
+    'native-host',
+    'install-native-host.sh'
+  );
+
+  return new Promise((resolve, reject) => {
+    execFile(installerPath, ['--appimage', appImagePath], {
+      env: process.env,
+      windowsHide: true,
+      maxBuffer: 1024 * 1024
+    }, (error, stdout, stderr) => {
+      if (error) {
+        const details = String(stderr || stdout || error.message).trim();
+        reject(new Error(details || 'Native-Host-Installer wurde nicht erfolgreich beendet.'));
+        return;
+      }
+      resolve({ installed: true });
+    });
+  });
+}
+
 // Bugfix (Nutzer-Meldung: gebaute AppImage startete ohne jede sichtbare
 // Fehlermeldung nicht mehr): native Bild-Ladefunktionen (Tray(), das
 // icon:-Feld von BrowserWindow) lesen NICHT über Electrons für fs.* gepatchte
@@ -353,6 +398,7 @@ let wizardWindow = null;
 /** Aktuell offenes Projekt (gesetzt sobald Wizard fertig ist oder ein
  *  bestehendes Projekt beim Start automatisch geladen wird). */
 let currentProject = { path: null, config: null };
+let webClipReceiver = null;
 
 
 function getCurrentBackupStatus() {
@@ -752,6 +798,18 @@ function registerCoreIpc() {
     electron: process.versions.electron,
     chrome: process.versions.chrome,
     node: process.versions.node
+  }));
+
+  // Flüchtiger Laufzeitstatus des lokalen Web-Clip-Empfangs. Diese Anzeige
+  // speichert nichts dauerhaft und verändert weder Native Messaging noch den
+  // Clip-Vertrag; sie macht im Einstellungsfenster nur sichtbar, ob der
+  // vorhandene Empfänger bereit ist und wann zuletzt ein Browserkontakt war.
+  ipcMain.handle('app:getWebClipperStatus', () => webClipReceiver?.getStatus?.() || ({
+    receiverReady: false,
+    browserConnected: false,
+    lastBrowserConnectionAt: null,
+    lastClipAt: null,
+    lastError: null
   }));
 
   // Backup-Warnung-Feature: Anzahl aufeinanderfolgender fehlgeschlagener
@@ -1200,7 +1258,15 @@ function createTray() {
   refreshTrayMenu();
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  try {
+    await prepareAppImageNativeHost();
+  } catch (error) {
+    // Der Web Clipper ist eine Zusatzfunktion. Eine fehlgeschlagene lokale
+    // Registrierung darf den normalen Archiv-Wiki-Start nicht verhindern.
+    console.error('[Archiv Wiki] Native Host konnte nicht vorbereitet werden:', error?.message || error);
+  }
+
   buildMenu();
   createTray();
 
@@ -1218,6 +1284,22 @@ app.whenReady().then(() => {
   }
   safeRegister('registerCoreIpc', () => registerCoreIpc());
   safeRegister('registerFilesystemIpc', () => registerFilesystemIpc({ getCurrentProject: () => currentProject }));
+  safeRegister('registerIncomingIpc', () => registerIncomingIpc({ getCurrentProject: () => currentProject }));
+  safeRegister('startWebClipReceiver', () => {
+    webClipReceiver = startWebClipReceiver({
+      getCurrentProject: () => currentProject,
+      onCreated: (entry) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('incoming:created', entry);
+        }
+      },
+      onStatusChanged: (status) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('webclip:statusUpdated', status);
+        }
+      }
+    });
+  });
   safeRegister('registerExportIpc', () => registerExportIpc({ getCurrentProject: () => currentProject, getMainWindow: () => mainWindow }));
   safeRegister('registerSyncIpc', () => registerSyncIpc({ getCurrentProject: () => currentProject, getMainWindow: () => mainWindow }));
   safeRegister('registerSettingsIpc', () => registerSettingsIpc({ getCurrentProject: () => currentProject, getMainWindow: () => mainWindow }));
@@ -1289,6 +1371,11 @@ app.on('before-quit', (event) => {
     return;
   }
   isQuitting = true;
+});
+
+app.on('will-quit', () => {
+  webClipReceiver?.close();
+  webClipReceiver = null;
 });
 
 app.on('window-all-closed', () => {

@@ -48,7 +48,16 @@ contextBridge.exposeInMainWorld('archivAPI', {
     update: (patch) => ipcRenderer.invoke('settings:update', patch),
     setAppLockPassword: (password) => ipcRenderer.invoke('settings:setAppLockPassword', password)
   },
+  webClipper: {
+    getStatus: () => ipcRenderer.invoke('app:getWebClipperStatus'),
+    onStatusUpdated: (callback) => {
+      const listener = (_event, status) => callback(status);
+      ipcRenderer.on('webclip:statusUpdated', listener);
+      return () => ipcRenderer.removeListener('webclip:statusUpdated', listener);
+    }
+  },
   chooseBackupFolder: () => ipcRenderer.invoke('settings:chooseBackupFolder'),
+  validateBackupFolder: (backupPath) => ipcRenderer.invoke('settings:validateBackupFolder', backupPath),
   verifyAppLock: (password) => ipcRenderer.invoke('app:verifyAppLock', password),
 
   // --- Native Dialoge (generisch) ---
@@ -92,6 +101,26 @@ contextBridge.exposeInMainWorld('archivAPI', {
     }
   },
 
+  // --- Eingang: projektbezogene, vom Notizspeicher getrennte Ablage ---
+  incoming: {
+    load: () => ipcRenderer.invoke('incoming:list'),
+    get: (id) => ipcRenderer.invoke('incoming:get', id),
+    create: (data) => ipcRenderer.invoke('incoming:create', data),
+    receiveWebClip: (data) => ipcRenderer.invoke('incoming:receiveWebClip', data),
+    // Kompatibilitätsname aus Q-012.5.1; beide Wege nutzen denselben IPC-Kanal.
+    createWebpage: (data) => ipcRenderer.invoke('incoming:receiveWebClip', data),
+    addFile: () => ipcRenderer.invoke('incoming:addFile'),
+    addImage: () => ipcRenderer.invoke('incoming:addImage'),
+    getImagePreview: (id) => ipcRenderer.invoke('incoming:getImagePreview', id),
+    save: (id, patch) => ipcRenderer.invoke('incoming:save', id, patch),
+    delete: (id) => ipcRenderer.invoke('incoming:delete', id),
+    onCreated: (callback) => {
+      const listener = (_event, entry) => callback(entry);
+      ipcRenderer.on('incoming:created', listener);
+      return () => ipcRenderer.removeListener('incoming:created', listener);
+    }
+  },
+
   // --- Dateisystem (Schritt 3): Notizen, Kategorien, Papierkorb ---
   fs: {
     listTree: () => ipcRenderer.invoke('fs:listTree'),
@@ -99,10 +128,11 @@ contextBridge.exposeInMainWorld('archivAPI', {
     setCategoryIcon: (relPath, icon) => ipcRenderer.invoke('fs:setCategoryIcon', relPath, icon),
     setProjectSetting: (key, value) => ipcRenderer.invoke('fs:setProjectSetting', key, value),
     saveAttachment: (fileName, data) => ipcRenderer.invoke('fs:saveAttachment', fileName, data),
+    deleteAttachment: (fileName) => ipcRenderer.invoke('fs:deleteAttachment', fileName),
     getSearchDocuments: () => ipcRenderer.invoke('fs:getSearchDocuments'),
     createMainCategory: (name) => ipcRenderer.invoke('fs:createMainCategory', name),
     createSubCategory: (mainCategoryRelPath, name) => ipcRenderer.invoke('fs:createSubCategory', mainCategoryRelPath, name),
-    createNote: (categoryRelPath, title, templateBody) => ipcRenderer.invoke('fs:createNote', categoryRelPath, title, templateBody),
+    createNote: (categoryRelPath, title, templateBody, options) => ipcRenderer.invoke('fs:createNote', categoryRelPath, title, templateBody, options),
     readNote: (relPath) => ipcRenderer.invoke('fs:readNote', relPath),
     writeNote: (relPath, body, frontmatterPatch) => ipcRenderer.invoke('fs:writeNote', relPath, body, frontmatterPatch),
     renameEntry: (relPath, newName) => ipcRenderer.invoke('fs:renameEntry', relPath, newName),
@@ -114,8 +144,6 @@ contextBridge.exposeInMainWorld('archivAPI', {
   },
 
   getCloseBehavior: () => ipcRenderer.invoke('app:getCloseBehavior'),
-  getWindowStartBehavior: () => ipcRenderer.invoke('app:getWindowStartBehavior'),
-  setWindowStartBehavior: (value) => ipcRenderer.invoke('app:setWindowStartBehavior', value),
 
   // Zentrale Zwischenablage-API (Nutzer-Meldung: Kopieren/Ausschneiden/
   // Einfügen über das Rechtsklick-Menü unzuverlässig, besonders Einfügen aus

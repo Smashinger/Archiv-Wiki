@@ -48137,7 +48137,7 @@ function wikiLinkCompletionSource(getNoteIndex) {
     return { from: match.from + 2, options, validFor: /^[^\]\n]*$/ };
   };
 }
-function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, onChange, onSave, onCursorActivity, getNoteIndex, onScroll, onSlashCommand, onSearchQueryChange }) {
+function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, readOnly: readOnly2 = false, onChange, onSave, onCursorActivity, getNoteIndex, onScroll, onSlashCommand, onSearchQueryChange }) {
   let view;
   const saveKeymap = keymap.of([
     { key: "Mod-s", preventDefault: true, run: () => {
@@ -48183,6 +48183,8 @@ function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, onChange, o
       syntaxHighlighting(highlightStyle),
       editorTheme,
       EditorState.tabSize.of(tabSize),
+      EditorState.readOnly.of(Boolean(readOnly2)),
+      EditorView.editable.of(!readOnly2),
       // Bugfix (Editor-Audit Phase 10): tabSize allein steuert nur die
       // visuelle Breite eines bereits vorhandenen Tab-Zeichens, NICHT wie
       // viele Leerzeichen indentWithTab beim Drücken der Tab-Taste

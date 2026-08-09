@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const matter = require('gray-matter');
-const { CONFIG_FILENAME, TRASH_DIRNAME } = require('./project');
+const { CONFIG_FILENAME, TRASH_DIRNAME, INCOMING_DIRNAME, INCOMING_MARKER_FILENAME } = require('./project');
 const { atomicWriteFileSync } = require('./atomic-write');
 
 const NOTE_EXT = '.md';
@@ -44,6 +44,14 @@ function resolveSafe(projectPath, relPath) {
 
 function isHidden(entryName) {
   return entryName.startsWith('.');
+}
+
+// Der Eingang ist ein eigener Projekt-Speicherbereich und keine Kategorie.
+// Nur der gleichnamige Ordner direkt in der Projektwurzel wird ausgeblendet;
+// Unterkategorien mit diesem Namen bleiben weiterhin normale Wiki-Struktur.
+function isProjectSystemEntry(projectPath, entryName, relPath) {
+  if (relPath || entryName !== INCOMING_DIRNAME) return false;
+  return fs.existsSync(path.join(projectPath, INCOMING_DIRNAME, INCOMING_MARKER_FILENAME));
 }
 
 // ---------------------------------------------------------------------------
@@ -93,7 +101,8 @@ function getSearchDocuments(projectPath) {
   // Symlinks aufzulösen, um deren Sonderfälle (kaputte/zirkuläre Verweise)
   // gar nicht erst behandeln zu müssen.
   function walk(dirPath, relPath) {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true }).filter(e => !isHidden(e.name));
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true })
+      .filter(e => !isHidden(e.name) && !isProjectSystemEntry(projectPath, e.name, relPath));
     for (const entry of entries) {
       const entryRelPath = relPath ? path.join(relPath, entry.name) : entry.name;
       const entryFullPath = path.join(dirPath, entry.name);
@@ -136,7 +145,7 @@ function listProjectTree(projectPath) {
   // ebenso still übersprungen.
   function walk(dirPath, relPath) {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true })
-      .filter(e => !isHidden(e.name))
+      .filter(e => !isHidden(e.name) && !isProjectSystemEntry(projectPath, e.name, relPath))
       .sort((a, b) => a.name.localeCompare(b.name, 'de'));
 
     const folders = [];
@@ -226,7 +235,7 @@ function uniqueDirPath(parentDir, baseName) {
 // Notizen — dürfen ausschließlich in einer Unterkategorie (Tiefe 2) liegen
 // (strikte 3-Ebenen-Regel: Hauptkategorie → Unterkategorie → Notiz).
 // ---------------------------------------------------------------------------
-function createNote(projectPath, subCategoryRelPath, title, templateBody) {
+function createNote(projectPath, subCategoryRelPath, title, templateBody, options) {
   const dirPath = resolveSafe(projectPath, subCategoryRelPath || '.');
   if (getDepth(subCategoryRelPath || '') !== 2 || !fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
     throw new Error('Notizen können nur in einer Unterkategorie angelegt werden.');
@@ -235,8 +244,23 @@ function createNote(projectPath, subCategoryRelPath, title, templateBody) {
   const baseName = sanitizeName(displayTitle);
   const filePath = uniquePath(dirPath, baseName, NOTE_EXT);
 
+  const creationOptions = options && typeof options === 'object' && !Array.isArray(options) ? options : {};
+  const requestedFrontmatter = creationOptions.frontmatterPatch
+    && typeof creationOptions.frontmatterPatch === 'object'
+    && !Array.isArray(creationOptions.frontmatterPatch)
+    ? creationOptions.frontmatterPatch
+    : {};
+  // Zusätzliche Herkunfts-/Import-Metadaten dürfen das normale Notizmodell
+  // nicht überschreiben. Titel, Kategorie, Tags und Zeitstempel bleiben daher
+  // weiterhin ausschließlich in der Verantwortung der bestehenden Notizlogik.
+  const reservedFrontmatterKeys = new Set(['title', 'tags', 'category', 'mainCategory', 'created', 'modified']);
+  const extraFrontmatter = Object.fromEntries(
+    Object.entries(requestedFrontmatter).filter(([key]) => !reservedFrontmatterKeys.has(key))
+  );
+
   const now = new Date().toISOString();
   const frontmatter = {
+    ...extraFrontmatter,
     title: displayTitle,
     tags: [],
     category: path.basename(dirPath),
@@ -244,11 +268,14 @@ function createNote(projectPath, subCategoryRelPath, title, templateBody) {
     created: now,
     modified: now
   };
-  // Vorlagen-Text (Notiz-Vorlagen-Feature): {title} wird durch den echten
-  // Titel ersetzt. Ohne Vorlage bleibt es beim bisherigen einfachen Standard.
-  const body = templateBody
-    ? templateBody.replace(/\{title\}/g, displayTitle)
-    : `# ${displayTitle}\n\n`;
+  // Reguläre Vorlagen ersetzen weiterhin {title}. Ein explizit als literalBody
+  // markierter Inhalt (z. B. ein bearbeiteter Eingang-Entwurf) wird dagegen
+  // unverändert als Inhalt behandelt und nicht als Vorlage interpretiert.
+  const body = creationOptions.literalBody
+    ? String(templateBody ?? '')
+    : templateBody
+      ? templateBody.replace(/\{title\}/g, displayTitle)
+      : `# ${displayTitle}\n\n`;
   writeNoteRaw(filePath, frontmatter, body);
 
   return { relPath: path.relative(projectPath, filePath), frontmatter };

@@ -82,6 +82,7 @@ const SETTINGS_SECTIONS = [
   { id: 'editor', label: 'Editor', render: renderEditorSection },
   { id: 'backup', label: 'Backup', render: renderBackupSection },
   { id: 'updates', label: 'Updates', render: renderUpdatesSection },
+  { id: 'webclipper', label: 'Web Clipper', render: renderWebClipperSection },
   { id: 'security', label: 'Sicherheit', render: renderSecuritySection }
 ];
 
@@ -122,6 +123,7 @@ export async function showSettingsWindow(context = {}) {
         </nav>
         <div class="settings-content" id="settingsContent"></div>
       </div>
+      <div class="settings-save-feedback" id="settingsSaveFeedback" role="status" aria-live="polite">✓ Gespeichert</div>
     </div>
   `;
 
@@ -136,11 +138,31 @@ export async function showSettingsWindow(context = {}) {
 
   let stopBackupStatusUpdates = null;
   let stopUpdateStatusUpdates = null;
+  let stopWebClipperStatusUpdates = null;
   let dialogController = null;
+  let saveFeedbackTimer = null;
+
+  function showSettingsSavedFeedback() {
+    const feedbackEl = overlay.querySelector('#settingsSaveFeedback');
+    if (!feedbackEl || isClosing) return;
+
+    clearTimeout(saveFeedbackTimer);
+    feedbackEl.classList.remove('is-visible');
+    void feedbackEl.offsetWidth;
+    feedbackEl.classList.add('is-visible');
+
+    saveFeedbackTimer = setTimeout(() => {
+      feedbackEl.classList.remove('is-visible');
+      saveFeedbackTimer = null;
+    }, 1600);
+  }
 
   function finishClose(restoreFocus = true) {
     stopBackupStatusUpdates?.();
     stopUpdateStatusUpdates?.();
+    stopWebClipperStatusUpdates?.();
+    clearTimeout(saveFeedbackTimer);
+    saveFeedbackTimer = null;
     dialogController?.destroy({ restoreFocus });
     closeActiveSettingsWindow = null;
   }
@@ -170,6 +192,7 @@ export async function showSettingsWindow(context = {}) {
       config = await window.archivAPI.settings.update(patch);
       if (context.onConfigChange) context.onConfigChange(config);
       clearInlineSettingsError(overlay.querySelector('#settingsContent'));
+      showSettingsSavedFeedback();
       return config;
     } catch (error) {
       console.error('Einstellung konnte nicht gespeichert werden:', error);
@@ -206,7 +229,7 @@ export async function showSettingsWindow(context = {}) {
     };
 
     try {
-      await section.render(contentEl, config, updateSetting, { ...context, backupUiState, ...overrides }, lifecycle);
+      await section.render(contentEl, config, updateSetting, { ...context, backupUiState, showSettingsSavedFeedback, ...overrides }, lifecycle);
     } catch (error) {
       if (!lifecycle.isCurrent()) return;
       console.error(`Einstellungsbereich "${section.id}" konnte nicht geladen werden:`, error);
@@ -222,6 +245,11 @@ export async function showSettingsWindow(context = {}) {
   stopUpdateStatusUpdates = onUpdateStatusChanged((status) => {
     if (!overlay.isConnected || activeId !== 'updates') return;
     renderActive({ updateStatus: status });
+  });
+
+  stopWebClipperStatusUpdates = window.archivAPI.webClipper?.onStatusUpdated?.((status) => {
+    if (!overlay.isConnected || activeId !== 'webclipper') return;
+    renderActive({ webClipperStatus: status });
   });
 
   overlay.querySelector('.settings-nav').addEventListener('click', (e) => {
@@ -242,20 +270,12 @@ export async function showSettingsWindow(context = {}) {
 // --- Allgemein ---
 async function renderGeneralSection(el, config, updateSetting, context, lifecycle) {
   renderSettingsLoading(el, 'Allgemein', 'Lade Einstellungen …');
-  const [closeBehavior, windowStartBehavior] = await Promise.all([
-    window.archivAPI.getCloseBehavior(),
-    window.archivAPI.getWindowStartBehavior()
-  ]);
+  const closeBehavior = await window.archivAPI.getCloseBehavior();
   if (!lifecycle.isCurrent()) return;
   const closeOptions = [
     { value: 'ask', label: 'Immer nachfragen (Standard)' },
     { value: 'tray', label: 'Immer in den System-Tray minimieren' },
     { value: 'quit', label: 'Immer vollständig beenden' }
-  ];
-  const windowStartOptions = [
-    { value: 'maximized', label: 'Maximiert (empfohlen)' },
-    { value: 'restore', label: 'Letzten Zustand wiederherstellen' },
-    { value: 'centered', label: 'Zentriert' }
   ];
   const categoryStartupOptions = [
     { value: 'closed', label: 'Alles geschlossen (Standard)' },
@@ -265,51 +285,62 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
   ];
   const categoryStartupBehavior = config.categoryStartupBehavior || 'closed';
   el.innerHTML = `
-    <h3>Allgemein</h3>
-    <section class="settings-group" aria-labelledby="stGeneralWikiGroup">
-      <h4 id="stGeneralWikiGroup">Wiki</h4>
-    <label class="settings-field">
-      <span>Wiki-Name</span>
-      <input type="text" id="stWikiName" value="${escapeAttr(config.wikiName || '')}" placeholder="z. B. Max">
-    </label>
-    <div class="settings-field">
-      <span>Speicherort</span>
-      <div class="settings-readonly-value" id="stProjectPath">${escapeAttr(context.projectPath || '')}</div>
-      <button type="button" class="btn ghost settings-inline-btn" id="stMoveProjectFolder">Wiki-Speicherort ändern…</button>
-      <p class="settings-hint" id="stMoveHint">Kopiert das Wiki an den neuen Ort. Der bisherige Ordner bleibt zur Sicherheit bestehen und kann anschließend manuell gelöscht werden. Der neue Ordner muss leer sein.</p>
+    <div class="settings-general-compact">
+      <h3>Allgemein</h3>
+
+      <section class="settings-group" aria-labelledby="stGeneralWikiGroup">
+        <h4 id="stGeneralWikiGroup">Wiki</h4>
+        <p class="settings-hint settings-group-description">Name und Speicherort des Wikis.</p>
+
+        <label class="settings-field">
+          <span>Wiki-Name</span>
+          <input type="text" id="stWikiName" value="${escapeAttr(config.wikiName || '')}" placeholder="z. B. Max">
+          <p class="settings-hint">Diese Einstellung betrifft nur dieses Wiki.</p>
+        </label>
+
+        <div class="settings-field">
+          <span>Wiki-Speicherort</span>
+          <div class="settings-readonly-value" id="stProjectPath">${escapeAttr(context.projectPath || '')}</div>
+          <button type="button" class="btn ghost settings-inline-btn" id="stMoveProjectFolder">Speicherort ändern…</button>
+          <p class="settings-hint" id="stMoveHint">Kopiert das Wiki; der bisherige Ordner bleibt erhalten.</p>
+        </div>
+      </section>
+
+      <section class="settings-group" aria-labelledby="stGeneralStartupGroup">
+        <h4 id="stGeneralStartupGroup">Startverhalten</h4>
+        <p class="settings-hint settings-group-description">Festlegen, wie Archiv-Wiki startet.</p>
+
+        <div class="settings-field">
+          <span>Kategorien beim Start</span>
+          <div class="close-dialog-options" id="stCategoryStartupOptions">
+            ${categoryStartupOptions.map(o => `<label class="close-dialog-option"><input type="radio" name="stCategoryStartup" value="${o.value}" ${categoryStartupBehavior === o.value ? 'checked' : ''}> ${escapeAttr(o.label)}</label>`).join('')}
+          </div>
+          <p class="settings-hint">Legt fest, welche Kategorien beim Start geöffnet sind.</p>
+        </div>
+      </section>
+
+      <section class="settings-group" aria-labelledby="stGeneralBehaviorGroup">
+        <h4 id="stGeneralBehaviorGroup">Verhalten</h4>
+        <p class="settings-hint settings-group-description">Allgemeine Abläufe anpassen.</p>
+
+        <div class="settings-field">
+          <span>Verhalten beim Schließen</span>
+          <div class="close-dialog-options" id="stCloseBehaviorOptions">
+            ${closeOptions.map(o => `<label class="close-dialog-option"><input type="radio" name="stCloseBehavior" value="${o.value}" ${closeBehavior === o.value ? 'checked' : ''}> ${escapeAttr(o.label)}</label>`).join('')}
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-group" aria-labelledby="stGeneralHelpGroup">
+        <h4 id="stGeneralHelpGroup">Hilfe &amp; Tastenkürzel</h4>
+        <p class="settings-hint settings-group-description">Schnellübersicht der Tastenkürzel.</p>
+
+        <div class="settings-field">
+          <span>Tastenkürzel</span>
+          <button type="button" class="btn ghost settings-inline-btn" id="stShowShortcuts">Übersicht öffnen</button>
+        </div>
+      </section>
     </div>
-    </section>
-    <section class="settings-group" aria-labelledby="stGeneralBehaviorGroup">
-      <h4 id="stGeneralBehaviorGroup">Start und Schließen</h4>
-    <div class="settings-field">
-      <span>Fensterverhalten</span>
-      <div class="close-dialog-options" id="stWindowStartOptions">
-        ${windowStartOptions.map(o => `<label class="close-dialog-option"><input type="radio" name="stWindowStart" value="${o.value}" ${windowStartBehavior === o.value ? 'checked' : ''}> ${escapeAttr(o.label)}</label>`).join('')}
-      </div>
-      <p class="settings-hint">Die Änderung gilt beim nächsten Programmstart.</p>
-    </div>
-    <div class="settings-field">
-      <span>Kategorien beim Start</span>
-      <div class="close-dialog-options" id="stCategoryStartupOptions">
-        ${categoryStartupOptions.map(o => `<label class="close-dialog-option"><input type="radio" name="stCategoryStartup" value="${o.value}" ${categoryStartupBehavior === o.value ? 'checked' : ''}> ${escapeAttr(o.label)}</label>`).join('')}
-      </div>
-      <p class="settings-hint">Bestimmt nur den Zustand beim Programmstart — während der Nutzung lässt sich jede Kategorie weiterhin ganz normal einzeln auf- und zuklappen, und das Öffnen einer Notiz klappt bei Bedarf automatisch die passende Kategorie auf.</p>
-    </div>
-    <div class="settings-field">
-      <span>Verhalten beim Schließen über X</span>
-      <div class="close-dialog-options" id="stCloseBehaviorOptions">
-        ${closeOptions.map(o => `<label class="close-dialog-option"><input type="radio" name="stCloseBehavior" value="${o.value}" ${closeBehavior === o.value ? 'checked' : ''}> ${escapeAttr(o.label)}</label>`).join('')}
-      </div>
-    </div>
-    </section>
-    <section class="settings-group" aria-labelledby="stGeneralHelpGroup">
-      <h4 id="stGeneralHelpGroup">Hilfe</h4>
-      <div class="settings-field">
-        <span>Tastenkürzel</span>
-        <button type="button" class="btn ghost settings-inline-btn" id="stShowShortcuts">Übersicht öffnen</button>
-        <p class="settings-hint">Zeigt die vorhandene Übersicht aller Tastenkürzel.</p>
-      </div>
-    </section>
   `;
   el.querySelector('#stShowShortcuts').addEventListener('click', () => {
     context.onShowShortcuts?.();
@@ -324,16 +355,6 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
       else { brand.style.display = 'none'; }
     }
   });
-  el.querySelector('#stWindowStartOptions').addEventListener('change', async (e) => {
-    if (e.target.name !== 'stWindowStart') return;
-    clearInlineSettingsError(el);
-    try {
-      await window.archivAPI.setWindowStartBehavior(e.target.value);
-    } catch (error) {
-      console.error('Fenster-Startverhalten konnte nicht gespeichert werden:', error);
-      showInlineSettingsError(el, 'Das Fenster-Startverhalten konnte nicht gespeichert werden.');
-    }
-  });
   el.querySelector('#stCategoryStartupOptions').addEventListener('change', async (e) => {
     if (e.target.name !== 'stCategoryStartup') return;
     await updateSetting({ categoryStartupBehavior: e.target.value });
@@ -344,6 +365,7 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
     const input = e.target;
     try {
       await window.archivAPI.setCloseBehavior(input.value);
+      context.showSettingsSavedFeedback?.();
     } catch (error) {
       console.error('Schließen-Verhalten konnte nicht gespeichert werden:', error);
       showInlineSettingsError(el, 'Das Schließen-Verhalten konnte nicht gespeichert werden.');
@@ -366,7 +388,7 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
         el.querySelector('#stProjectPath').textContent = result.newPath;
         if (context.onProjectPathChange) context.onProjectPathChange(result.newPath);
         hint.classList.remove('settings-hint-error');
-        hint.textContent = `Verschoben. Die alten Dateien liegen weiterhin unter: ${result.oldPath}`;
+        hint.textContent = `Verschoben. Alter Ordner: ${result.oldPath}`;
       }
     } catch (error) {
       console.error('Wiki-Speicherort konnte nicht geändert werden:', error);
@@ -621,7 +643,11 @@ async function renderBackupSection(el, config, updateSetting, context, lifecycle
   const isRunning = Boolean(status.inProgress || context.backupUiState.manualInProgress);
   const lastSuccessText = status.lastSuccessAt ? formatRelative(status.lastSuccessAt) : 'Noch kein Backup erstellt.';
   const feedback = context.backupUiState.feedback;
-  const feedbackHtml = feedback
+  const actionFeedbackHtml = feedback?.type === 'success'
+    ? `<p class="backup-action-feedback settings-hint-success" role="status" data-backup-feedback>✓ ${escapeAttr(feedback.message)}</p>`
+    : '';
+
+  const feedbackHtml = feedback && feedback.type !== 'success'
     ? `<p class="settings-hint settings-hint-${escapeAttr(feedback.type)}" role="status" data-backup-feedback>${escapeAttr(feedback.message)}</p>`
     : '';
   const lastErrorHtml = status.lastErrorAt
@@ -631,7 +657,7 @@ async function renderBackupSection(el, config, updateSetting, context, lifecycle
         <span>${escapeAttr(status.lastErrorUserMessage || status.lastErrorMessage || 'Das Backup konnte nicht erstellt werden.')}</span>
         <span class="backup-status-time">${escapeAttr(formatRelative(status.lastErrorAt))}</span>
         <button type="button" class="backup-error-details-toggle" id="stBackupErrorDetailsToggle">Technische Details anzeigen</button>
-        <pre class="backup-error-details" id="stBackupErrorDetails" style="display:none;">${escapeAttr([status.lastErrorCode, status.lastErrorMessage].filter(Boolean).join('\n') || 'Keine weiteren Details verfügbar.')}</pre>
+        <pre class="backup-error-details" id="stBackupErrorDetails" style="display:none;">${escapeAttr([status.lastErrorCode, status.lastErrorMessage].filter(Boolean).join('\n') || 'Information nicht verfügbar.')}</pre>
       </div>`
     : '';
   const cleanupHtml = status.lastCleanupErrorAt
@@ -641,18 +667,57 @@ async function renderBackupSection(el, config, updateSetting, context, lifecycle
         <span>${escapeAttr(status.lastCleanupErrorUserMessage || 'Das neue Backup wurde erstellt, aber ältere Sicherungen konnten nicht vollständig entfernt werden.')}</span>
         <span class="backup-status-time">${escapeAttr(formatRelative(status.lastCleanupErrorAt))}</span>
         <button type="button" class="backup-error-details-toggle" id="stBackupCleanupDetailsToggle">Technische Details anzeigen</button>
-        <pre class="backup-error-details" id="stBackupCleanupDetails" style="display:none;">${escapeAttr([status.lastCleanupErrorCode, status.lastCleanupErrorMessage].filter(Boolean).join('\n') || 'Keine weiteren Details verfügbar.')}</pre>
+        <pre class="backup-error-details" id="stBackupCleanupDetails" style="display:none;">${escapeAttr([status.lastCleanupErrorCode, status.lastCleanupErrorMessage].filter(Boolean).join('\n') || 'Information nicht verfügbar.')}</pre>
       </div>`
+    : '';
+
+  const statusSectionHtml = (feedbackHtml || lastErrorHtml || cleanupHtml)
+    ? `
+      <section class="settings-group" aria-labelledby="stBackupStatusGroup">
+        <h4 id="stBackupStatusGroup">Status</h4>
+        ${feedbackHtml}
+        ${lastErrorHtml}
+        ${cleanupHtml}
+      </section>`
     : '';
 
   el.innerHTML = `
     <h3>Backup</h3>
+    <p class="settings-hint settings-scope-hint">Diese Einstellungen gelten nur für dieses Wiki.</p>
+    <section class="backup-info-card" aria-labelledby="stBackupInfoTitle">
+      <div class="backup-info-title" id="stBackupInfoTitle">Backup schützt dein Wiki</div>
+      <p class="backup-info-text">Gesichert werden:</p>
+      <ul class="backup-info-list">
+        <li>Notizen</li>
+        <li>Anhänge</li>
+        <li>Wiki-bezogene Einstellungen</li>
+      </ul>
+      <p class="settings-hint backup-security-hint">Backups enthalten eine vollständige Kopie deines Wikis.<br>Bewahre Backup-Dateien sicher auf.</p>
+      <div class="backup-info-status">
+        <div>
+          <span>Letztes erfolgreiches Backup</span>
+          <strong>${escapeAttr(lastSuccessText)}</strong>
+        </div>
+        <div>
+          <span>Nächstes geplantes Backup</span>
+          <strong>${escapeAttr(formatFuture(status.nextScheduledAt))}</strong>
+        </div>
+      </div>
+    </section>
+    <div class="backup-action-area">
+      <div class="settings-button-row backup-primary-actions">
+        <button type="button" class="btn ghost" id="stRunBackupNow" ${isRunning ? 'disabled' : ''}>${isRunning ? 'Backup läuft …' : 'Backup jetzt erstellen'}</button>
+        <button type="button" class="btn ghost" id="stOpenBackupFolder">Backup-Ordner öffnen</button>
+      </div>
+      ${actionFeedbackHtml}
+    </div>
     <section class="settings-group" aria-labelledby="stBackupSetupGroup">
       <h4 id="stBackupSetupGroup">Speicherort und Zeitplan</h4>
       <div class="settings-field">
         <span>Backup-Ordner</span>
         <div class="settings-readonly-value" id="stBackupPath">${escapeAttr(config.backupPath || 'Noch kein Backup-Ordner ausgewählt.')}</div>
         <button type="button" class="btn ghost settings-inline-btn" id="stChangeBackupPath">Backup-Ordner wählen…</button>
+        <div class="backup-folder-validation" id="stBackupFolderValidation" role="status" aria-live="polite"></div>
       </div>
       <label class="settings-field">
         <span>Automatisches Backup</span>
@@ -661,24 +726,7 @@ async function renderBackupSection(el, config, updateSetting, context, lifecycle
         </select>
       </label>
     </section>
-    <section class="settings-group" aria-labelledby="stBackupStatusGroup">
-      <h4 id="stBackupStatusGroup">Status</h4>
-      ${feedbackHtml}
-      ${lastErrorHtml}
-      ${cleanupHtml}
-      <div class="settings-field">
-        <span>Letztes erfolgreiches Backup</span>
-        <div class="settings-readonly-value">${escapeAttr(lastSuccessText)}</div>
-      </div>
-      <div class="settings-field">
-        <span>Nächstes geplantes Backup</span>
-        <div class="settings-readonly-value">${escapeAttr(formatFuture(status.nextScheduledAt))}</div>
-      </div>
-      <div class="settings-button-row">
-        <button type="button" class="btn ghost" id="stRunBackupNow" ${isRunning ? 'disabled' : ''}>${isRunning ? 'Backup läuft …' : 'Backup jetzt erstellen'}</button>
-        <button type="button" class="btn ghost" id="stOpenBackupFolder">Backup-Ordner öffnen</button>
-      </div>
-    </section>
+    ${statusSectionHtml}
     <section class="settings-group" aria-labelledby="stBackupRestoreGroup">
       <h4 id="stBackupRestoreGroup">Wiederherstellung</h4>
       <p class="settings-hint backup-restore-hint">Backup-Ordner öffnen, gewünschte ZIP-Datei auswählen und entpacken. Anschließend den entpackten Wiki-Ordner in Archiv-Wiki öffnen.</p>
@@ -704,15 +752,45 @@ async function renderBackupSection(el, config, updateSetting, context, lifecycle
   el.querySelector('#stChangeBackupPath').addEventListener('click', async () => {
     clearInlineSettingsError(el);
     context.backupUiState.feedback = null;
+    const validationEl = el.querySelector('#stBackupFolderValidation');
+    if (validationEl) {
+      validationEl.className = 'backup-folder-validation';
+      validationEl.textContent = '';
+    }
+
     try {
       const chosen = await window.archivAPI.chooseBackupFolder?.();
       if (!chosen || !lifecycle.isCurrent()) return;
-      await updateSetting({ backupPath: chosen });
+
+      const validation = await window.archivAPI.validateBackupFolder?.(chosen);
       if (!lifecycle.isCurrent()) return;
-      el.querySelector('#stBackupPath').textContent = chosen;
+
+      if (!validation?.valid) {
+        if (validationEl) {
+          validationEl.className = 'backup-folder-validation is-error';
+          validationEl.innerHTML = `
+            <strong>❌ Backup-Ordner nicht verwendbar</strong>
+            <span>${escapeAttr(validation?.message || validation?.details || 'Der ausgewählte Ordner kann nicht verwendet werden.')}</span>`;
+        }
+        return;
+      }
+
+      await updateSetting({ backupPath: validation.path || chosen });
+      if (!lifecycle.isCurrent()) return;
+      el.querySelector('#stBackupPath').textContent = validation.path || chosen;
+
+      if (validationEl) {
+        validationEl.className = 'backup-folder-validation is-success';
+        validationEl.innerHTML = '<strong>✓ Backup-Ordner verfügbar</strong>';
+      }
     } catch (error) {
-      console.error('Backup-Ordner konnte nicht geändert werden:', error);
-      showInlineSettingsError(el, 'Der Backup-Ordner konnte nicht geändert werden.');
+      console.error('Backup-Ordner konnte nicht geprüft werden:', error);
+      if (validationEl) {
+        validationEl.className = 'backup-folder-validation is-error';
+        validationEl.innerHTML = `
+          <strong>❌ Backup-Ordner nicht verwendbar</strong>
+          <span>${escapeAttr(error?.message || 'Der Backup-Ordner konnte nicht geprüft werden.')}</span>`;
+      }
     }
   });
   el.querySelector('#stBackupInterval').addEventListener('change', async (e) => {
@@ -794,10 +872,42 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
   if (!lifecycle.isCurrent()) return;
   const lastCheckLabel = status.lastCheckAt
     ? new Date(status.lastCheckAt).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
-    : 'noch nie geprüft';
+    : 'Noch nicht geprüft';
+
+  const availableVersionLabel = status.availableVersion
+    ? `v${status.availableVersion}`
+    : status.phase === 'upToDate' && status.currentVersion
+      ? `v${status.currentVersion}`
+      : status.phase === 'checking'
+        ? 'Suche nach Updates...'
+        : 'Noch nicht geprüft';
   const showUpdateError = status.phase === 'error' || status.phase === 'unavailable';
-  const canInstallUpdate = status.phase === 'downloaded' || (status.phase === 'error' && status.installReady);
+  const downloadingUpdate = status.phase === 'downloading';
   const installingUpdate = status.phase === 'installing';
+  const updateReady = status.phase === 'downloaded' || (status.phase === 'error' && status.installReady);
+  const updateAvailable = status.phase === 'updateAvailable';
+
+  let primaryActionHtml = '';
+  if (updateAvailable) {
+    primaryActionHtml = '<button type="button" class="btn" id="stDownloadUpdate">Jetzt herunterladen</button>';
+  } else if (updateReady) {
+    primaryActionHtml = '<button type="button" class="btn" id="stInstallUpdate">Neu starten und installieren</button>';
+  } else if (status.phase === 'error') {
+    if (status.errorType === 'download') {
+      primaryActionHtml = '<button type="button" class="btn" id="stRetryDownload">Erneut versuchen</button>';
+    } else if (status.errorType === 'install' && status.installReady) {
+      primaryActionHtml = '<button type="button" class="btn" id="stInstallUpdate">Erneut versuchen</button>';
+    } else {
+      primaryActionHtml = '<button type="button" class="btn" id="stCheckNow">Erneut versuchen</button>';
+    }
+  } else if (!downloadingUpdate && !installingUpdate) {
+    primaryActionHtml = '<button type="button" class="btn ghost" id="stCheckNow">Jetzt nach Updates suchen</button>';
+  }
+
+  const secondaryActionsHtml = downloadingUpdate || installingUpdate
+    ? ''
+    : '<button type="button" class="btn ghost" id="stOpenReleases">GitHub-Releases öffnen</button>';
+
   const updateErrorHtml = showUpdateError ? `
     <div class="settings-hint settings-hint-error" id="stUpdateError">
       ${escapeHtml(status.errorMessage || 'Der Update-Status konnte nicht ermittelt werden.')}
@@ -805,6 +915,7 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
     </div>` : '';
   el.innerHTML = `
     <h3>Updates</h3>
+    <p class="settings-hint settings-scope-hint">Diese Einstellungen gelten für die Anwendung.</p>
     <section class="settings-group" aria-labelledby="stUpdateStatusGroup">
       <h4 id="stUpdateStatusGroup">Versionsstatus</h4>
     <div class="settings-field">
@@ -813,7 +924,7 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
     </div>
     <div class="settings-field">
       <span>Neueste verfügbare Version</span>
-      <div class="settings-readonly-value" id="stLatestVersion">${status.availableVersion ? 'v' + escapeAttr(status.availableVersion) : 'unbekannt'}</div>
+      <div class="settings-readonly-value" id="stLatestVersion">${escapeAttr(availableVersionLabel)}</div>
     </div>
     <div class="settings-field">
       <span>Letzte Prüfung</span>
@@ -825,9 +936,8 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
       ${updateErrorHtml}
     </div>
     <div class="settings-button-row">
-      <button type="button" class="btn ghost" id="stCheckNow">Jetzt nach Updates suchen</button>
-      ${canInstallUpdate || installingUpdate ? `<button type="button" class="btn" id="stInstallUpdate" ${installingUpdate ? 'disabled' : ''}>${installingUpdate ? 'Update wird installiert …' : 'Jetzt neu starten'}</button>` : ''}
-      <button type="button" class="btn ghost" id="stOpenReleases">GitHub-Releases öffnen</button>
+      ${primaryActionHtml}
+      ${secondaryActionsHtml}
     </div>
     </section>
     <section class="settings-group" aria-labelledby="stUpdateBehaviorGroup">
@@ -855,11 +965,11 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
     </section>
   `;
   renderUpdateStatus(el.querySelector('#stUpdateDot'), el.querySelector('#stUpdateLabel'), status);
-  el.querySelector('#stCheckNow').addEventListener('click', async (e) => {
+  el.querySelector('#stCheckNow')?.addEventListener('click', async (e) => {
     const button = e.currentTarget;
     clearInlineSettingsError(el);
     button.disabled = true;
-    button.textContent = 'Prüfe …';
+    button.textContent = 'Suche nach Updates...';
     try {
       const fresh = await requestUpdateCheck();
       if (!lifecycle.isCurrent()) return;
@@ -877,6 +987,37 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
       }
     }
   });
+  const startVisibleUpdateDownload = async (button) => {
+    clearInlineSettingsError(el);
+    button.disabled = true;
+    button.textContent = 'Update wird heruntergeladen';
+    try {
+      const downloadPromise = window.archivAPI.downloadUpdate();
+      const fresh = await fetchUpdateStatus();
+      if (lifecycle.isCurrent()) {
+        await renderUpdatesSection(el, config, updateSetting, { ...context, updateStatus: fresh }, lifecycle);
+      }
+      const result = await downloadPromise;
+      if (!result?.started && lifecycle.isCurrent()) {
+        const latest = await fetchUpdateStatus();
+        await renderUpdatesSection(el, config, updateSetting, { ...context, updateStatus: latest }, lifecycle);
+      }
+    } catch (error) {
+      console.error('Update-Download konnte nicht gestartet werden:', error);
+      if (lifecycle.isCurrent()) {
+        showInlineSettingsError(el, 'Der Update-Download konnte nicht gestartet werden.');
+      }
+    }
+  };
+
+  el.querySelector('#stDownloadUpdate')?.addEventListener('click', (event) => {
+    startVisibleUpdateDownload(event.currentTarget);
+  });
+
+  el.querySelector('#stRetryDownload')?.addEventListener('click', (event) => {
+    startVisibleUpdateDownload(event.currentTarget);
+  });
+
   el.querySelector('#stInstallUpdate')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
     clearInlineSettingsError(el);
@@ -887,18 +1028,18 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
       if (!result?.started && lifecycle.isCurrent()) {
         showInlineSettingsError(el, result?.error || 'Der Installations- und Neustartvorgang konnte nicht gestartet werden.');
         button.disabled = false;
-        button.textContent = 'Jetzt neu starten';
+        button.textContent = 'Neu starten und installieren';
       }
     } catch (error) {
       console.error('Update-Installation konnte nicht gestartet werden:', error);
       if (lifecycle.isCurrent()) {
         showInlineSettingsError(el, 'Der Installations- und Neustartvorgang konnte nicht gestartet werden.');
         button.disabled = false;
-        button.textContent = 'Jetzt neu starten';
+        button.textContent = 'Neu starten und installieren';
       }
     }
   });
-  el.querySelector('#stOpenReleases').addEventListener('click', () => {
+  el.querySelector('#stOpenReleases')?.addEventListener('click', () => {
     window.open(status.releaseUrl || 'https://github.com/Smashinger/Archiv-Wiki/releases', '_blank');
   });
   // Update-Einstellungen sind app-weit (main/app-state.js), nicht Teil der
@@ -911,6 +1052,7 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
     try {
       const result = await window.archivAPI.setUpdateSetting(key, nextValue);
       if (!result?.saved) throw new Error('Einstellung wurde nicht gespeichert.');
+      context.showSettingsSavedFeedback?.();
     } catch (error) {
       console.error(`Update-Einstellung "${key}" konnte nicht gespeichert werden:`, error);
       if (input.isConnected) input.checked = !nextValue;
@@ -928,41 +1070,220 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
   });
 }
 
+// --- Web Clipper ---
+const WEB_CLIPPER_CAPTURE_MODES = Object.freeze([
+  { value: 'selection', label: '✍ Markierter Text' },
+  { value: 'url', label: '🔗 Nur URL' },
+  { value: 'page', label: '🌐 Ganze Seite' },
+  { value: 'images', label: '🖼 Bilder' }
+]);
+
+function normalizedWebClipperCaptureMode(value) {
+  const candidate = String(value || '').trim();
+  return WEB_CLIPPER_CAPTURE_MODES.some(option => option.value === candidate)
+    ? candidate
+    : 'selection';
+}
+
+function formatWebClipperTimestamp(isoString) {
+  if (!isoString) return 'Noch keine Verbindung in dieser Sitzung erkannt';
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return 'Zeitpunkt nicht verfügbar';
+  return date.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+async function renderWebClipperSection(el, config, updateSetting, context, lifecycle) {
+  renderSettingsLoading(el, 'Web Clipper', 'Prüfe Verbindung …');
+  const status = context.webClipperStatus
+    || await window.archivAPI.webClipper?.getStatus?.()
+    || { receiverReady: false, browserConnected: false, lastBrowserConnectionAt: null, lastClipAt: null, lastError: null };
+  if (!lifecycle.isCurrent()) return;
+
+  const defaultCaptureMode = normalizedWebClipperCaptureMode(config.webClipper?.defaultCaptureMode);
+  const showIncomingInSidebar = config.incoming?.showInSidebar !== false;
+  const receiverLabel = status.receiverReady ? 'Bereit' : 'Nicht verfügbar';
+  const browserLabel = status.browserConnected
+    ? 'Browser gerade verbunden'
+    : status.lastBrowserConnectionAt
+      ? `Zuletzt erkannt: ${formatWebClipperTimestamp(status.lastBrowserConnectionAt)}`
+      : 'Noch keine Verbindung in dieser Sitzung erkannt';
+  const lastClipLabel = status.lastClipAt
+    ? formatWebClipperTimestamp(status.lastClipAt)
+    : 'Noch kein Clip in dieser Sitzung empfangen';
+
+  el.innerHTML = `
+    <h3>Web Clipper</h3>
+    <p class="settings-hint settings-scope-hint">Übersicht und Einstellungen für die separate Browser-Erweiterung.</p>
+
+    <section class="settings-group" aria-labelledby="stWebClipperStatusGroup">
+      <h4 id="stWebClipperStatusGroup">Verbindung</h4>
+      <div class="settings-field">
+        <span>Archiv-Wiki-Empfang</span>
+        <div class="update-status-inline">
+          <span class="update-dot ${status.receiverReady ? 'dot-available' : 'dot-neutral'}" aria-hidden="true"></span>
+          <span>${escapeAttr(receiverLabel)}</span>
+        </div>
+        ${status.lastError ? `<p class="settings-hint settings-hint-error">${escapeAttr(status.lastError)}</p>` : '<p class="settings-hint">Der lokale Web-Clip-Empfänger läuft nur, solange Archiv-Wiki geöffnet ist.</p>'}
+      </div>
+      <div class="settings-field">
+        <span>Browser-Verbindung</span>
+        <div class="settings-readonly-value">${escapeAttr(browserLabel)}</div>
+      </div>
+      <div class="settings-field">
+        <span>Letzter empfangener Clip</span>
+        <div class="settings-readonly-value">${escapeAttr(lastClipLabel)}</div>
+      </div>
+    </section>
+
+    <section class="settings-group" aria-labelledby="stWebClipperModeGroup">
+      <h4 id="stWebClipperModeGroup">Sammelmodus</h4>
+      <label class="settings-field">
+        <span>Standard-Sammelmodus</span>
+        <select id="stWebClipperDefaultMode">
+          ${WEB_CLIPPER_CAPTURE_MODES.map(option => `<option value="${option.value}" ${defaultCaptureMode === option.value ? 'selected' : ''}>${escapeAttr(option.label)}</option>`).join('')}
+        </select>
+        <p class="settings-hint">Die Auswahl wird mit den bestehenden Wiki-Einstellungen gespeichert.</p>
+      </label>
+    </section>
+
+    <section class="settings-group" aria-labelledby="stIncomingVisibilityGroup">
+      <h4 id="stIncomingVisibilityGroup">Eingang</h4>
+      <label class="settings-field">
+        <span>📥 Eingang anzeigen</span>
+        <input type="checkbox" id="stIncomingShowInSidebar" ${showIncomingInSidebar ? 'checked' : ''}>
+        <p class="settings-hint">Steuert nur den Eintrag in der Sidebar. Gespeicherte Eingänge und Clips bleiben vollständig erhalten.</p>
+      </label>
+    </section>
+
+    <section class="settings-group" aria-labelledby="stWebClipperStoreGroup">
+      <h4 id="stWebClipperStoreGroup">Browser-Erweiterung</h4>
+      <div class="settings-field">
+        <span>Store-Veröffentlichung</span>
+        <button type="button" class="btn ghost settings-inline-btn" disabled>Store-Link folgt</button>
+        <p class="settings-hint">Platzhalter für eine spätere Store-Verlinkung. Aktuell wird kein externer Link verwendet.</p>
+      </div>
+    </section>
+  `;
+
+  el.querySelector('#stWebClipperDefaultMode').addEventListener('change', async (event) => {
+    const value = normalizedWebClipperCaptureMode(event.target.value);
+    await updateSetting({ webClipper: { defaultCaptureMode: value } });
+  });
+
+  el.querySelector('#stIncomingShowInSidebar').addEventListener('change', async (event) => {
+    await updateSetting({ incoming: { showInSidebar: event.target.checked } });
+  });
+}
+
 // --- Sicherheit ---
-function renderSecuritySection(el, config, updateSetting) {
+function renderSecuritySection(el, config, updateSetting, context) {
   const enabled = Boolean(config.appLock?.enabled);
+
+  const passwordFieldsHtml = enabled
+    ? `
+      <label class="settings-field">
+        <span>Aktuelles Passwort</span>
+        <input type="password" id="stCurrentAppLockPw" autocomplete="current-password" placeholder="Aktuelles Passwort eingeben">
+      </label>
+      <label class="settings-field">
+        <span>Neues Passwort</span>
+        <input type="password" id="stNewAppLockPw" autocomplete="new-password" placeholder="Neues Passwort eingeben">
+      </label>
+      <label class="settings-field">
+        <span>Neues Passwort bestätigen</span>
+        <input type="password" id="stConfirmAppLockPw" autocomplete="new-password" placeholder="Neues Passwort wiederholen">
+      </label>`
+    : `
+      <label class="settings-field">
+        <span>Passwort setzen</span>
+        <input type="password" id="stNewAppLockPw" autocomplete="new-password" placeholder="Passwort eingeben">
+      </label>`;
+
   el.innerHTML = `
     <h3>Sicherheit</h3>
+    <p class="settings-hint settings-scope-hint">Diese Einstellungen gelten nur für dieses Wiki.</p>
     <div class="settings-field">
       <span>App-Passwortschutz</span>
       <div class="settings-readonly-value">${enabled ? 'Aktiviert' : 'Deaktiviert'}</div>
+      <p class="settings-hint">Schützt den Zugriff auf dieses Wiki in Archiv-Wiki.<br>Die Dateien im Wiki-Ordner werden nicht verschlüsselt.</p>
     </div>
-    <label class="settings-field">
-      <span>${enabled ? 'Neues Passwort setzen' : 'Passwort setzen'}</span>
-      <input type="password" id="stAppLockPw" placeholder="Passwort eingeben">
-    </label>
+
+    ${passwordFieldsHtml}
+
     <div class="settings-button-row">
       <button type="button" class="btn ghost" id="stSetAppLockPw">${enabled ? 'Passwort ändern' : 'Passwort setzen'}</button>
       ${enabled ? '<button type="button" class="btn ghost" id="stRemoveAppLockPw">Schutz entfernen</button>' : ''}
     </div>
+
+    <section class="settings-group privacy-overview" aria-labelledby="stPrivacyOverviewTitle">
+      <h4 id="stPrivacyOverviewTitle">Datenschutz</h4>
+      <p class="settings-hint privacy-overview-intro">Deine Daten bleiben unter deiner Kontrolle.</p>
+      <ul class="privacy-overview-list">
+        <li>Wiki-Dateien werden lokal gespeichert</li>
+        <li>Inhalte deiner Notizen werden nur lokal verarbeitet.</li>
+        <li>Deine Daten werden nicht an externe Analysedienste übertragen.</li>
+        <li>Keine automatische Übertragung deiner Wiki-Inhalte</li>
+        <li>Internetverbindungen werden nur für Funktionen wie Updates genutzt</li>
+        <li>Synchronisation erfolgt nur über von dir eingerichtete Dienste</li>
+      </ul>
+    </section>
   `;
+
+  async function verifyCurrentPassword() {
+    const currentPassword = el.querySelector('#stCurrentAppLockPw')?.value || '';
+    if (!currentPassword.trim()) {
+      showInlineSettingsError(el, 'Bitte gib dein aktuelles Passwort ein.');
+      return false;
+    }
+
+    const result = await window.archivAPI.verifyAppLock(currentPassword);
+    if (!result?.ok) {
+      showInlineSettingsError(el, 'Das aktuelle Passwort ist nicht korrekt.');
+      return false;
+    }
+
+    return true;
+  }
+
   el.querySelector('#stSetAppLockPw').addEventListener('click', async () => {
-    const pw = el.querySelector('#stAppLockPw').value;
-    if (!pw.trim()) return;
+    const newPassword = el.querySelector('#stNewAppLockPw')?.value || '';
+    const confirmedPassword = el.querySelector('#stConfirmAppLockPw')?.value || '';
+
     clearInlineSettingsError(el);
+
+    if (!newPassword.trim()) {
+      showInlineSettingsError(el, enabled
+        ? 'Bitte gib ein neues Passwort ein.'
+        : 'Bitte gib ein Passwort ein.');
+      return;
+    }
+
+    if (enabled && newPassword !== confirmedPassword) {
+      showInlineSettingsError(el, 'Die neuen Passwörter stimmen nicht überein.');
+      return;
+    }
+
     try {
-      config = await window.archivAPI.settings.setAppLockPassword(pw);
-      if (el.isConnected) renderSecuritySection(el, config, updateSetting);
+      if (enabled && !(await verifyCurrentPassword())) return;
+
+      config = await window.archivAPI.settings.setAppLockPassword(newPassword);
+      context.showSettingsSavedFeedback?.();
+      if (el.isConnected) renderSecuritySection(el, config, updateSetting, context);
     } catch (error) {
       console.error('App-Passwort konnte nicht gespeichert werden:', error);
       showInlineSettingsError(el, 'Das App-Passwort konnte nicht gespeichert werden.');
     }
   });
+
   el.querySelector('#stRemoveAppLockPw')?.addEventListener('click', async () => {
     clearInlineSettingsError(el);
+
     try {
+      if (!(await verifyCurrentPassword())) return;
+
       config = await window.archivAPI.settings.setAppLockPassword('');
-      if (el.isConnected) renderSecuritySection(el, config, updateSetting);
+      context.showSettingsSavedFeedback?.();
+      if (el.isConnected) renderSecuritySection(el, config, updateSetting, context);
     } catch (error) {
       console.error('App-Passwortschutz konnte nicht entfernt werden:', error);
       showInlineSettingsError(el, 'Der App-Passwortschutz konnte nicht entfernt werden.');

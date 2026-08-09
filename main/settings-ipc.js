@@ -12,6 +12,7 @@
 const { ipcMain, dialog } = require('electron');
 const crypto = require('crypto');
 const { readProjectConfig, writeProjectConfig } = require('./project');
+const { validateBackupDestinationAccess } = require('./backup');
 
 // Verschachtelt zusammenführen (z. B. { editor: { tabSize: 4 } } lässt
 // editor.autoSave unangetastet) — flache Object.assign würde stattdessen den
@@ -48,6 +49,11 @@ function registerSettingsIpc({ getCurrentProject, getMainWindow }) {
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
+  });
+
+  ipcMain.handle('settings:validateBackupFolder', (_event, backupPath) => {
+    const projectPath = requireProjectPath();
+    return validateBackupDestinationAccess(projectPath, backupPath);
   });
 
   // Liefert die komplette aktuelle Konfiguration — einzige Stelle, die das

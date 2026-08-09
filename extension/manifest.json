@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Archiv-Wiki Web Clipper",
+  "version": "0.2.0",
+  "description": "Sammle Webseiten, Texte und Bilder direkt in den Eingang von Archiv-Wiki.",
+  "incognito": "not_allowed",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzF/9/LyPl6EvngIF9dkRNLbilyfUT6HkCQ5CklI5mUjL3BNL0efy1M/c+E/LewAqPhWWf8LgICOoqbsVUJJ+u6IGLoh69lTaXbbzdnSHpbq51YNCVhb5yn7VK+oBUm+44vPmaB0Nouum86HQWBFotzco8a6eIlOXxLQQ6UirvwPlZz//mCEAotdzmq9Di0G/sXn5n+wImbi9MgmuNu4YBYRdYLhYBpY6pheLvWoRhphpPoBKlUKeyuwxMHtbfDkmHYrskFDer8SBlGPbRAsMoO0COhY9jiINqMwQArn1Kdtz+LMQTr+j7qHmopu0/KM4pWdaGBeAmbdqUXqBV+LGiQIDAQAB",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "nativeMessaging"
+  ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Aktuelle Webseite im Archiv-Wiki Eingang sammeln",
+    "default_icon": "icons/icon-128.png",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "scripts": [
+      "webclip-contract.js",
+      "archiv-wiki-bridge.js",
+      "background.js"
+    ],
+    "service_worker": "background.js"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "webclip@archiv-wiki.smashii.de",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "browsingActivity",
+          "websiteContent"
+        ]
+      }
+    }
+  }
+}

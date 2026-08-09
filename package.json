@@ -58,7 +58,19 @@
       "!renderer/**/*.map"
     ],
     "asarUnpack": [
-      "assets/icons/**/*"
+      "assets/icons/**/*",
+      "main/webclip-transport.js"
+    ],
+    "extraResources": [
+      {
+        "from": "extension/native-host",
+        "to": "native-host/extension/native-host",
+        "filter": [
+          "archiv-wiki-native-host",
+          "install-native-host.sh",
+          "native-host.js"
+        ]
+      }
     ],
     "directories": {
       "output": "dist"

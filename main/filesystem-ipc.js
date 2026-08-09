@@ -11,6 +11,7 @@ const { ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const nfs = require('./notes-fs');
+const { atomicWriteFileSync } = require('./atomic-write');
 const { readProjectConfig, writeProjectConfig } = require('./project');
 
 function registerFilesystemIpc({ getCurrentProject }) {
@@ -108,8 +109,27 @@ function registerFilesystemIpc({ getCurrentProject }) {
       finalName = `${base}-${counter}${ext}`;
       counter++;
     }
-    fs.writeFileSync(path.join(attachDir, finalName), Buffer.from(data));
+    atomicWriteFileSync(path.join(attachDir, finalName), Buffer.from(data));
     return { fileName: finalName };
+  });
+
+  // Rückbauhilfe ausschließlich für noch nicht fertig gespeicherte
+  // Eingang-Entwürfe. Der Renderer kann nur einen einzelnen Dateinamen aus
+  // .attachments zurückgeben; Pfade oder Unterordner werden strikt abgelehnt.
+  ipcMain.handle('fs:deleteAttachment', (_e, fileName) => {
+    const projectPath = requireProjectPath();
+    const rawName = String(fileName || '');
+    const safeName = path.basename(rawName);
+    if (!safeName || safeName !== rawName || safeName === '.' || safeName === '..') {
+      throw new Error('Ungültiger Anhang-Dateiname.');
+    }
+
+    const fullPath = path.join(projectPath, '.attachments', safeName);
+    if (!fs.existsSync(fullPath)) return { deleted: false };
+    const stat = fs.statSync(fullPath);
+    if (!stat.isFile()) throw new Error('Der Anhang ist keine Datei.');
+    fs.unlinkSync(fullPath);
+    return { deleted: true };
   });
 
   ipcMain.handle('fs:getSearchDocuments', () => nfs.getSearchDocuments(requireProjectPath()));
@@ -120,8 +140,8 @@ function registerFilesystemIpc({ getCurrentProject }) {
   ipcMain.handle('fs:createSubCategory', (_e, mainCategoryRelPath, name) =>
     nfs.createSubCategory(requireProjectPath(), mainCategoryRelPath, name));
 
-  ipcMain.handle('fs:createNote', (_e, categoryRelPath, title, templateBody) =>
-    nfs.createNote(requireProjectPath(), categoryRelPath, title, templateBody));
+  ipcMain.handle('fs:createNote', (_e, categoryRelPath, title, templateBody, options) =>
+    nfs.createNote(requireProjectPath(), categoryRelPath, title, templateBody, options));
 
   ipcMain.handle('fs:readNote', (_e, relPath) =>
     nfs.readNote(requireProjectPath(), relPath));

@@ -11,8 +11,9 @@ import { showSettingsWindow } from './settings-window.js';
 import { animateIn, animateOut } from './motion.js';
 import { manageModalDialog, closeManagedDialogs, showMessageDialog, showConfirmDialog } from './dialog.js';
 import { initEllipsisTooltips } from './tooltip.js';
-import { openNoteInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor, focusEditor, setSyncScrollEnabled, setAutoSaveSeconds } from './editor.js';
+import { openNoteInEditor, openIncomingInEditor, openNoteDraftInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor, focusEditor, setSyncScrollEnabled, setAutoSaveSeconds } from './editor.js';
 import { rebuildIndex, getSearchState, search as searchNotes, searchWithDetails } from './search.js';
+import { findBrokenWikiLinks, findNotesWithoutTags, findEmptyNotes } from './knowledge-audit.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -23,6 +24,8 @@ const state = {
   tree: [],
   collapsedGroups: new Set(),
   viewMode: 'split', // 'split' | 'editor' | 'preview'
+  incomingProcessing: null, // { incomingId, mode } – Vorbereitung für den nächsten Verarbeitungsschritt
+  incomingNoteDraft: null // { incomingId, title, content, source } – noch nicht gespeicherter Notiz-Entwurf
 };
 
 const els = {
@@ -35,6 +38,8 @@ const els = {
   searchClear: document.getElementById('searchClear'),
   navTree: document.getElementById('navTree'),
   homeLink: document.getElementById('homeLink'),
+  incomingLink: document.getElementById('incomingLink'),
+  knowledgeCareLink: document.getElementById('knowledgeCareLink'),
   btnAddNote: document.getElementById('btnAddNote'),
   segAddMain: document.getElementById('segAddMain'),
   segAddSub: document.getElementById('segAddSub'),
@@ -695,7 +700,7 @@ function friendlyBackupErrorText(code, message) {
     ENOTDIR: 'Der angegebene Backup-Pfad ist kein Ordner.',
     EROFS: 'Das Ziellaufwerk ist schreibgeschützt (nur lesbar).'
   };
-  return map[code] || `Unbekannter Fehler${message ? `: ${message}` : '.'}`;
+  return map[code] || (message ? `Der Fehler konnte nicht genauer bestimmt werden: ${message}` : 'Der Fehler konnte nicht genauer bestimmt werden.');
 }
 
 // Erscheint beim X-Klick, sofern noch keine feste Wahl gespeichert ist (siehe
@@ -746,14 +751,14 @@ function showBackupErrorModal(status) {
   const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const overlay = document.createElement('div');
   overlay.className = 'prompt-overlay backup-error-overlay';
-  const lastError = status.lastErrorAt ? formatRelativeTime(status.lastErrorAt) : 'unbekannt';
+  const lastError = status.lastErrorAt ? formatRelativeTime(status.lastErrorAt) : 'Zeitpunkt nicht verfügbar';
   overlay.innerHTML = `
     <div class="prompt-modal" role="dialog" aria-modal="true" aria-labelledby="backupErrorDialogTitle" aria-describedby="backupErrorDialogDescription">
       <div class="prompt-title" id="backupErrorDialogTitle"><img class="lib-icon backup-dialog-icon" src="assets/icon-library/security/alert-triangle.svg" alt=""> Backup fehlgeschlagen<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Backup-Fehler schließen">✕</button></div>
       <p class="sync-modal-note" id="backupErrorDialogDescription">${status.consecutiveFailures}x in Folge fehlgeschlagen · zuletzt ${escapeHtml(lastError)}</p>
       <p class="sync-modal-note">${escapeHtml(status.lastErrorUserMessage || friendlyBackupErrorText(status.lastErrorCode, status.lastErrorMessage))}</p>
       <button type="button" class="backup-error-details-toggle" id="backupErrorDetailsToggle" aria-expanded="false" aria-controls="backupErrorDetails">Details anzeigen</button>
-      <pre class="backup-error-details" id="backupErrorDetails" style="display:none;">${escapeHtml([status.lastErrorCode, status.lastErrorMessage].filter(Boolean).join('\n') || 'Keine weiteren Details verfügbar.')}</pre>
+      <pre class="backup-error-details" id="backupErrorDetails" style="display:none;">${escapeHtml([status.lastErrorCode, status.lastErrorMessage].filter(Boolean).join('\n') || 'Information nicht verfügbar.')}</pre>
     </div>`;
 
   document.body.appendChild(overlay);
@@ -868,12 +873,19 @@ els.btnAbout.addEventListener('click', async () => {
   });
 });
 
+function applyIncomingSidebarVisibility(config = state.project?.config) {
+  const visible = config?.incoming?.showInSidebar !== false;
+  const row = els.incomingLink?.closest('li');
+  if (row) row.hidden = !visible;
+}
+
 function openSettingsWindow() {
   showSettingsWindow({
     projectPath: state.project?.path,
     onConfigChange: (newConfig) => {
       if (state.project) state.project.config = newConfig;
       setAutoSaveSeconds(newConfig?.editor?.autoSave ?? 30);
+      applyIncomingSidebarVisibility(newConfig);
     },
     onProjectPathChange: (newPath) => { if (state.project) state.project.path = newPath; },
     onShowShortcuts: showShortcutsCheatsheet
@@ -1181,7 +1193,7 @@ async function openSyncSettingsModal() {
   overlay.className = 'prompt-overlay';
   overlay.innerHTML = `
     <div class="prompt-modal sync-modal">
-      <div class="prompt-title"><img class="lib-icon dialog-title-icon" src="assets/icon-library/network/cloud.svg" alt="">Cloud-Sync (Nextcloud/WebDAV)<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
+      <div class="prompt-title"><img class="lib-icon dialog-title-icon" src="assets/icon-library/network/cloud.svg" alt="">Synchronisation (Nextcloud/WebDAV)<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
       <p class="sync-modal-note">Verbindung testen, reiner Upload, oder Abgleich in beide Richtungen mit Löschungs- und Konflikterkennung.</p>
       <label class="sync-field-label">WebDAV-URL</label>
       <input type="text" class="prompt-input" id="syncModalUrl" placeholder="https://deine-nextcloud.example/remote.php/dav/files/NUTZER/" autocomplete="off">
@@ -1193,7 +1205,7 @@ async function openSyncSettingsModal() {
         <input type="checkbox" id="syncModalRemember"> Passwort merken
       </label>
       <label class="sync-remember-label" id="syncAutoLabel">
-        <input type="checkbox" id="syncModalAuto"> Automatischer Abgleich, alle
+        <input type="checkbox" id="syncModalAuto"> Automatische Synchronisation, alle
         <select id="syncModalInterval">
           ${buildSyncIntervalOptionsHtml(15)}
         </select>
@@ -1228,12 +1240,12 @@ async function openSyncSettingsModal() {
     if (isHidden) {
       const history = await window.archivAPI.syncApi.getHistory();
       listEl.innerHTML = history.length === 0
-        ? '<p class="sync-history-empty">Noch kein Abgleich durchgeführt.</p>'
+        ? '<p class="sync-history-empty">Noch keine Synchronisation durchgeführt.</p>'
         : history.map(h => {
             const when = formatRelativeTime(h.timestamp);
             const duration = h.durationMs != null ? `${(h.durationMs / 1000).toFixed(1)}s` : '–';
             if (!h.success) {
-              return `<div class="sync-history-row sync-history-error"><img class="lib-icon shr-icon" src="assets/icon-library/security/alert-triangle.svg" alt=""><span class="shr-main">Fehlgeschlagen · ${escapeHtml(when)}</span><span class="shr-detail">${escapeHtml(h.error || 'Unbekannter Fehler')}</span></div>`;
+              return `<div class="sync-history-row sync-history-error"><img class="lib-icon shr-icon" src="assets/icon-library/security/alert-triangle.svg" alt=""><span class="shr-main">Fehlgeschlagen · ${escapeHtml(when)}</span><span class="shr-detail">${escapeHtml(h.error || 'Der Fehler konnte nicht genauer bestimmt werden.')}</span></div>`;
             }
             return `<div class="sync-history-row"><span class="shr-icon">✓</span><span class="shr-main">${h.filesCount} Datei${h.filesCount === 1 ? '' : 'en'} · ${escapeHtml(when)}</span><span class="shr-detail">${duration}${h.warnings ? ` · ${h.warnings} Warnung${h.warnings === 1 ? '' : 'en'}` : ''}</span></div>`;
           }).join('');
@@ -1387,11 +1399,11 @@ async function openSyncSettingsModal() {
 
   overlay.querySelector('[data-action="syncall"]').addEventListener('click', async () => {
     if (!await showConfirmDialog({
-      title: 'Zwei-Wege-Abgleich starten?',
-      message: 'Eindeutige Änderungen und Löschungen werden automatisch abgeglichen. Bei echten Konflikten wird nichts verändert; stattdessen erscheint eine Liste mit Auflösungsoptionen.',
-      confirmLabel: 'Abgleichen'
+      title: 'Zwei-Wege-Synchronisation starten?',
+      message: 'Eindeutige Änderungen und Löschungen werden automatisch synchronisiert. Bei echten Konflikten wird nichts verändert; stattdessen erscheint eine Liste mit Auflösungsoptionen.',
+      confirmLabel: 'Synchronisieren'
     })) return;
-    setStatus('Gleiche ab …', 'pending');
+    setStatus('Synchronisiere …', 'pending');
     conflictListEl.innerHTML = '';
     try {
       await persistUrlAndUser();
@@ -1421,7 +1433,7 @@ async function openSyncSettingsModal() {
   try {
     const status = await window.archivAPI.syncApi.getStatus();
     if (status.state === 'error') {
-      setStatus('Letzter Abgleich fehlgeschlagen: ' + (status.lastError || ''), 'error');
+      setStatus('Letzte Synchronisation fehlgeschlagen: ' + (status.lastError || ''), 'error');
       retryRow.innerHTML = '<button type="button" class="btn" id="syncRetryBtn">Erneut versuchen</button>';
       document.getElementById('syncRetryBtn').addEventListener('click', () => {
         overlay.querySelector('[data-action="syncall"]').click();
@@ -1430,7 +1442,7 @@ async function openSyncSettingsModal() {
       setStatus(`${status.conflicts.length} ungelöste(r) Konflikt(e) — bitte auflösen:`, 'error');
       renderConflicts(status.conflicts);
     } else if (status.state === 'idle' && status.lastSyncAt) {
-      setStatus('Zuletzt erfolgreich abgeglichen: ' + formatRelativeTime(status.lastSyncAt), 'ok');
+      setStatus('Zuletzt erfolgreich synchronisiert: ' + formatRelativeTime(status.lastSyncAt), 'ok');
     }
   } catch { /* Status-Abruf ist rein informativ, sollte das Öffnen nie blockieren */ }
 }
@@ -1445,15 +1457,15 @@ els.btnSync.addEventListener('click', () => { openSyncSettingsModal(); });
 function applySyncStatus(status) {
   els.btnSync.classList.remove('sync-status-syncing', 'sync-status-error', 'sync-status-conflicts', 'sync-status-ok');
   if (status.state === 'syncing') { els.btnSync.classList.add('sync-status-syncing'); els.btnSync.title = 'Synchronisiere …'; }
-  else if (status.state === 'error') { els.btnSync.classList.add('sync-status-error'); els.btnSync.title = 'Letzter Abgleich fehlgeschlagen: ' + (status.lastError || ''); }
+  else if (status.state === 'error') { els.btnSync.classList.add('sync-status-error'); els.btnSync.title = 'Letzte Synchronisation fehlgeschlagen: ' + (status.lastError || ''); }
   else if (status.state === 'conflicts') { els.btnSync.classList.add('sync-status-conflicts'); els.btnSync.title = `${status.conflictCount} ungelöste(r) Konflikt(e)`; }
   else if (status.state === 'idle' && status.lastSyncAt) {
     // Zuvor gab es hierfür GAR keine eigene Kennzeichnung — sah optisch genauso
     // aus wie "noch nie synchronisiert". Jetzt: grüner Punkt = zuletzt erfolgreich.
     els.btnSync.classList.add('sync-status-ok');
-    els.btnSync.title = 'Zuletzt erfolgreich abgeglichen: ' + formatRelativeTime(status.lastSyncAt);
+    els.btnSync.title = 'Zuletzt erfolgreich synchronisiert: ' + formatRelativeTime(status.lastSyncAt);
   }
-  else { els.btnSync.title = 'Cloud-Sync-Einstellungen'; }
+  else { els.btnSync.title = 'Synchronisationseinstellungen'; }
 }
 window.archivAPI.syncApi.getStatus().then(applySyncStatus).catch(() => {});
 window.archivAPI.syncApi.onStatusUpdate(applySyncStatus);
@@ -1461,6 +1473,8 @@ window.archivAPI.syncApi.onStatusUpdate(applySyncStatus);
 // Bug-Fix: "Startseite"/homeLink lag außerhalb von #navTree und wurde daher
 // nie von wireNavInteractions() erfasst — hatte bislang GAR keinen Klick-Handler.
 els.homeLink.addEventListener('click', () => { location.hash = '#home'; });
+els.incomingLink.addEventListener('click', () => { location.hash = '#incoming'; });
+els.knowledgeCareLink.addEventListener('click', () => { location.hash = '#knowledge-care'; });
 // Tags/Statistik haben keinen eigenen Sidebar-Link mehr — Navigation dorthin
 // läuft jetzt über die Dashboard-Kacheln (siehe renderHome), Routen selbst
 // bleiben unverändert erreichbar (#tags, #stats).
@@ -1925,12 +1939,15 @@ function showExportMenu(anchorEl) {
       trigger: anchorEl,
       label: 'Exportieren',
       onDismiss: () => close(null),
-      html: renderSimpleContextMenuItems([
-        { label: '⬇ Als Markdown-Datei (.md) exportieren', data: { choice: 'md' } },
-        { label: '⬇ Als HTML exportieren', data: { choice: 'html' } },
-        { label: '⬇ Als PDF exportieren', data: { choice: 'pdf' } },
-        { label: '⬇ Ganzes Wiki als ZIP sichern', data: { choice: 'zip' } }
-      ])
+      html: `
+        ${renderSimpleContextMenuItems([
+          { label: '⬇ Als Markdown-Datei (.md) exportieren', data: { choice: 'md' } },
+          { label: '⬇ Als HTML exportieren', data: { choice: 'html' } },
+          { label: '⬇ Als PDF exportieren', data: { choice: 'pdf' } },
+          { label: '⬇ Ganzes Wiki als ZIP exportieren', data: { choice: 'zip' } }
+        ])}
+        <p class="export-security-hint">Exportierte Dateien enthalten Inhalte deines Wikis.<br>Schütze diese Dateien entsprechend.</p>
+      `
     });
 
     let resolved = false;
@@ -2037,10 +2054,10 @@ function showContextMenu(relPath, anchorEl, type = 'note', position = null) {
     label: type === 'note' ? 'Notizaktionen' : 'Kategorieaktionen',
     position,
     html: renderSimpleContextMenuItems([
-      { label: '✎ Umbenennen', data: { action: 'rename' } },
-      { label: '🎨 Icon ändern', data: { action: 'icon' } },
+      { label: '<img class="lib-icon context-menu-icon" src="assets/icon-library/actions/pencil.svg" alt=""><span>Umbenennen</span>', data: { action: 'rename' } },
+      { label: '<img class="lib-icon context-menu-icon" src="assets/icon-library/actions/palette.svg" alt=""><span>Icon ändern</span>', data: { action: 'icon' } },
       { separator: true },
-      { label: '🗑 In den Papierkorb', danger: true, data: { action: 'delete' } }
+      { label: '<img class="lib-icon context-menu-icon" src="assets/icon-library/actions/trash.svg" alt=""><span>In den Papierkorb</span>', danger: true, data: { action: 'delete' } }
     ])
   });
 
@@ -2603,7 +2620,11 @@ document.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); els.navSearch.focus(); els.navSearch.select(); }
   else if (mod && e.key.toLowerCase() === 'b' && getOpenRelPath()) { e.preventDefault(); cycleViewMode(); }
-  else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(currentOnSaved, currentOnSaveError); }
+  else if (mod && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    if (currentSlug().startsWith('incoming-draft/')) saveIncomingNoteDraft();
+    else saveNow(currentOnSaved, currentOnSaveError);
+  }
   else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && getOpenRelPath()) {
     e.preventDefault(); jumpToAdjacentNote(e.key === 'ArrowRight' ? 1 : -1);
   }
@@ -2792,6 +2813,10 @@ async function render() {
   }
 
   if (slug === 'home') return await renderHome();
+  if (slug === 'incoming') return await renderIncoming();
+  if (slug.startsWith('incoming-draft/')) return await renderIncomingNoteDraft(slug.slice('incoming-draft/'.length));
+  if (slug.startsWith('incoming/')) return await renderIncomingEntry(slug.slice('incoming/'.length));
+  if (slug === 'knowledge-care') return renderKnowledgeCare();
   if (slug === 'trash') return renderTrash();
   if (slug === 'tags') return await renderTagsOverview(null);
   if (slug.startsWith('tags/')) return await renderTagsOverview(decodeURIComponent(slug.slice('tags/'.length)));
@@ -2837,7 +2862,9 @@ function expandAncestorGroups(relPath) {
 // Fokus), dient hier nur als "hier befindest du dich"-Kontext.
 function setActiveNav(relPath) {
   if (expandAncestorGroups(relPath)) renderNavTree();
-  els.homeLink.classList.toggle('active', !relPath);
+  els.homeLink.classList.toggle('active', !relPath && currentSlug() === 'home');
+  els.incomingLink.classList.toggle('active', currentSlug() === 'incoming' || currentSlug().startsWith('incoming/') || currentSlug().startsWith('incoming-draft/'));
+  els.knowledgeCareLink.classList.toggle('active', currentSlug() === 'knowledge-care');
   els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.toggle('active', a.dataset.relpath === relPath));
   const ancestorPaths = new Set(getAncestorPaths(relPath));
   els.navTree.querySelectorAll('.nav-group[data-relpath]').forEach(g => {
@@ -3337,18 +3364,27 @@ async function renderHome() {
   const allCount = DASHBOARD_SIZE_OPTIONS.includes(config.dashboardAllCount) ? config.dashboardAllCount : 10;
   const pinnedCount = DASHBOARD_SIZE_OPTIONS.includes(config.dashboardPinnedCount) ? config.dashboardPinnedCount : 5;
 
-  // Nach Änderungsdatum sortieren (frontmatter.modified, bei jedem Speichern
-  // aktualisiert) — sowohl für "Zuletzt bearbeitet" als auch für "Alle
-  // Notizen" (letzteres zeigt dieselbe Reihenfolge, nur mit absolutem statt
-  // relativem Datum).
-  const sorted = [...notes].sort((a, b) => {
+  // "Zuletzt bearbeitet" und Favoriten bleiben nach Änderungsdatum sortiert.
+  const sortedByModified = [...notes].sort((a, b) => {
     const ta = a.frontmatter?.modified || a.frontmatter?.created || '';
     const tb = b.frontmatter?.modified || b.frontmatter?.created || '';
     return tb.localeCompare(ta);
   });
-  const recentNotes = sorted.slice(0, recentCount);
-  const pinnedNotesAll = sorted.filter(n => n.frontmatter?.pinned);
+  const recentNotes = sortedByModified.slice(0, recentCount);
+  const pinnedNotesAll = sortedByModified.filter(n => n.frontmatter?.pinned);
   const pinnedNotes = pinnedNotesAll.slice(0, pinnedCount);
+
+  // "Alle Notizen" erhält bewusst eine stabile alphabetische Übersicht nach
+  // dem sichtbaren Notiztitel. Die zeitliche Sortierung der anderen Bereiche
+  // und die gespeicherte Anzahl sichtbarer Einträge bleiben unverändert.
+  const allNotes = [...notes].sort((a, b) => {
+    const aTitle = String(a.frontmatter?.title || a.name || '').replace(/\.md$/i, '');
+    const bTitle = String(b.frontmatter?.title || b.name || '').replace(/\.md$/i, '');
+    return aTitle.localeCompare(bTitle, 'de', {
+      sensitivity: 'base',
+      numeric: true
+    });
+  });
 
   // Notiz-Statistik-Kacheln: simple, aus schon vorhandenen Frontmatter-Daten
   // berechnet — kein zusätzlicher Speicher-/Tracking-Aufwand nötig.
@@ -3371,13 +3407,11 @@ async function renderHome() {
     ? `Du hast diese Woche ${editedThisWeek} Seite${editedThisWeek === 1 ? '' : 'n'} bearbeitet.`
     : `${notes.length} Notiz${notes.length === 1 ? '' : 'en'} insgesamt.`;
 
-  // Dezenter Kontext-Hinweis (Nutzer-Feature): abwechselnd "zuletzt
-  // bearbeitet" oder "häufigste Kategorie" — beides aus bereits vorhandenen
-  // Daten abgeleitet, keine neue Datenerfassung.
-  const contextOptions = [];
-  if (recentNotes[0]) contextOptions.push(`Zuletzt gearbeitet an „${escapeHtml(recentNotes[0].frontmatter?.title || recentNotes[0].name)}"`);
-  if (mostUsedCategory) contextOptions.push(`Am häufigsten genutzt: ${escapeHtml(mostUsedCategory)}`);
-  const contextLine = contextOptions.length ? contextOptions[Math.floor(Math.random() * contextOptions.length)] : '';
+  // Stabile Kontextzeile: immer die zuletzt bearbeitete Notiz anzeigen.
+  // Die Aktivitätsinformation bleibt unverändert in der bestehenden Unterzeile.
+  const contextLine = recentNotes[0]
+    ? `Zuletzt bearbeitet: ${escapeHtml(recentNotes[0].frontmatter?.title || recentNotes[0].name)}`
+    : '';
 
 
   // --- Die einzelnen Bereichs-Blöcke, jeweils als HTML-Fragment ---
@@ -3391,16 +3425,38 @@ async function renderHome() {
         <span class="stat-num">${editedThisWeek}</span>
         <span class="stat-label">✏️ diese Woche bearbeitet</span>
       </button>
-      <button type="button" class="stat-chip" id="statChipTopics">
+      <button type="button" class="stat-chip${categoryCount === 0 ? ' is-empty' : ''}" id="statChipTopics">
         <span class="stat-num">${categoryCount}</span>
         <span class="stat-label">📚 Themen</span>
+        ${categoryCount === 0 ? `
+          <span class="stat-empty-hint">
+            <strong>Noch keine Themen vorhanden.</strong>
+            <span>Erstelle Themen,<br>um deine Notizen zu organisieren.</span>
+          </span>` : ''}
       </button>
-      <button type="button" class="stat-chip" id="statChipTags">
+      <button type="button" class="stat-chip${tagCount === 0 ? ' is-empty' : ''}" id="statChipTags">
         <span class="stat-num">${tagCount}</span>
         <span class="stat-label">🏷 Tags</span>
+        ${tagCount === 0 ? `
+          <span class="stat-empty-hint">
+            <strong>Noch keine Tags vorhanden.</strong>
+            <span>Füge Tags zu Notizen hinzu,<br>um dein Wissen schneller zu finden.</span>
+          </span>` : ''}
       </button>
     </div>`;
-  const pinnedBlockHtml = pinnedNotesAll.length ? `<div class="pinned-strip" id="pinnedStrip"></div>` : '';
+  const pinnedBlockHtml = pinnedNotesAll.length
+    ? `<div class="pinned-strip" id="pinnedStrip"></div>`
+    : `
+      <div class="dashboard-section pinned-empty-section">
+        <div class="dashboard-section-header">⭐ Angepinnt</div>
+        <div class="dashboard-empty-compact">
+          <div class="dashboard-empty-compact-title">Noch keine Favoriten.</div>
+          <div class="dashboard-empty-compact-body">
+            Markiere wichtige Notizen mit dem Stern,<br>
+            damit sie hier schnell erreichbar sind.
+          </div>
+        </div>
+      </div>`;
 
   // "Zuletzt bearbeitet"/"Alle Notizen": bleiben als zusammengehöriges Paar
   // bestehen (teilen sich die verbleibende Höhe), sofern beide aktiv UND
@@ -3426,7 +3482,7 @@ async function renderHome() {
       <div class="dashboard-section all" id="allSection">
         <div class="dashboard-section-header">Alle Notizen</div>
         <div class="dashboard-list" id="allList"></div>
-        ${allCount < sorted.length ? `<button type="button" class="dashboard-show-more" id="allShowMore">Alle ${sorted.length} anzeigen →</button>` : ''}
+        ${allCount < allNotes.length ? `<button type="button" class="dashboard-show-more" id="allShowMore">Alle ${allNotes.length} anzeigen →</button>` : ''}
       </div>`;
   }
 
@@ -3597,7 +3653,7 @@ async function renderHome() {
   });
 
   const allList = document.getElementById('allList');
-  sorted.slice(0, allCount).forEach(note => {
+  allNotes.slice(0, allCount).forEach(note => {
     const dateLabel = formatAbsoluteDate(note.frontmatter?.modified || note.frontmatter?.created);
     allList.appendChild(buildDashboardRow(note, excerptFor(note), dateLabel, false));
   });
@@ -3623,13 +3679,13 @@ async function renderHome() {
     listEl.style.maxHeight = (rowHeight * MAX_VISIBLE_ROWS) + 'px';
   }
   fitNoteListHeight(recentList, recentNotes.length);
-  fitNoteListHeight(allList, Math.min(allCount, sorted.length));
+  fitNoteListHeight(allList, Math.min(allCount, allNotes.length));
   document.getElementById('allShowMore')?.addEventListener('click', function () {
-    sorted.slice(allCount).forEach(note => {
+    allNotes.slice(allCount).forEach(note => {
       const dateLabel = formatAbsoluteDate(note.frontmatter?.modified || note.frontmatter?.created);
       allList.appendChild(buildDashboardRow(note, excerptFor(note), dateLabel, false));
     });
-    fitNoteListHeight(allList, sorted.length); // nach "Alle anzeigen" ggf. neu bewerten (jetzt sicher > 4)
+    fitNoteListHeight(allList, allNotes.length); // nach "Alle anzeigen" ggf. neu bewerten (jetzt sicher > 4)
     this.remove();
   });
 }
@@ -3922,12 +3978,12 @@ async function renderNote(relPath) {
         <span class="toolbar-group-label">Ansicht</span>
         <div class="toolbar-group-controls">
           <div class="view-toggle" id="viewToggle">
-            <button type="button" data-mode="editor">Editor</button>
-            <button type="button" data-mode="split">Split</button>
-            <button type="button" data-mode="preview">Vorschau</button>
+            <button type="button" data-mode="editor" title="Nur Editor anzeigen" aria-label="Nur Editor anzeigen" aria-pressed="false">Editor</button>
+            <button type="button" data-mode="split" title="Editor und Vorschau nebeneinander anzeigen" aria-label="Split-Ansicht anzeigen" aria-pressed="false">Split</button>
+            <button type="button" data-mode="preview" title="Nur Vorschau anzeigen" aria-label="Nur Vorschau anzeigen" aria-pressed="false">Vorschau</button>
           </div>
-          <button type="button" class="icon-btn sync-scroll-toggle" id="btnSyncScroll" title="Sync-Scroll: Vorschau folgt beim Scrollen im Editor" aria-label="Sync-Scroll umschalten">🔗</button>
-          <button type="button" class="icon-btn" id="btnFocusMode" title="Fokus-Modus (Strg+Umschalt+F)" aria-label="Fokus-Modus umschalten" aria-pressed="false">◎</button>
+          <button type="button" class="icon-btn sync-scroll-toggle" id="btnSyncScroll" title="Synchrones Scrollen im Split-Modus" aria-label="Synchrones Scrollen im Split-Modus umschalten" aria-pressed="false">⇅</button>
+          <button type="button" class="icon-btn" id="btnFocusMode" title="Fokus-Modus ein-/ausschalten (Strg+Umschalt+F)" aria-label="Fokus-Modus ein-/ausschalten" aria-pressed="false">◎</button>
         </div>
       </div>
       <div class="format-toolbar" id="formatToolbar">
@@ -3959,13 +4015,15 @@ async function renderNote(relPath) {
         <div class="toolbar-group">
           <span class="toolbar-group-label">Einfügen</span>
           <div class="toolbar-group-controls">
-            <button type="button" data-fmt="link" title="Link ([Text](URL))">↗</button>
+            <button type="button" data-fmt="link" title="Externen Link einfügen ([Text](URL))" aria-label="Externen Link einfügen">⛓</button>
+            <button type="button" data-fmt="wikilink" title="Wikilink zu einer vorhandenen Notiz einfügen ([[Notizname]])" aria-label="Wikilink zu einer vorhandenen Notiz einfügen"><span aria-hidden="true" style="display:inline-block;white-space:nowrap;font-size:11px;line-height:1;">[[]]</span></button>
           </div>
         </div>
         <div class="toolbar-group">
           <span class="toolbar-group-label">Markdown</span>
           <div class="toolbar-group-controls">
             <button type="button" data-fmt="code" title="Code-Block (dreifache Backticks)">{ }</button>
+            <button type="button" data-fmt="quote" title="Markdown-Zitat einfügen" aria-label="Markdown-Zitat einfügen">&gt;</button>
             <button type="button" id="btnCallout" title="Callout einfügen">▤</button>
           </div>
         </div>
@@ -3973,8 +4031,8 @@ async function renderNote(relPath) {
       <div class="toolbar-group toolbar-document-group">
         <span class="toolbar-group-label">Dokument</span>
         <div class="toolbar-group-controls">
-          <button type="button" class="icon-btn" id="btnExport" title="Notiz exportieren" aria-label="Notiz exportieren">⬇</button>
-          <button type="button" class="icon-btn" id="btnSaveAsTemplate" title="Als eigene Vorlage speichern" aria-label="Als Vorlage speichern">📋</button>
+          <button type="button" class="icon-btn" id="btnExport" title="Notiz exportieren" aria-label="Notiz exportieren"><img class="lib-icon ui-action-icon" src="assets/icon-library/actions/download.svg" alt=""></button>
+          <button type="button" class="icon-btn" id="btnSaveAsTemplate" title="Als eigene Vorlage speichern" aria-label="Als Vorlage speichern"><img class="lib-icon ui-action-icon" src="assets/icon-library/docs/clipboard.svg" alt=""></button>
         </div>
       </div>
     </div>
@@ -4129,6 +4187,28 @@ async function renderNote(relPath) {
       const url = await showPromptModal({ title: 'Link-URL', defaultValue: 'https://' });
       if (url) wrapSelection('[', `](${url})`, 'Linktext');
     }
+    else if (fmt === 'wikilink') {
+      const selectedText = getEditorSelectionText();
+      const result = await showWikiLinkModal(selectedText);
+      if (!result || !result.target) return;
+      const syntax = result.display && result.display !== result.target
+        ? `[[${result.target}|${result.display}]]`
+        : `[[${result.target}]]`;
+      insertAtCursor(syntax);
+    }
+    else if (fmt === 'quote') {
+      const selectedText = getEditorSelectionText();
+      if (selectedText) {
+        const quoted = selectedText
+          .split('\n')
+          .map(line => `> ${line}`)
+          .join('\n');
+        deleteEditorSelection();
+        insertAtCursor(quoted);
+      } else {
+        insertAtCursor('> Text');
+      }
+    }
     else if (fmt === 'code') insertAtCursor('\n```\nCode hier\n```\n');
     else if (fmt === 'ul') insertAtCursor('\n- Punkt\n');
     else if (fmt === 'ol') insertAtCursor('\n1. Punkt\n');
@@ -4169,7 +4249,7 @@ async function renderNote(relPath) {
         if (result?.saved) await showMessageDialog({ title: 'Export abgeschlossen', message: `PDF exportiert nach:\n${result.filePath}` });
       } else if (choice === 'zip') {
         const result = await window.archivAPI.exportApi.projectZip();
-        if (result?.saved) await showMessageDialog({ title: 'Export abgeschlossen', message: `Wiki-Backup exportiert nach:\n${result.filePath}` });
+        if (result?.saved) await showMessageDialog({ title: 'Export abgeschlossen', message: `Wiki-Export erstellt: \n${result.filePath}` });
       }
     } catch (err) {
       await showMessageDialog({ title: 'Export fehlgeschlagen', message: err.message });
@@ -4261,7 +4341,7 @@ async function renderNote(relPath) {
   function onSaveError(err) {
     dirtyLabel.textContent = '⚠ Speichern fehlgeschlagen';
     dirtyLabel.classList.add('has-error');
-    dirtyLabel.title = err?.message || 'Unbekannter Fehler beim Speichern.';
+    dirtyLabel.title = err?.message || 'Der Fehler konnte nicht genauer bestimmt werden.';
   }
   currentOnSaveError = onSaveError;
 
@@ -4456,9 +4536,61 @@ async function renderNote(relPath) {
     location.hash = '#note/' + encodeURIComponent(renamed.relPath);
   });
 
-  tagsInput.addEventListener('blur', async () => {
-    const tags = tagsInput.value.split(',').map(t => t.trim()).filter(Boolean);
-    await fs.saveNote(relPath, undefined, { tags });
+  let committedTagsValue = (frontmatter?.tags || []).join(', ');
+
+  async function commitTags() {
+    const tags = [...new Set(
+      tagsInput.value
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(Boolean)
+    )];
+    const normalizedValue = tags.join(', ');
+
+    // Enter und der direkt folgende Blur dürfen dieselbe Änderung nicht
+    // doppelt schreiben. Gespeichert wird ausschließlich der Frontmatter-
+    // Patch für Tags; der Notizinhalt bleibt unangetastet.
+    if (normalizedValue === committedTagsValue) {
+      tagsInput.value = normalizedValue;
+      return;
+    }
+
+    const result = await fs.saveNote(relPath, undefined, { tags });
+    committedTagsValue = normalizedValue;
+    tagsInput.value = normalizedValue;
+
+    // Den aktuell verwendeten Knoten sofort mitführen, damit alle lokalen
+    // Auswertungen bereits vor einem vollständigen Neu-Rendern korrekt sind.
+    if (!node.frontmatter) node.frontmatter = {};
+    node.frontmatter.tags = result?.frontmatter?.tags || tags;
+
+    // Dashboard, Tag-Übersicht, Navigation und Suche lesen aus state.tree.
+    // Nur diesen gemeinsamen Datenstand neu laden; die offene Notiz und der
+    // Editor werden dabei bewusst nicht neu gerendert.
+    state.tree = await fs.getTree();
+    renderNavTree();
+
+    const indexRebuild = rebuildIndex();
+    refreshSearchDropdownForCurrentQuery();
+    indexRebuild
+      .then(rebuildResult => {
+        if (rebuildResult.applied) refreshSearchDropdownForCurrentQuery();
+      })
+      .catch(err => {
+        console.error('[Archiv Wiki] Such-Index konnte nach Tag-Änderung nicht aktualisiert werden', err);
+      });
+  }
+
+  tagsInput.addEventListener('keydown', async (event) => {
+    if (event.key !== 'Enter' || event.isComposing) return;
+    event.preventDefault();
+    await commitTags();
+  });
+
+  tagsInput.addEventListener('blur', () => {
+    commitTags().catch(err => {
+      console.error('[Archiv Wiki] Tags konnten nicht aktualisiert werden', err);
+    });
   });
 }
 
@@ -5301,9 +5433,1115 @@ function applyViewMode() {
     }
   }
 
-  document.querySelectorAll('#viewToggle button').forEach(b =>
-    b.classList.toggle('active', b.dataset.mode === state.viewMode)
+  document.querySelectorAll('#viewToggle button').forEach(b => {
+    const active = b.dataset.mode === state.viewMode;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+
+  // Synchrones Scrollen ist nur sinnvoll, wenn Editor und Vorschau
+  // gleichzeitig sichtbar sind. Der gespeicherte Ein/Aus-Zustand bleibt
+  // außerhalb der Split-Ansicht unverändert erhalten.
+  const syncButton = document.getElementById('btnSyncScroll');
+  if (syncButton) {
+    const available = state.viewMode === 'split';
+    syncButton.disabled = !available;
+    syncButton.setAttribute('aria-disabled', available ? 'false' : 'true');
+    syncButton.title = available
+      ? 'Synchrones Scrollen im Split-Modus'
+      : 'Synchrones Scrollen ist nur im Split-Modus verfügbar';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Eingang: Darstellung und Bedienung der vom Main-Prozess verwalteten
+// Eingang-Daten. Der Renderer nutzt dafür ausschließlich die begrenzte
+// Preload-/IPC-Schnittstelle und greift nie selbst auf Projektdateien zu.
+// ---------------------------------------------------------------------------
+function incomingTypeLabel(entry) {
+  const type = String(entry?.type || '').trim().toLowerCase();
+  const labels = {
+    text: 'Text',
+    web: 'Webseite',
+    website: 'Webseite',
+    webpage: 'Webseite',
+    url: 'Webseite',
+    file: 'Datei',
+    image: 'Bild'
+  };
+  return labels[type] || 'Eingang';
+}
+
+function isIncomingWebpage(entry) {
+  const type = String(entry?.type || '').trim().toLowerCase();
+  return type === 'web' || type === 'website' || type === 'webpage' || type === 'url';
+}
+
+function incomingListIconSrc(entry) {
+  const type = String(entry?.type || '').trim().toLowerCase();
+  if (type === 'text') return 'assets/icon-library/actions/pencil.svg';
+  if (type === 'image') return 'assets/icon-library/hardware/camera.svg';
+  if (type === 'file') return 'assets/icon-library/docs/file.svg';
+  if (isIncomingWebpage(entry)) return 'assets/icon-library/network/globe.svg';
+  return 'assets/icon-library/navigation/inbox.svg';
+}
+
+function incomingFirstText(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function incomingDisplayTitle(entry) {
+  const explicit = incomingFirstText(entry?.title, entry?.name, entry?.fileName, entry?.filename);
+  if (explicit) return explicit;
+
+  const text = incomingFirstText(entry?.text, entry?.content);
+  if (text) {
+    const firstLine = text.split(/\r?\n/, 1)[0].trim();
+    if (firstLine) return firstLine.length > 72 ? firstLine.slice(0, 69) + '…' : firstLine;
+  }
+
+  const source = incomingFirstText(entry?.url, entry?.sourceUrl, entry?.source?.url);
+  return source || 'Eingang ohne Titel';
+}
+
+function incomingPreview(entry) {
+  const type = String(entry?.type || '').trim().toLowerCase();
+  const fileName = incomingFirstText(
+    entry?.fileName,
+    entry?.filename,
+    entry?.attachment?.fileName,
+    entry?.source?.fileName,
+    entry?.source?.filename
   );
+
+  if (type === 'image') {
+    const sourceUrl = incomingFirstText(entry?.sourceUrl, entry?.url, entry?.source?.url);
+    const imageLabel = fileName ? `Bild: ${fileName}` : 'Bild-Anhang';
+    return sourceUrl ? `${imageLabel} · Quelle: ${sourceUrl}` : imageLabel;
+  }
+  if (type === 'file') return fileName ? `Datei: ${fileName}` : 'Datei-Anhang';
+
+  if (isIncomingWebpage(entry)) {
+    const sourceUrl = incomingFirstText(entry?.url, entry?.sourceUrl, entry?.source?.url);
+    const contentPreview = incomingFirstText(entry?.excerpt, entry?.text, entry?.content).replace(/\s+/g, ' ');
+    if (contentPreview) {
+      const text = contentPreview.length > 120 ? contentPreview.slice(0, 117) + '…' : contentPreview;
+      return sourceUrl ? `${text} · Quelle: ${sourceUrl}` : text;
+    }
+    if (sourceUrl) return `Quelle: ${sourceUrl}`;
+  }
+
+  const preview = incomingFirstText(
+    entry?.excerpt,
+    entry?.text,
+    entry?.content,
+    entry?.url,
+    entry?.sourceUrl,
+    entry?.source?.url,
+    fileName
+  ).replace(/\s+/g, ' ');
+
+  if (!preview) return 'Noch keine Vorschau verfügbar.';
+  return preview.length > 180 ? preview.slice(0, 177) + '…' : preview;
+}
+
+function incomingEditorContent(entry) {
+  const type = String(entry?.type || '').trim().toLowerCase();
+  if (type === 'image' && entry?.attachment?.kind === 'managed-file') {
+    const fileName = incomingFirstText(entry?.fileName, entry?.attachment?.fileName, entry?.title);
+    return fileName ? `Bild-Anhang: ${fileName}` : 'Bild-Anhang';
+  }
+  return incomingFirstText(
+    entry?.text,
+    entry?.content,
+    entry?.excerpt,
+    entry?.url,
+    entry?.sourceUrl,
+    entry?.source?.url
+  );
+}
+
+function incomingSourceMetadata(entry) {
+  const sourceUrl = incomingFirstText(entry?.sourceUrl, entry?.url, entry?.source?.url);
+  const imageUrl = incomingFirstText(entry?.imageUrl, entry?.source?.imageUrl);
+  const pageTitle = incomingFirstText(entry?.pageTitle, entry?.source?.title);
+  const fileName = incomingFirstText(entry?.fileName, entry?.filename, entry?.source?.fileName, entry?.source?.filename);
+  const sourceLabel = incomingFirstText(
+    typeof entry?.source === 'string' ? entry.source : '',
+    pageTitle,
+    entry?.source?.label,
+    fileName,
+    sourceUrl
+  );
+
+  return {
+    incomingId: entry?.id || null,
+    type: String(entry?.type || 'text'),
+    importType: entry?.type ? String(entry.type) : null,
+    sourceUrl: sourceUrl || null,
+    imageUrl: imageUrl || null,
+    pageTitle: pageTitle || null,
+    fileName: fileName || null,
+    sourceLabel: sourceLabel || null,
+    capturedAt: entry?.capturedAt || entry?.createdAt || null
+  };
+}
+
+function incomingImageDraftMarker(incomingId) {
+  return `incoming-image:${String(incomingId || '').trim()}`;
+}
+
+async function prepareIncomingNoteDraft(entry) {
+  const type = String(entry?.type || '').trim().toLowerCase();
+  let content = incomingEditorContent(entry);
+  let image = null;
+
+  if (type === 'image') {
+    const preview = await window.archivAPI.incoming.getImagePreview(entry.id);
+    if (!preview?.dataUrl || !preview?.fileName) {
+      throw new Error('Der Bild-Anhang konnte nicht für den Notiz-Entwurf geladen werden.');
+    }
+    const marker = incomingImageDraftMarker(entry.id);
+    image = {
+      marker,
+      fileName: preview.fileName,
+      mimeType: preview.mimeType || '',
+      dataUrl: preview.dataUrl
+    };
+    // Im Editor bleibt nur ein kurzer Markdown-Verweis sichtbar. Die Vorschau
+    // ersetzt diesen temporären Verweis ausschließlich im noch ungespeicherten
+    // Entwurf durch die Bilddaten aus dem Eingang. Erst beim Speichern wird
+    // daraus ein normaler attachment:-Verweis.
+    content = `![Bild](${marker})`;
+  }
+
+  state.incomingNoteDraft = {
+    incomingId: entry.id,
+    title: incomingDisplayTitle(entry),
+    content,
+    source: incomingSourceMetadata(entry),
+    image
+  };
+  return state.incomingNoteDraft;
+}
+
+function incomingAppendNoteOptions() {
+  return fs.flattenNotes(state.tree).map((note) => ({
+    relPath: note.relPath,
+    label: note.frontmatter?.title || note.name.replace(/\.md$/i, '')
+  }));
+}
+
+function incomingImageAppendBlock(entry, marker) {
+  const title = incomingDisplayTitle(entry);
+  const source = incomingSourceMetadata(entry);
+  const lines = [
+    `## ${title}`,
+    '',
+    `![Bild](${marker})`
+  ];
+
+  if (source.sourceUrl) {
+    lines.push('', `Quelle: ${source.sourceUrl}`);
+  }
+  if (source.imageUrl && source.imageUrl !== source.sourceUrl) {
+    lines.push(`Bildquelle: ${source.imageUrl}`);
+  }
+
+  return lines.join('\n');
+}
+
+async function prepareIncomingAppendDraft(entry, targetRelPath) {
+  const type = String(entry?.type || '').trim().toLowerCase();
+  if (type !== 'image') {
+    throw new Error('Das Ergänzen einer bestehenden Notiz ist für diesen Eingangstyp noch nicht vorbereitet.');
+  }
+
+  const targetNote = await fs.readNote(targetRelPath);
+  if (!targetNote?.relPath) {
+    throw new Error('Die ausgewählte Notiz konnte nicht geladen werden.');
+  }
+
+  const preview = await window.archivAPI.incoming.getImagePreview(entry.id);
+  if (!preview?.dataUrl || !preview?.fileName) {
+    throw new Error('Der Bild-Anhang konnte nicht für den Notiz-Entwurf geladen werden.');
+  }
+
+  const marker = incomingImageDraftMarker(entry.id);
+  const existingBody = String(targetNote.body || '').replace(/\s+$/, '');
+  const appendBlock = incomingImageAppendBlock(entry, marker);
+  const content = existingBody ? `${existingBody}\n\n${appendBlock}\n` : `${appendBlock}\n`;
+
+  state.incomingNoteDraft = {
+    incomingId: entry.id,
+    mode: 'append-note',
+    targetRelPath,
+    title: targetNote.frontmatter?.title || targetRelPath.split(/[\\/]/).pop().replace(/\.md$/i, ''),
+    content,
+    source: incomingSourceMetadata(entry),
+    image: {
+      marker,
+      fileName: preview.fileName,
+      mimeType: preview.mimeType || '',
+      dataUrl: preview.dataUrl
+    }
+  };
+  return state.incomingNoteDraft;
+}
+
+function incomingDraftSourceLabel(draft) {
+  return incomingFirstText(
+    draft?.source?.sourceLabel,
+    draft?.source?.fileName,
+    draft?.source?.sourceUrl,
+    'Eingang'
+  );
+}
+
+function showIncomingProcessDialog(entry) {
+  return new Promise((resolve) => {
+    closeManagedDialogs('.incoming-process-overlay', { restoreFocus: false });
+
+    const previousMode = state.incomingProcessing?.incomingId === entry.id
+      ? state.incomingProcessing.mode
+      : 'new-note';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'prompt-overlay incoming-process-overlay';
+    overlay.innerHTML = `
+      <div class="prompt-modal">
+        <div class="prompt-title">Eingang verarbeiten</div>
+        <div class="close-dialog-options">
+          <label class="close-dialog-option"><input type="radio" name="incomingProcessMode" value="new-note"${previousMode === 'new-note' ? ' checked' : ''}> Neue Notiz erstellen</label>
+          <label class="close-dialog-option"><input type="radio" name="incomingProcessMode" value="append-note"${previousMode === 'append-note' ? ' checked' : ''}> Bestehende Notiz ergänzen</label>
+        </div>
+        <div class="prompt-actions">
+          <button type="button" class="btn" data-action="cancel">Abbrechen</button>
+          <button type="button" class="btn primary" data-action="continue">Weiter</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    let closed = false;
+    function close(result = null) {
+      if (closed) return;
+      closed = true;
+      dialogController.destroy();
+      resolve(result);
+    }
+
+    const cancelButton = overlay.querySelector('[data-action="cancel"]');
+    const continueButton = overlay.querySelector('[data-action="continue"]');
+    cancelButton.addEventListener('click', () => close(null));
+    continueButton.addEventListener('click', () => {
+      const mode = overlay.querySelector('input[name="incomingProcessMode"]:checked')?.value || 'new-note';
+      state.incomingProcessing = { incomingId: entry.id, mode };
+      close(mode);
+    });
+
+    const dialogController = manageModalDialog({
+      overlay,
+      dialog: overlay.querySelector('.prompt-modal'),
+      initialFocus: overlay.querySelector('input[name="incomingProcessMode"]:checked'),
+      primaryAction: continueButton,
+      enterActivatesPrimary: true,
+      onRequestClose: () => close(null),
+      closeOnBackdrop: false
+    });
+  });
+}
+
+async function renderIncomingEntry(id) {
+  setActiveNav(null);
+  setBreadcrumb('Eingang');
+
+  let entry;
+  try {
+    entry = await window.archivAPI.incoming.get(id);
+  } catch (error) {
+    if (!currentSlug().startsWith('incoming/')) return;
+    els.contentScroll.innerHTML = `
+      <div class="incoming-view">
+        <h1 class="home-heading">Eingang</h1>
+        <div class="empty-state">
+          <div class="empty-state-title">Eingang konnte nicht geöffnet werden.</div>
+          <div class="empty-state-body">${escapeHtml(error?.message || 'Information nicht verfügbar.')}</div>
+        </div>
+      </div>`;
+    return;
+  }
+
+  if (currentSlug() !== `incoming/${id}`) return;
+
+  let imagePreview = null;
+  if (String(entry?.type || '').trim().toLowerCase() === 'image') {
+    try {
+      imagePreview = await window.archivAPI.incoming.getImagePreview(id);
+    } catch (error) {
+      console.error('[Archiv Wiki] Bild-Eingang konnte nicht dargestellt werden', error);
+    }
+    if (currentSlug() !== `incoming/${id}`) return;
+  }
+
+  const title = incomingDisplayTitle(entry);
+  const body = incomingEditorContent(entry);
+  const typeLabel = incomingTypeLabel(entry);
+  const sourceUrl = incomingFirstText(entry?.sourceUrl, entry?.url, entry?.source?.url);
+  const updated = formatAbsoluteDate(entry?.updatedAt || entry?.createdAt) || 'Zeitpunkt nicht verfügbar';
+
+  setBreadcrumb(`Eingang / ${title}`);
+  els.topbarNoteDates.textContent = `Eingang · ${updated}`;
+
+  els.contentScroll.innerHTML = `
+    <div class="note-header incoming-document-header">
+      <div class="note-document-title">
+        <input type="text" class="note-title-input" value="${escapeHtml(title)}" readonly aria-label="Titel des Eingangs">
+      </div>
+      <div class="note-document-meta">
+        <span class="note-meta-label">Eingang</span>
+        <span class="note-meta-divider" aria-hidden="true"></span>
+        <span class="note-meta-label">${escapeHtml(typeLabel)}</span>
+        ${sourceUrl ? `
+          <span class="note-meta-divider" aria-hidden="true"></span>
+          <span class="note-meta-label" title="${escapeHtml(sourceUrl)}">Quelle: ${escapeHtml(sourceUrl)}</span>` : ''}
+      </div>
+      <div class="note-document-actions">
+        <button type="button" class="btn primary" id="btnProcessIncoming">Als Notiz verarbeiten</button>
+      </div>
+    </div>
+    <div class="note-toolbar" aria-label="Eingang-Ansicht">
+      <div class="toolbar-group toolbar-view-group">
+        <span class="toolbar-group-label">Ansicht</span>
+        <div class="toolbar-group-controls">
+          <div class="view-toggle" id="viewToggle">
+            <button type="button" data-mode="editor" title="Nur Editor anzeigen" aria-label="Nur Editor anzeigen" aria-pressed="false">Editor</button>
+            <button type="button" data-mode="split" title="Editor und Vorschau nebeneinander anzeigen" aria-label="Split-Ansicht anzeigen" aria-pressed="false">Split</button>
+            <button type="button" data-mode="preview" title="Nur Vorschau anzeigen" aria-label="Nur Vorschau anzeigen" aria-pressed="false">Vorschau</button>
+          </div>
+          <button type="button" class="icon-btn sync-scroll-toggle" id="btnSyncScroll" title="Synchrones Scrollen im Split-Modus" aria-label="Synchrones Scrollen im Split-Modus umschalten" aria-pressed="false">⇅</button>
+        </div>
+      </div>
+    </div>
+    <div class="note-split mode-split" id="noteSplit">
+      <div id="editorContainer" class="editor-pane"></div>
+      <div class="split-resizer" id="splitResizer" title="Ziehen zum Verändern der Breite"></div>
+      <div id="previewContainer" class="preview-pane" tabindex="0"></div>
+    </div>
+    <div class="note-bottombar">
+      <span id="statLines">0 Zeilen</span>
+      <span id="statWords">0 Wörter</span>
+      <span class="spacer"></span>
+      <span id="statCursor">Zeile 1, Spalte 1</span>
+    </div>`;
+
+  applyViewMode();
+  wireSplitResizer();
+
+  document.getElementById('btnProcessIncoming')?.addEventListener('click', async () => {
+    const mode = await showIncomingProcessDialog(entry);
+    if (!mode) return;
+    try {
+      if (mode === 'append-note') {
+        if (String(entry?.type || '').trim().toLowerCase() !== 'image') return;
+        const options = incomingAppendNoteOptions();
+        if (options.length === 0) {
+          await showMessageDialog({
+            title: 'Keine Notiz vorhanden',
+            message: 'Es gibt noch keine bestehende Notiz, die ergänzt werden kann.'
+          });
+          return;
+        }
+        const targetRelPath = await showCategoryPickerModal(options, 'Welche Notiz soll ergänzt werden?');
+        if (!targetRelPath || currentSlug() !== `incoming/${id}`) return;
+        await prepareIncomingAppendDraft(entry, targetRelPath);
+      } else if (mode === 'new-note') {
+        await prepareIncomingNoteDraft(entry);
+      } else {
+        return;
+      }
+      location.hash = '#incoming-draft/' + encodeURIComponent(entry.id);
+    } catch (error) {
+      await showMessageDialog({
+        title: 'Notiz-Entwurf konnte nicht vorbereitet werden',
+        message: error?.message || 'Der Eingang konnte nicht als Notiz-Entwurf vorbereitet werden.'
+      });
+      console.error('[Archiv Wiki] Eingang konnte nicht als Notiz-Entwurf vorbereitet werden', error);
+    }
+  });
+
+  const viewToggle = document.getElementById('viewToggle');
+  viewToggle?.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-mode]');
+    if (!button) return;
+    state.viewMode = button.dataset.mode;
+    applyViewMode();
+  });
+
+  const btnSyncScroll = document.getElementById('btnSyncScroll');
+  let syncScrollOn = state.project?.config?.syncScrollEnabled !== false;
+  setSyncScrollEnabled(syncScrollOn);
+  btnSyncScroll?.classList.toggle('active', syncScrollOn);
+  btnSyncScroll?.setAttribute('aria-pressed', syncScrollOn ? 'true' : 'false');
+  btnSyncScroll?.addEventListener('click', () => {
+    syncScrollOn = !syncScrollOn;
+    setSyncScrollEnabled(syncScrollOn);
+    btnSyncScroll.classList.toggle('active', syncScrollOn);
+    btnSyncScroll.setAttribute('aria-pressed', syncScrollOn ? 'true' : 'false');
+  });
+
+  const statLines = document.getElementById('statLines');
+  const statWords = document.getElementById('statWords');
+  const statCursor = document.getElementById('statCursor');
+  const lines = body.length ? body.split('\n').length : 0;
+  const words = body.trim() ? body.trim().split(/\s+/).length : 0;
+  statLines.textContent = `${lines} Zeile${lines === 1 ? '' : 'n'}`;
+  statWords.textContent = `${words} Wort${words === 1 ? '' : 'e'}`;
+
+  openIncomingInEditor({
+    content: body,
+    editorContainer: document.getElementById('editorContainer'),
+    previewContainer: document.getElementById('previewContainer'),
+    tabSize: state.project?.config?.editor?.tabSize ?? 2,
+    projectPath: state.project?.path,
+    getNoteIndex: () => fs.flattenNotes(state.tree).map(note => ({
+      title: note.frontmatter?.title || note.name.replace(/\.md$/, ''),
+      relPath: note.relPath
+    })),
+    onCursorActivity: (pos) => {
+      if (statCursor) statCursor.textContent = `Zeile ${pos.line}, Spalte ${pos.column}`;
+    }
+  });
+
+  if (imagePreview?.dataUrl) {
+    const previewContainer = document.getElementById('previewContainer');
+    if (previewContainer) {
+      previewContainer.innerHTML = `
+        <div class="incoming-image-preview">
+          <img src="${escapeHtml(imagePreview.dataUrl)}" alt="${escapeHtml(title)}">
+          <div class="incoming-image-caption">${escapeHtml(imagePreview.fileName || title)}</div>
+        </div>`;
+    }
+  }
+}
+
+function incomingDraftFrontmatter(draft) {
+  const source = draft?.source || {};
+  const origin = {
+    type: 'incoming',
+    incomingId: draft?.incomingId || null
+  };
+  if (source.sourceLabel) origin.source = source.sourceLabel;
+  if (source.sourceUrl) origin.sourceUrl = source.sourceUrl;
+  if (source.imageUrl) origin.imageUrl = source.imageUrl;
+  if (source.pageTitle) origin.pageTitle = source.pageTitle;
+  if (source.fileName) origin.fileName = source.fileName;
+  if (source.importType) origin.importType = source.importType;
+  if (source.capturedAt) origin.capturedAt = source.capturedAt;
+  return { origin };
+}
+
+function incomingImageDataUrlToArrayBuffer(dataUrl) {
+  const match = String(dataUrl || '').match(/^data:image\/[a-z0-9.+-]+;base64,([A-Za-z0-9+/]+={0,2})$/i);
+  if (!match) throw new Error('Die Bilddaten des Eingangs sind ungültig.');
+  const binary = atob(match[1]);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes.buffer;
+}
+
+function renderIncomingDraftImagePreview(previewContainer, draft) {
+  const marker = draft?.image?.marker;
+  const dataUrl = draft?.image?.dataUrl;
+  if (!previewContainer || !marker || !dataUrl) return;
+  previewContainer.querySelectorAll('img').forEach((image) => {
+    if (image.getAttribute('src') === marker) image.src = dataUrl;
+  });
+}
+
+let incomingDraftSaveInProgress = false;
+
+async function saveIncomingNoteDraft() {
+  const slug = currentSlug();
+  if (!slug.startsWith('incoming-draft/') || incomingDraftSaveInProgress) return null;
+
+  const incomingId = slug.slice('incoming-draft/'.length);
+  const draft = state.incomingNoteDraft;
+  if (!draft || draft.incomingId !== incomingId) return null;
+
+  const isAppendDraft = draft.mode === 'append-note';
+  const titleInput = document.getElementById('incomingDraftTitle');
+  const status = document.getElementById('incomingDraftStatus');
+  const saveButton = document.getElementById('btnSaveIncomingDraft');
+  const title = titleInput?.value.trim() || draft.title?.trim() || 'Neue Notiz';
+  const content = getEditorContent();
+
+  let targetRelPath = draft.targetRelPath || null;
+  if (!isAppendDraft) {
+    const subCategories = collectSubCategories(state.tree);
+    if (subCategories.length === 0) {
+      await showMessageDialog({
+        title: 'Unterkategorie erforderlich',
+        message: 'Lege zuerst eine Unterkategorie an. Danach kannst du den Eingang als Notiz speichern.'
+      });
+      return null;
+    }
+
+    targetRelPath = subCategories.length === 1
+      ? subCategories[0].relPath
+      : await showCategoryPickerModal(subCategories, 'Neue Notiz ablegen in');
+    if (!targetRelPath || currentSlug() !== slug) return null;
+  } else if (!targetRelPath) {
+    await showMessageDialog({
+      title: 'Zielnotiz fehlt',
+      message: 'Die bestehende Notiz, die ergänzt werden sollte, ist nicht mehr verfügbar.'
+    });
+    return null;
+  }
+
+  incomingDraftSaveInProgress = true;
+  if (saveButton) saveButton.disabled = true;
+  if (status) {
+    status.textContent = 'Speichern …';
+    status.classList.remove('has-error');
+  }
+
+  let stagedAttachmentFileName = null;
+  let noteWriteCompleted = false;
+
+  try {
+    let contentForNote = content;
+    if (draft.image?.marker && contentForNote.includes(draft.image.marker)) {
+      const imageBuffer = incomingImageDataUrlToArrayBuffer(draft.image.dataUrl);
+      const savedAttachment = await fs.saveAttachment(draft.image.fileName || 'Bild.png', imageBuffer);
+      if (!savedAttachment?.fileName) {
+        throw new Error('Der Bild-Anhang konnte nicht in den Notizbereich übernommen werden.');
+      }
+      stagedAttachmentFileName = savedAttachment.fileName;
+      contentForNote = contentForNote.split(draft.image.marker).join(`attachment:${stagedAttachmentFileName}`);
+    }
+
+    let savedNote;
+    if (isAppendDraft) {
+      const existingTarget = await fs.readNote(targetRelPath);
+      if (!existingTarget?.relPath) {
+        throw new Error('Die ausgewählte bestehende Notiz konnte nicht mehr geladen werden.');
+      }
+      savedNote = await fs.saveNote(targetRelPath, contentForNote, undefined);
+    } else {
+      draft.title = title;
+      savedNote = await fs.createNote(targetRelPath, title, contentForNote, {
+        literalBody: true,
+        frontmatterPatch: incomingDraftFrontmatter(draft)
+      });
+    }
+    noteWriteCompleted = true;
+
+    // Erst nach erfolgreichem erneuten Lesen gilt die Verarbeitung als sicher
+    // abgeschlossen. Bei einem Fehler bleibt der Eingang unangetastet.
+    const persistedNote = await fs.readNote(savedNote?.relPath);
+    if (!persistedNote || persistedNote.relPath !== savedNote?.relPath || (isAppendDraft && persistedNote.body !== contentForNote)) {
+      throw new Error(isAppendDraft
+        ? 'Die ergänzte Notiz konnte nach dem Speichern nicht bestätigt werden.'
+        : 'Die neu angelegte Notiz konnte nicht bestätigt werden.');
+    }
+
+    let incomingCleanupError = null;
+    try {
+      const deletion = await window.archivAPI.incoming.delete(incomingId);
+      if (!deletion?.deleted) {
+        throw new Error('Der verarbeitete Eingang konnte nicht entfernt werden.');
+      }
+    } catch (error) {
+      incomingCleanupError = error;
+      console.error('[Archiv Wiki] Verarbeiteter Eingang konnte nach erfolgreichem Speichern nicht gelöscht werden', error);
+    }
+
+    state.incomingNoteDraft = null;
+    state.incomingProcessing = null;
+
+    try {
+      await refreshAll();
+    } catch (error) {
+      console.error('[Archiv Wiki] Ansicht konnte nach der Eingang-Verarbeitung nicht vollständig aktualisiert werden', error);
+    }
+
+    location.hash = '#note/' + encodeURIComponent(savedNote.relPath);
+
+    if (incomingCleanupError) {
+      setTimeout(() => {
+        showMessageDialog({
+          title: 'Eingang blieb erhalten',
+          message: 'Die Notiz wurde gespeichert, der ursprüngliche Eingang konnte jedoch nicht entfernt werden und bleibt im Eingang erhalten.'
+        });
+      }, 0);
+    }
+
+    return savedNote;
+  } catch (error) {
+    // Wurde das Bild bereits in .attachments kopiert, aber die Zielnotiz noch
+    // nicht erfolgreich geschrieben, wird nur diese neue Kopie entfernt.
+    // Der Eingang selbst bleibt bei jedem Fehler unangetastet.
+    if (stagedAttachmentFileName && !noteWriteCompleted) {
+      try {
+        await fs.deleteAttachment(stagedAttachmentFileName);
+      } catch (cleanupError) {
+        console.warn('[Archiv Wiki] Vorbereiteter Bild-Anhang konnte nach fehlgeschlagenem Speichern nicht entfernt werden', cleanupError);
+      }
+    }
+
+    if (currentSlug() === slug && status) {
+      status.textContent = 'Speichern fehlgeschlagen';
+      status.classList.add('has-error');
+    }
+    await showMessageDialog({
+      title: 'Notiz konnte nicht gespeichert werden',
+      message: error?.message || (isAppendDraft
+        ? 'Die bestehende Notiz konnte nicht ergänzt werden.'
+        : 'Die neue Notiz konnte nicht gespeichert werden.')
+    });
+    console.error('[Archiv Wiki] Eingang-Entwurf konnte nicht gespeichert werden', error);
+    return null;
+  } finally {
+    incomingDraftSaveInProgress = false;
+    if (currentSlug() === slug && saveButton) saveButton.disabled = false;
+  }
+}
+
+async function renderIncomingNoteDraft(id) {
+  setActiveNav(null);
+  setBreadcrumb('Eingang / Notiz-Entwurf');
+
+  let draft = state.incomingNoteDraft;
+  if (!draft || draft.incomingId !== id) {
+    try {
+      const entry = await window.archivAPI.incoming.get(id);
+      if (currentSlug() !== `incoming-draft/${id}`) return;
+      draft = await prepareIncomingNoteDraft(entry);
+    } catch (error) {
+      if (currentSlug() !== `incoming-draft/${id}`) return;
+      els.contentScroll.innerHTML = `
+        <div class="incoming-view">
+          <h1 class="home-heading">Neue Notiz</h1>
+          <div class="empty-state">
+            <div class="empty-state-title">Entwurf konnte nicht vorbereitet werden.</div>
+            <div class="empty-state-body">${escapeHtml(error?.message || 'Information nicht verfügbar.')}</div>
+          </div>
+        </div>`;
+      return;
+    }
+  }
+
+  if (currentSlug() !== `incoming-draft/${id}`) return;
+
+  const isAppendDraft = draft.mode === 'append-note';
+  const draftModeLabel = isAppendDraft ? 'Bestehende Notiz ergänzen' : 'Neue Notiz';
+  const sourceLabel = incomingDraftSourceLabel(draft);
+  setBreadcrumb(`Eingang / ${draftModeLabel}`);
+  els.topbarNoteDates.textContent = `${draftModeLabel} · noch nicht gespeichert`;
+
+  els.contentScroll.innerHTML = `
+    <div class="note-header incoming-document-header">
+      <div class="note-document-title">
+        <input type="text" class="note-title-input" id="incomingDraftTitle" value="${escapeHtml(draft.title)}" aria-label="${isAppendDraft ? 'Titel der bestehenden Notiz' : 'Titel der neuen Notiz'}"${isAppendDraft ? ' readonly' : ''}>
+      </div>
+      <div class="note-document-meta">
+        <span class="note-meta-label">${draftModeLabel}</span>
+        <span class="note-meta-divider" aria-hidden="true"></span>
+        <span class="note-meta-label" title="${escapeHtml(sourceLabel)}">Quelle: ${escapeHtml(sourceLabel)}</span>
+      </div>
+      <div class="note-document-actions">
+        <span class="dirty-label is-dirty" id="incomingDraftStatus">● nicht gespeichert</span>
+        <button type="button" class="btn" id="btnCancelIncomingDraft">Abbrechen</button>
+        <button type="button" class="btn primary" id="btnSaveIncomingDraft" title="Als Notiz speichern (Ctrl+S)">Speichern</button>
+      </div>
+    </div>
+    <div class="note-toolbar" aria-label="Notiz-Entwurf">
+      <div class="toolbar-group toolbar-view-group">
+        <span class="toolbar-group-label">Ansicht</span>
+        <div class="toolbar-group-controls">
+          <div class="view-toggle" id="viewToggle">
+            <button type="button" data-mode="editor" title="Nur Editor anzeigen" aria-label="Nur Editor anzeigen" aria-pressed="false">Editor</button>
+            <button type="button" data-mode="split" title="Editor und Vorschau nebeneinander anzeigen" aria-label="Split-Ansicht anzeigen" aria-pressed="false">Split</button>
+            <button type="button" data-mode="preview" title="Nur Vorschau anzeigen" aria-label="Nur Vorschau anzeigen" aria-pressed="false">Vorschau</button>
+          </div>
+          <button type="button" class="icon-btn sync-scroll-toggle" id="btnSyncScroll" title="Synchrones Scrollen im Split-Modus" aria-label="Synchrones Scrollen im Split-Modus umschalten" aria-pressed="false">⇅</button>
+        </div>
+      </div>
+    </div>
+    <div class="note-split mode-split" id="noteSplit">
+      <div id="editorContainer" class="editor-pane"></div>
+      <div class="split-resizer" id="splitResizer" title="Ziehen zum Verändern der Breite"></div>
+      <div id="previewContainer" class="preview-pane" tabindex="0"></div>
+    </div>
+    <div class="note-bottombar">
+      <span id="statLines">0 Zeilen</span>
+      <span id="statWords">0 Wörter</span>
+      <span class="spacer"></span>
+      <span id="statCursor">Zeile 1, Spalte 1</span>
+      <span>Entwurf aus Eingang</span>
+    </div>`;
+
+  applyViewMode();
+  wireSplitResizer();
+
+  const titleInput = document.getElementById('incomingDraftTitle');
+  const status = document.getElementById('incomingDraftStatus');
+  const statLines = document.getElementById('statLines');
+  const statWords = document.getElementById('statWords');
+  const statCursor = document.getElementById('statCursor');
+
+  function updateDraftCounts(text) {
+    const lines = text.length ? text.split('\n').length : 0;
+    const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+    statLines.textContent = `${lines} Zeile${lines === 1 ? '' : 'n'}`;
+    statWords.textContent = `${words} Wort${words === 1 ? '' : 'e'}`;
+  }
+
+  if (!isAppendDraft) {
+    titleInput?.addEventListener('input', () => {
+      draft.title = titleInput.value;
+      status.textContent = '● nicht gespeichert';
+      setBreadcrumb(`Eingang / ${titleInput.value.trim() || 'Neue Notiz'}`);
+    });
+  }
+
+  document.getElementById('btnSaveIncomingDraft')?.addEventListener('click', () => {
+    saveIncomingNoteDraft();
+  });
+
+  document.getElementById('btnCancelIncomingDraft')?.addEventListener('click', () => {
+    closeEditor();
+    state.incomingNoteDraft = null;
+    location.hash = '#incoming/' + encodeURIComponent(id);
+  });
+
+  document.getElementById('viewToggle')?.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-mode]');
+    if (!button) return;
+    state.viewMode = button.dataset.mode;
+    applyViewMode();
+  });
+
+  const btnSyncScroll = document.getElementById('btnSyncScroll');
+  let syncScrollOn = state.project?.config?.syncScrollEnabled !== false;
+  setSyncScrollEnabled(syncScrollOn);
+  btnSyncScroll?.classList.toggle('active', syncScrollOn);
+  btnSyncScroll?.setAttribute('aria-pressed', syncScrollOn ? 'true' : 'false');
+  btnSyncScroll?.addEventListener('click', () => {
+    syncScrollOn = !syncScrollOn;
+    setSyncScrollEnabled(syncScrollOn);
+    btnSyncScroll.classList.toggle('active', syncScrollOn);
+    btnSyncScroll.setAttribute('aria-pressed', syncScrollOn ? 'true' : 'false');
+  });
+
+  updateDraftCounts(draft.content || '');
+  openNoteDraftInEditor({
+    content: draft.content,
+    editorContainer: document.getElementById('editorContainer'),
+    previewContainer: document.getElementById('previewContainer'),
+    tabSize: state.project?.config?.editor?.tabSize ?? 2,
+    projectPath: state.project?.path,
+    getNoteIndex: () => fs.flattenNotes(state.tree).map(note => ({
+      title: note.frontmatter?.title || note.name.replace(/\.md$/, ''),
+      relPath: note.relPath
+    })),
+    onChange: (_dirty, text) => {
+      draft.content = text;
+      status.textContent = '● nicht gespeichert';
+      updateDraftCounts(text);
+    },
+    onCursorActivity: (pos) => {
+      if (statCursor) statCursor.textContent = `Zeile ${pos.line}, Spalte ${pos.column}`;
+    },
+    onPreviewRendered: (previewContainer) => {
+      renderIncomingDraftImagePreview(previewContainer, draft);
+    }
+  });
+
+  requestAnimationFrame(() => {
+    if (currentSlug() !== `incoming-draft/${id}`) return;
+    focusEditor();
+  });
+}
+
+async function renderIncoming() {
+  setBreadcrumb('Eingang');
+  setActiveNav(null);
+
+  els.contentScroll.innerHTML = `
+    <div class="incoming-view">
+      <div class="home-header-row">
+        <div>
+          <h1 class="home-heading">Eingang</h1>
+          <p class="home-sub">Gesammelte Inhalte, die noch nicht als Wissen verarbeitet wurden.</p>
+        </div>
+      </div>
+      <div class="dashboard-section" aria-label="Eingänge">
+        <div class="dashboard-section-header">Eingänge</div>
+        <div class="empty-state">Eingänge werden geladen …</div>
+      </div>
+    </div>`;
+
+  try {
+    const entries = await window.archivAPI.incoming.load();
+    if (currentSlug() !== 'incoming') return;
+
+    const section = els.contentScroll.querySelector('.incoming-view .dashboard-section');
+    if (!section) return;
+
+    const safeEntries = Array.isArray(entries) ? entries : [];
+    section.innerHTML = `
+      <div class="dashboard-section-header">Eingänge · ${safeEntries.length}</div>
+      <div class="dashboard-list" id="incomingList"></div>`;
+
+    const list = section.querySelector('#incomingList');
+    if (safeEntries.length === 0) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-title">Noch keine Eingänge.</div>
+          <div class="empty-state-body">Gesammelte Inhalte erscheinen hier, bevor sie später weiterverarbeitet werden.</div>
+        </div>`;
+      return;
+    }
+
+    for (const entry of safeEntries) {
+      const row = document.createElement('div');
+      const title = incomingDisplayTitle(entry);
+      const typeLabel = incomingTypeLabel(entry);
+      const sourceInfo = incomingPreview(entry);
+      const createdDate = formatAbsoluteDate(entry?.createdAt || entry?.updatedAt) || 'Zeitpunkt nicht verfügbar';
+
+      row.className = 'dashboard-row incoming-row';
+      row.tabIndex = 0;
+      row.setAttribute('role', 'link');
+      row.setAttribute('aria-label', `Eingang öffnen: ${typeLabel}, ${title}`);
+      row.innerHTML = `
+        <span class="dr-icon" aria-hidden="true"><img class="lib-icon" src="${escapeHtml(incomingListIconSrc(entry))}" alt=""></span>
+        <span class="dr-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
+        <span class="dr-excerpt" title="${escapeHtml(sourceInfo)}">${escapeHtml(sourceInfo)}</span>
+        <span class="dr-tag">${escapeHtml(typeLabel)}</span>
+        <span class="dr-date">${escapeHtml(createdDate)}</span>`;
+      const openIncoming = () => {
+        location.hash = '#incoming/' + encodeURIComponent(entry.id);
+      };
+      row.addEventListener('click', openIncoming);
+      row.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        openIncoming();
+      });
+      list.appendChild(row);
+    }
+  } catch (error) {
+    if (currentSlug() !== 'incoming') return;
+    const section = els.contentScroll.querySelector('.incoming-view .dashboard-section');
+    if (section) {
+      section.innerHTML = `
+        <div class="dashboard-section-header">Eingänge</div>
+        <div class="empty-state">
+          <div class="empty-state-title">Eingänge konnten nicht geladen werden.</div>
+          <div class="empty-state-body">Der Eingang-Speicher ist momentan nicht verfügbar.</div>
+        </div>`;
+    }
+    console.error('[Archiv Wiki] Eingang konnte nicht geladen werden', error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wissenspflege: Grundgerüst für spätere, archivweite Qualitätsprüfungen.
+// In diesem Schritt werden bewusst noch keine Analysen ausgeführt.
+// ---------------------------------------------------------------------------
+async function renderKnowledgeCare() {
+  setBreadcrumb('Wissenspflege');
+  els.homeLink.classList.remove('active');
+  els.incomingLink.classList.remove('active');
+  els.knowledgeCareLink.classList.add('active');
+  els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.remove('active'));
+
+  els.contentScroll.innerHTML = `
+    <h1 class="home-heading">Wissenspflege</h1>
+    <p class="home-sub">Prüfe dein Archiv auf mögliche Verbesserungen.</p>
+    <div class="dashboard-section" id="knowledgeLinksSection" aria-label="Verknüpfungen">
+      <div class="dashboard-section-header">Verknüpfungen</div>
+      <div class="empty-state">Wikilinks werden geprüft …</div>
+    </div>
+    <div class="dashboard-section" id="knowledgeOrganisationSection" aria-label="Organisation">
+      <div class="dashboard-section-header">Organisation</div>
+      <div class="empty-state">Organisation wird geprüft …</div>
+    </div>
+    <div class="dashboard-section" id="knowledgeContentSection" aria-label="Inhalte">
+      <div class="dashboard-section-header">Inhalte</div>
+      <div class="empty-state">Inhalte werden geprüft …</div>
+    </div>`;
+
+  try {
+    const notes = fs.flattenNotes(state.tree);
+    const documents = await fs.getSearchDocuments();
+
+    // Die Route könnte während des Dateizugriffs bereits gewechselt worden
+    // sein. In diesem Fall darf die alte Prüfung keine andere Ansicht ersetzen.
+    if (currentSlug() !== 'knowledge-care') return;
+
+    const brokenLinks = findBrokenWikiLinks(notes, documents);
+    const notesWithoutTags = findNotesWithoutTags(notes);
+    const emptyNotes = findEmptyNotes(notes, documents);
+
+    const linksSection = document.getElementById('knowledgeLinksSection');
+    const organisationSection = document.getElementById('knowledgeOrganisationSection');
+    const contentSection = document.getElementById('knowledgeContentSection');
+    if (!linksSection || !organisationSection || !contentSection) return;
+
+    linksSection.innerHTML = `
+      <div class="dashboard-section-header">
+        Verknüpfungen · ${brokenLinks.length} ${brokenLinks.length === 1 ? 'defekter Wikilink' : 'defekte Wikilinks'}
+      </div>
+      <div class="dashboard-list" id="brokenWikiLinksList"></div>`;
+
+    const list = linksSection.querySelector('#brokenWikiLinksList');
+    if (brokenLinks.length === 0) {
+      list.innerHTML = `
+        <div class="empty-state">
+          Keine defekten Wikilinks gefunden.
+        </div>`;
+      return;
+    }
+
+    brokenLinks.forEach(issue => {
+      const row = document.createElement('div');
+      row.className = 'dashboard-row';
+      row.tabIndex = 0;
+      row.setAttribute('role', 'button');
+      row.setAttribute('aria-label', `${issue.sourceTitle} öffnen. Defekter Wikilink ${issue.syntax}`);
+      row.innerHTML = `
+        <span class="dr-icon" aria-hidden="true">⛓</span>
+        <span class="dr-title">${escapeHtml(issue.sourceTitle)}</span>
+        <span class="dr-excerpt">Defekter Wikilink: ${escapeHtml(issue.syntax)}</span>
+        <span class="dr-tag">Fehlendes Ziel: ${escapeHtml(issue.target)}</span>
+        <span class="dr-date">Öffnen</span>`;
+
+      const openSourceNote = () => {
+        location.hash = '#note/' + encodeURIComponent(issue.sourceRelPath);
+      };
+      row.addEventListener('click', openSourceNote);
+      row.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        openSourceNote();
+      });
+      list.appendChild(row);
+    });
+
+    organisationSection.innerHTML = `
+      <div class="dashboard-section-header">
+        Organisation · ${notesWithoutTags.length} ${notesWithoutTags.length === 1 ? 'Notiz ohne Tags' : 'Notizen ohne Tags'}
+      </div>
+      <div class="dashboard-list" id="notesWithoutTagsList"></div>`;
+
+    const untaggedList = organisationSection.querySelector('#notesWithoutTagsList');
+    if (notesWithoutTags.length === 0) {
+      untaggedList.innerHTML = `
+        <div class="empty-state">
+          Alle Notizen besitzen mindestens einen Tag.
+        </div>`;
+    } else {
+      notesWithoutTags.forEach(issue => {
+        const row = document.createElement('div');
+        row.className = 'dashboard-row';
+        row.tabIndex = 0;
+        row.setAttribute('role', 'button');
+        row.setAttribute('aria-label', `${issue.title} öffnen. Notiz ohne Tags`);
+        row.innerHTML = `
+          <span class="dr-icon" aria-hidden="true">🏷</span>
+          <span class="dr-title">${escapeHtml(issue.title)}</span>
+          <span class="dr-excerpt">Notiz ohne Tags</span>
+          <span class="dr-tag">${issue.category ? escapeHtml(issue.category) : ''}</span>
+          <span class="dr-date">Öffnen</span>`;
+
+        const openNote = () => {
+          location.hash = '#note/' + encodeURIComponent(issue.relPath);
+        };
+        row.addEventListener('click', openNote);
+        row.addEventListener('keydown', event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          openNote();
+        });
+        untaggedList.appendChild(row);
+      });
+    }
+
+    contentSection.innerHTML = `
+      <div class="dashboard-section-header">
+        Inhalte · ${emptyNotes.length} ${emptyNotes.length === 1 ? 'leere Notiz' : 'leere Notizen'}
+      </div>
+      <div class="dashboard-list" id="emptyNotesList"></div>`;
+
+    const emptyNotesList = contentSection.querySelector('#emptyNotesList');
+    if (emptyNotes.length === 0) {
+      emptyNotesList.innerHTML = `
+        <div class="empty-state">
+          Keine leeren Notizen gefunden.
+        </div>`;
+    } else {
+      emptyNotes.forEach(issue => {
+        const row = document.createElement('div');
+        row.className = 'dashboard-row';
+        row.tabIndex = 0;
+        row.setAttribute('role', 'button');
+        row.setAttribute('aria-label', `${issue.title} öffnen. Leere Notiz`);
+        row.innerHTML = `
+          <span class="dr-icon" aria-hidden="true">📄</span>
+          <span class="dr-title">${escapeHtml(issue.title)}</span>
+          <span class="dr-excerpt">Leere Notiz</span>
+          <span class="dr-tag">${issue.category ? escapeHtml(issue.category) : ''}</span>
+          <span class="dr-date">Öffnen</span>`;
+
+        const openNote = () => {
+          location.hash = '#note/' + encodeURIComponent(issue.relPath);
+        };
+        row.addEventListener('click', openNote);
+        row.addEventListener('keydown', event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          openNote();
+        });
+        emptyNotesList.appendChild(row);
+      });
+    }
+  } catch (error) {
+    if (currentSlug() !== 'knowledge-care') return;
+    const linksSection = document.getElementById('knowledgeLinksSection');
+    const organisationSection = document.getElementById('knowledgeOrganisationSection');
+    const contentSection = document.getElementById('knowledgeContentSection');
+
+    if (linksSection) {
+      linksSection.innerHTML = `
+        <div class="dashboard-section-header">Verknüpfungen</div>
+        <div class="empty-state">
+          Wikilinks konnten nicht geprüft werden.
+        </div>`;
+    }
+
+    if (organisationSection) {
+      organisationSection.innerHTML = `
+        <div class="dashboard-section-header">Organisation</div>
+        <div class="empty-state">
+          Notizen ohne Tags konnten nicht geprüft werden.
+        </div>`;
+    }
+
+    if (contentSection) {
+      contentSection.innerHTML = `
+        <div class="dashboard-section-header">Inhalte</div>
+        <div class="empty-state">
+          Leere Notizen konnten nicht geprüft werden.
+        </div>`;
+    }
+    console.error('[Archiv Wiki] Wissenspflege-Prüfung fehlgeschlagen', error);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -5313,6 +6551,8 @@ function applyViewMode() {
 async function renderTagsOverview(activeTag) {
   setBreadcrumb(activeTag ? `Tags / ${activeTag}` : 'Tags');
   els.homeLink.classList.remove('active');
+  els.incomingLink.classList.remove('active');
+  els.knowledgeCareLink.classList.remove('active');
   els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.remove('active'));
 
   const notes = fs.flattenNotes(state.tree);
@@ -5367,6 +6607,8 @@ async function renderTagsOverview(activeTag) {
 async function renderStatsPage() {
   setBreadcrumb('Statistik');
   els.homeLink.classList.remove('active');
+  els.incomingLink.classList.remove('active');
+  els.knowledgeCareLink.classList.remove('active');
   els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.remove('active'));
 
   const notes = fs.flattenNotes(state.tree);
@@ -5479,15 +6721,15 @@ function formatTime(d) {
 // Nutzer-Feature (Konflikt-Anzeige): kombiniert Datum+Uhrzeit in einem Zug,
 // unter Wiederverwendung der beiden Funktionen oben statt eigener Logik.
 function formatDateTime(iso) {
-  if (!iso) return 'unbekannt';
+  if (!iso) return 'Zeitpunkt nicht verfügbar';
   const d = new Date(iso);
-  if (isNaN(d.getTime())) return 'unbekannt';
+  if (isNaN(d.getTime())) return 'Zeitpunkt nicht verfügbar';
   return `${formatDate(iso)}, ${formatTime(d)} Uhr`;
 }
 // Nutzer-Feature (Konflikt-Anzeige): einzige Stelle im Projekt, die Bytes in
 // eine lesbare Größe umwandelt — bisher gab es dafür noch keine Funktion.
 function formatBytes(bytes) {
-  if (bytes == null) return 'unbekannt';
+  if (bytes == null) return 'Information nicht verfügbar';
   if (bytes < 1000) return `${bytes} Byte`;
   if (bytes < 1000 * 1000) return `${(bytes / 1000).toFixed(1)} KB`;
   return `${(bytes / (1000 * 1000)).toFixed(1)} MB`;
@@ -5550,19 +6792,25 @@ async function checkForUpdateAndRender() {
   applyCentralUpdateStatus(await fetchUpdateStatus());
 }
 
-function waitForUnlock() {
-  if (!state.project?.config?.appLock?.enabled) return Promise.resolve();
+function waitForUnlock({ force = false } = {}) {
+  if (!force && !state.project?.config?.appLock?.enabled) return Promise.resolve();
+
   return new Promise((resolve) => {
     const screen = document.getElementById('lockScreen');
     const input = document.getElementById('lockScreenPassword');
     const errorEl = document.getElementById('lockScreenError');
     const unlockBtn = document.getElementById('lockScreenUnlock');
+
+    input.value = '';
+    errorEl.textContent = '';
     screen.style.display = 'flex';
-    input.focus();
+    requestAnimationFrame(() => input.focus());
 
     async function tryUnlock() {
       const result = await window.archivAPI.verifyAppLock(input.value);
       if (result.ok) {
+        unlockBtn.removeEventListener('click', tryUnlock);
+        input.removeEventListener('keydown', handleKeydown);
         screen.style.display = 'none';
         resolve();
       } else {
@@ -5571,13 +6819,33 @@ function waitForUnlock() {
         input.focus();
       }
     }
+
+    function handleKeydown(event) {
+      if (event.key === 'Enter') tryUnlock();
+    }
+
     unlockBtn.addEventListener('click', tryUnlock);
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryUnlock(); });
+    input.addEventListener('keydown', handleKeydown);
   });
 }
 
+document.addEventListener('archiv-wiki:lock-now', () => {
+  waitForUnlock({ force: true });
+});
+
 (async function init() {
   state.project = await window.archivAPI.getCurrentProject();
+  applyIncomingSidebarVisibility(state.project?.config);
+
+  const lockWikiButton = document.getElementById('btnLockWiki');
+  if (lockWikiButton) {
+    lockWikiButton.hidden = !state.project?.config?.appLock?.enabled;
+    lockWikiButton.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      document.dispatchEvent(new CustomEvent('archiv-wiki:lock-now'));
+    });
+  }
 
   await waitForUnlock();
 
@@ -5623,7 +6891,7 @@ function waitForUnlock() {
       btn.removeAttribute('title');
       return;
     }
-    const lastError = backupStatus.lastErrorAt ? formatRelativeTime(backupStatus.lastErrorAt) : 'unbekannt';
+    const lastError = backupStatus.lastErrorAt ? formatRelativeTime(backupStatus.lastErrorAt) : 'Zeitpunkt nicht verfügbar';
     btn.title = `${backupStatus.consecutiveFailures}x Backup in Folge fehlgeschlagen (zuletzt: ${lastError})`;
     btn.onclick = () => showBackupErrorModal(backupStatus);
   }
@@ -5632,6 +6900,12 @@ function waitForUnlock() {
     applyBackupStatus(await window.archivAPI.getBackupStatus());
     window.archivAPI.onBackupStatusUpdated?.(applyBackupStatus);
   } catch { /* Backup-Status ist rein informativ, App funktioniert auch ohne diese Prüfung */ }
+
+  // Extern eingehende Web-Clips aktualisieren nur die bereits geöffnete
+  // Eingang-Übersicht. Andere Ansichten werden bewusst nicht unterbrochen.
+  window.archivAPI.incoming?.onCreated?.(() => {
+    if (currentSlug() === 'incoming') renderIncoming();
+  });
 
   // Branding-Zeile über der Suche: "Wiki von [Name]", Name kommt aus der
   // Ersteinrichtung (Wizard). Ohne hinterlegten Namen wird die Zeile

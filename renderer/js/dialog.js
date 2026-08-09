@@ -249,6 +249,21 @@ export function manageModalDialog({
   if (titleId) dialog.setAttribute('aria-labelledby', titleId);
   if (descriptionId) dialog.setAttribute('aria-describedby', descriptionId);
 
+  // Verschachtelte modale Dialoge müssen immer über dem aktuell offenen
+  // Eltern-Dialog liegen. Die visuellen Overlay-Klassen behalten ihre
+  // bestehenden Basis-z-Indizes; nur wenn ein neuer verwalteter Dialog sonst
+  // darunter oder auf derselben Ebene läge, wird seine Ebene relativ zum
+  // Eltern-Dialog angehoben. Dadurch bleibt die Layer-Reihenfolge zentral im
+  // gemeinsamen Dialogsystem und einzelne Aufrufer brauchen keine Sonder-CSS.
+  const parentOverlay = activeDialogStack[activeDialogStack.length - 1];
+  if (parentOverlay?.isConnected) {
+    const parentZIndex = Number.parseInt(getComputedStyle(parentOverlay).zIndex, 10);
+    const ownZIndex = Number.parseInt(getComputedStyle(overlay).zIndex, 10);
+    if (Number.isFinite(parentZIndex) && (!Number.isFinite(ownZIndex) || ownZIndex <= parentZIndex)) {
+      overlay.style.zIndex = String(parentZIndex + 1);
+    }
+  }
+
   // Nur die bereits vorhandenen Geschwister werden gesperrt. Dadurch kann ein
   // untergeordneter Dialog einen bereits offenen Dialog sicher überlagern und
   // dessen vorherigen Zustand beim Schließen exakt wiederherstellen.
