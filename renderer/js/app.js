@@ -4177,6 +4177,7 @@ async function renderNote(relPath) {
             <button type="button" data-fmt="italic" title="Kursiv (*Text*)"><em>K</em></button>
             <button type="button" data-fmt="strike" title="Durchgestrichen (~~Text~~)"><s>D</s></button>
             <button type="button" data-fmt="underline" title="Unterstrichen (&lt;u&gt;Text&lt;/u&gt;)"><u>U</u></button>
+            <button type="button" class="icon-btn" id="btnHeadingMenu" title="Überschrift auswählen" aria-label="Überschrift auswählen" aria-haspopup="menu" aria-expanded="false">H ▾</button>
           </div>
         </div>
         <div class="toolbar-group">
@@ -4192,6 +4193,7 @@ async function renderNote(relPath) {
           <div class="toolbar-group-controls">
             <button type="button" data-fmt="link" title="Externen Link einfügen ([Text](URL))" aria-label="Externen Link einfügen">⛓</button>
             <button type="button" data-fmt="wikilink" title="Wikilink zu einer vorhandenen Notiz einfügen ([[Notizname]])" aria-label="Wikilink zu einer vorhandenen Notiz einfügen"><span aria-hidden="true" style="display:inline-block;white-space:nowrap;font-size:11px;line-height:1;">[[]]</span></button>
+            <button type="button" id="btnTable" title="Neue Tabelle einfügen" aria-label="Neue Tabelle einfügen">▦</button>
           </div>
         </div>
         <div class="toolbar-group">
@@ -4382,6 +4384,34 @@ async function renderNote(relPath) {
     else if (fmt === 'ul') insertAtCursor('\n- Punkt\n');
     else if (fmt === 'ol') insertAtCursor('\n1. Punkt\n');
     else if (fmt === 'checklist') insertAtCursor('\n- [ ] Aufgabe\n');
+  });
+
+  document.getElementById('btnHeadingMenu').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const trigger = e.currentTarget;
+    trigger.setAttribute('aria-expanded', 'true');
+    const menu = createHtmlContextMenu({
+      className: 'context-menu',
+      trigger,
+      label: 'Überschrift auswählen',
+      html: [1, 2, 3, 4, 5, 6]
+        .map(level => `<button type="button" data-heading-level="${level}">H${level}</button>`)
+        .join('') + '<hr><button type="button" data-heading-level="0">Keine Überschrift</button>',
+      onDismiss: () => trigger.setAttribute('aria-expanded', 'false')
+    });
+    menu.addEventListener('click', (menuEvent) => {
+      const item = menuEvent.target.closest('[data-heading-level]');
+      if (!item) return;
+      const level = Number(item.dataset.headingLevel);
+      closeHtmlContextMenu(menu, { restoreFocus: false, reason: 'action' });
+      trigger.setAttribute('aria-expanded', 'false');
+      transformCurrentLine(headingTransform(level));
+    });
+  });
+
+  document.getElementById('btnTable').addEventListener('click', (e) => {
+    e.stopPropagation();
+    showTablePicker(e.currentTarget);
   });
 
   document.getElementById('btnCallout').addEventListener('click', (e) => {

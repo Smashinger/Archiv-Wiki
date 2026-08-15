@@ -14,6 +14,8 @@ Kopfbereich (Titel, Tags, Kategorie) → Werkzeugleiste → Editor-/Vorschau-Ber
 
 Enthält Formatierungs-Knöpfe, Ansichts-Umschalter (Editor/Split/Vorschau), Schriftgrößen-Auswahl, Sync-Scroll-Umschalter und den Speichern-Knopf. Alle Elemente teilen sich eine einheitliche Höhe (32px) und dieselbe Übergangszeit (150ms) — siehe `02_DESIGN_GUIDELINES.md` für die allgemeinen Werte. Icon-Sprache: Buchstaben, die ihre eigene Formatierung visuell zeigen (F/K/D/U für Fett/Kursiv/Durchgestrichen/Unterstrichen), sowie Symbole, die möglichst die tatsächliche Markdown-Syntax abbilden (`{ }` für Code, `1.` für nummerierte Liste, `↗` für Link, `▤` für Callout).
 
+Das Überschriften-Menü in der Werkzeugleiste und das vorhandene Format-Menü bieten Zugriff auf H1–H6 sowie das Zurücksetzen einer Überschrift. Die Tabellen-Schaltfläche verwendet den bestehenden Tabellen-Einfügeweg; es wird dafür keine zweite Tabellenlogik geführt.
+
 ## Lesebreite
 
 Eine optionale, vom Nutzer aktivierbare Einstellung, die sowohl Editor als auch Vorschau auf eine feste, zentrierte Breite begrenzt. Wird über einen einzigen, gemeinsamen Inhaltscontainer gesteuert (siehe Vorschau-Abschnitt unten) — kein Element bekommt eine eigene, unabhängige Breiten-/Zentrierungs-Regel. Tabellen und Codeblöcke dürfen breiter sein als der übrige Text und scrollen bei Bedarf selbst horizontal, statt gestaucht zu werden.
