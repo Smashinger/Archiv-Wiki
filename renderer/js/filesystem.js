@@ -5,20 +5,32 @@
 // in diesem frühen Stadium). Für 1000+ Notizen kann das in Schritt 6/7
 // bei Bedarf auf inkrementelle Updates umgestellt werden.
 
+let onProjectConfigPersisted = null;
+
+export function setProjectConfigPersistedHandler(handler) {
+  onProjectConfigPersisted = typeof handler === 'function' ? handler : null;
+}
+
+async function runConfigMutation(mutation) {
+  const result = await mutation;
+  if (result?.config) onProjectConfigPersisted?.(result.config);
+  return result;
+}
+
 export async function getTree() {
   return window.archivAPI.fs.listTree();
 }
 
 export async function reorderChildren(parentRelPath, orderedNames) {
-  return window.archivAPI.fs.reorderChildren(parentRelPath, orderedNames);
+  return runConfigMutation(window.archivAPI.fs.reorderChildren(parentRelPath, orderedNames));
 }
 
 export async function setCategoryIcon(relPath, icon) {
-  return window.archivAPI.fs.setCategoryIcon(relPath, icon);
+  return runConfigMutation(window.archivAPI.fs.setCategoryIcon(relPath, icon));
 }
 
 export async function setProjectSetting(key, value) {
-  return window.archivAPI.fs.setProjectSetting(key, value);
+  return runConfigMutation(window.archivAPI.fs.setProjectSetting(key, value));
 }
 
 export async function saveAttachment(fileName, data) {
@@ -73,8 +85,19 @@ export async function readNote(relPath) {
   return window.archivAPI.fs.readNote(relPath);
 }
 
-export async function saveNote(relPath, body, frontmatterPatch) {
-  return window.archivAPI.fs.writeNote(relPath, body, frontmatterPatch);
+export async function saveNote(relPath, body, frontmatterPatch, expectedVersion) {
+  try {
+    return await window.archivAPI.fs.writeNote(relPath, body, frontmatterPatch, expectedVersion);
+  } catch (error) {
+    const marker = 'ARCHIV_WIKI_NOTE_CONFLICT:';
+    const message = String(error?.message || '');
+    const markerIndex = message.indexOf(marker);
+    if (markerIndex === -1) throw error;
+
+    const conflict = new Error(message.slice(markerIndex + marker.length).trim());
+    conflict.code = 'NOTE_CONFLICT';
+    throw conflict;
+  }
 }
 
 export async function renameEntry(relPath, newName) {

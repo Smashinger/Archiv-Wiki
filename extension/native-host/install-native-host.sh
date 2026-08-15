@@ -2,8 +2,9 @@
 set -euo pipefail
 
 HOST_NAME="de.smashii.archivwiki.webclip"
-EXTENSION_ID="ddiicadmgbnekbhphnfbfnjeindmdhol"
+EXTENSION_ID="dengpgfllpkndkgkbikigaejieogndbp"
 FIREFOX_EXTENSION_ID="webclip@archiv-wiki.smashii.de"
+BRAVE_FLATPAK_ID="com.brave.Browser"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 RESOURCE_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 HOST_PATH="$SCRIPT_DIR/archiv-wiki-native-host"
@@ -126,6 +127,44 @@ TARGETS=(
   "$HOME/.config/vivaldi/NativeMessagingHosts"
 )
 
+brave_flatpak_is_installed() {
+  command -v flatpak >/dev/null 2>&1 \
+    && flatpak info "$BRAVE_FLATPAK_ID" >/dev/null 2>&1
+}
+
+install_brave_flatpak_native_host() {
+  local host_command brave_flatpak_root brave_native_dir brave_wrapper_dir brave_wrapper
+  printf -v host_command '%q ' "$@"
+
+  brave_flatpak_root="$HOME/.var/app/$BRAVE_FLATPAK_ID"
+  brave_native_dir="$brave_flatpak_root/config/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+  brave_wrapper_dir="$brave_flatpak_root/data/archiv-wiki"
+  brave_wrapper="$brave_wrapper_dir/archiv-wiki-native-host-flatpak"
+
+  atomic_write_file "$brave_wrapper" 755 <<EOF_WRAPPER
+#!/usr/bin/env bash
+set -euo pipefail
+exec /usr/bin/flatpak-spawn --host ${host_command}"\$@"
+EOF_WRAPPER
+
+  # Sicherheitsfund WC-SP-002/M15: dieser Wrapper allein installiert oder
+  # aktiviert nichts, das Brave tatsächlich ausführen kann. `flatpak-spawn
+  # --host` scheitert ohne die Brave-seitige Berechtigung für
+  # org.freedesktop.Flatpak — genau diese persistente, app-weite
+  # Sandbox-Erweiterung wird hier bewusst NICHT mehr automatisch gesetzt.
+  # Sie entsteht ausschließlich nach ausdrücklicher Nutzerzustimmung über
+  # Einstellungen → Web Clipper → Brave (main/webclip-distribution.js).
+  if [[ "$QUIET" -eq 0 ]]; then
+    echo "Brave Flatpak erkannt: $BRAVE_FLATPAK_ID"
+    echo "Native-Messaging-Registrierung vorbereitet (noch ohne Host-Berechtigung)."
+  fi
+
+  write_chromium_manifest "$brave_native_dir" "$brave_wrapper"
+  if [[ "$QUIET" -eq 0 ]]; then
+    echo "Brave Flatpak: Für Native Messaging in Archiv-Wiki unter Einstellungen → Web Clipper → Brave zustimmen, danach Brave vollständig neu starten."
+  fi
+}
+
 if [[ "$MODE" == "appimage" ]]; then
   if [[ "$APPIMAGE_PATH" != /* ]]; then
     echo "Fehler: Der AppImage-Pfad muss absolut sein." >&2
@@ -162,6 +201,12 @@ EOF_WRAPPER
   for target in "${TARGETS[@]}"; do
     write_chromium_manifest "$target" "$STABLE_HOST_PATH"
   done
+  if brave_flatpak_is_installed; then
+    # Der Sandbox-Wrapper startet denselben stabilen AppImage-Host wie normale
+    # Browser. Dadurch bleibt der Endnutzerweg unabhängig von Node.js und dem
+    # Entwicklungsquellstand.
+    install_brave_flatpak_native_host "$STABLE_HOST_PATH"
+  fi
   exit 0
 fi
 
@@ -186,31 +231,11 @@ for target in "${TARGETS[@]}"; do
 done
 
 # Brave als Flatpak läuft in einer Sandbox. Der Browser kann den Host-Prozess
-# deshalb nicht direkt starten. Ein kleiner Wrapper innerhalb des Brave-
-# Flatpak-Bereichs verwendet flatpak-spawn, um ausschließlich den vorhandenen
-# Archiv-Wiki-Native-Host auf dem Hostsystem zu starten.
-BRAVE_FLATPAK_ID="com.brave.Browser"
-if command -v flatpak >/dev/null 2>&1 && flatpak info "$BRAVE_FLATPAK_ID" >/dev/null 2>&1; then
-  BRAVE_FLATPAK_ROOT="$HOME/.var/app/$BRAVE_FLATPAK_ID"
-  BRAVE_NATIVE_DIR="$BRAVE_FLATPAK_ROOT/config/BraveSoftware/Brave-Browser/NativeMessagingHosts"
-  BRAVE_WRAPPER_DIR="$BRAVE_FLATPAK_ROOT/data/archiv-wiki"
-  BRAVE_WRAPPER="$BRAVE_WRAPPER_DIR/archiv-wiki-native-host-flatpak"
-
-  mkdir -p "$BRAVE_WRAPPER_DIR" "$BRAVE_NATIVE_DIR"
-
-  cat > "$BRAVE_WRAPPER" <<EOF_WRAPPER
-#!/usr/bin/env bash
-set -euo pipefail
-exec /usr/bin/flatpak-spawn --host "$NODE_BIN" "$NATIVE_HOST_JS" "\$@"
-EOF_WRAPPER
-  chmod +x "$BRAVE_WRAPPER"
-
-  echo "Brave Flatpak erkannt: $BRAVE_FLATPAK_ID"
-  echo "Erlaube Native Messaging über flatpak-spawn (org.freedesktop.Flatpak)."
-  flatpak override --user --talk-name=org.freedesktop.Flatpak "$BRAVE_FLATPAK_ID"
-
-  write_chromium_manifest "$BRAVE_NATIVE_DIR" "$BRAVE_WRAPPER"
-  echo "Brave Flatpak: Browser nach dieser Installation vollständig neu starten."
+# deshalb nicht direkt starten. Der gemeinsame Wrapper verwendet flatpak-spawn,
+# um ausschließlich den vorhandenen Archiv-Wiki-Native-Host auf dem Hostsystem
+# zu starten.
+if brave_flatpak_is_installed; then
+  install_brave_flatpak_native_host "$NODE_BIN" "$NATIVE_HOST_JS"
   installed=1
 fi
 

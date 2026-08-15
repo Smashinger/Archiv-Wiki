@@ -9,6 +9,7 @@ import { readNote, saveNote } from './filesystem.js';
 
 let currentEditor = null;
 let currentRelPath = null;
+let currentFileVersion = null;
 let currentProjectPath = null;
 let autosaveTimer = null;
 // Vorschau-Entprellung (Nutzer-Feature): exakt dasselbe Prinzip wie
@@ -16,6 +17,10 @@ let autosaveTimer = null;
 // zurückgesetzt, löst erst nach einer kurzen Schreibpause tatsächlich aus.
 let previewDebounceTimer = null;
 let dirty = false;
+let contentRevision = 0;
+let editorGeneration = 0;
+let saveInProgress = null;
+let pendingSaveGeneration = null;
 // Sync-Scroll (Nutzer-Feature): ein/ausschaltbar, Standardwert an.
 let syncScrollEnabled = true;
 // Auto-Save-Intervall (Bugfix, Editor-Audit Phase 10): als Modul-Variable
@@ -110,6 +115,7 @@ export function setAutoSaveSeconds(seconds) {
 function mountEditorDocument({
   doc = '',
   relPath = null,
+  fileVersion = null,
   editorContainer,
   previewContainer,
   tabSize = 2,
@@ -131,7 +137,9 @@ function mountEditorDocument({
   currentOnSaved = readOnly ? null : onSaved;
   currentOnSaveError = readOnly ? null : onSaveError;
   currentRelPath = relPath;
+  currentFileVersion = fileVersion;
   dirty = false;
+  contentRevision = 0;
 
   function updatePreview(text) {
     if (previewContainer) {
@@ -156,6 +164,7 @@ function mountEditorDocument({
     getNoteIndex,
     onChange: readOnly ? undefined : (text) => {
       schedulePreviewUpdate(text);
+      contentRevision += 1;
       dirty = true;
       onChange?.(true, text);
       scheduleAutosave(onSaved, onSaveError);
@@ -196,6 +205,7 @@ export async function openNoteInEditor({
   mountEditorDocument({
     doc: note.body,
     relPath,
+    fileVersion: note.version,
     editorContainer,
     previewContainer,
     tabSize,
@@ -277,31 +287,86 @@ function scheduleAutosave(onSaved, onSaveError) {
   autosaveTimer = setTimeout(() => { autosaveTimer = null; saveNow(onSaved, onSaveError); }, currentAutoSaveSeconds * 1000);
 }
 
-// Manuelles Speichern (Ctrl/Cmd+S oder Auto-Save-Timer). Tut nichts, wenn
-// gerade kein Editor offen ist oder es nichts Ungespeichertes gibt.
-// Bugfix (Audit-Punkt 1, KRITISCH): schlug das eigentliche Schreiben fehl
-// (z. B. voller Datenträger, Berechtigung entzogen, Netzlaufwerk getrennt —
-// siehe main/notes-fs.js writeNoteRaw, reines fs.writeFileSync), gab es dafür
-// bisher KEINERLEI Rückmeldung — weder beim Auto-Save noch bei Strg+S, nur
-// eine unbehandelte Ausnahme in der Konsole. dirty blieb dabei unverändert
-// (Zeile stand hinter dem fehlgeschlagenen Aufruf), was zufällig richtig war,
-// aber ungewollt. Jetzt: try/catch, onSaveError informiert sichtbar die
-// Oberfläche. dirty bleibt bei Fehlschlag bewusst weiterhin true, damit der
-// NÄCHSTE Auto-Save-Durchlauf bzw. ein erneutes Strg+S es automatisch wieder
-// versucht, statt den ungespeicherten Stand für immer als "erledigt" zu markieren.
+// Manuelles Speichern (Ctrl/Cmd+S oder Auto-Save-Timer). Pro Editor-Lifecycle
+// läuft höchstens ein Schreibvorgang. Trifft währenddessen ein weiterer
+// Save-Auslöser ein, wird er nachgezogen. Ein erfolgreicher Save darf dirty nur
+// für genau die Dokumentgeneration und Inhaltsrevision löschen, die er selbst
+// geschrieben hat; neuere Eingaben bleiben dadurch sichtbar speicherpflichtig.
 export async function saveNow(onSaved, onSaveError) {
   if (!currentEditor || !currentRelPath || !dirty) return null;
-  const content = currentEditor.getContent();
-  try {
-    const result = await saveNote(currentRelPath, content);
-    dirty = false;
-    onSaved?.(result);
-    return result;
-  } catch (err) {
-    console.error('[Archiv Wiki] Speichern fehlgeschlagen:', err.message);
-    onSaveError?.(err);
-    return null;
+
+  if (saveInProgress) {
+    pendingSaveGeneration = editorGeneration;
+    return saveInProgress;
   }
+
+  const saveGeneration = editorGeneration;
+  const saveRevision = contentRevision;
+  const saveRelPath = currentRelPath;
+  const expectedFileVersion = currentFileVersion;
+  const content = currentEditor.getContent();
+  const savedCallback = onSaved || currentOnSaved;
+  const saveErrorCallback = onSaveError || currentOnSaveError;
+
+  const operation = (async () => {
+    try {
+      const result = await saveNote(saveRelPath, content, undefined, expectedFileVersion);
+      const saveDocumentStillOpen = editorGeneration === saveGeneration
+        && currentRelPath === saveRelPath;
+      if (saveDocumentStillOpen && typeof result?.version === 'string') {
+        currentFileVersion = result.version;
+      }
+      const saveStillCurrent = editorGeneration === saveGeneration
+        && currentRelPath === saveRelPath
+        && contentRevision === saveRevision;
+      if (saveStillCurrent) {
+        dirty = false;
+        savedCallback?.(result);
+      }
+      return result;
+    } catch (err) {
+      const saveDocumentStillOpen = editorGeneration === saveGeneration
+        && currentRelPath === saveRelPath;
+      if (saveDocumentStillOpen) {
+        console.error('[Archiv Wiki] Speichern fehlgeschlagen:', err.message);
+        saveErrorCallback?.(err);
+      }
+      return null;
+    }
+  })();
+
+  saveInProgress = operation;
+  try {
+    return await operation;
+  } finally {
+    if (saveInProgress === operation) saveInProgress = null;
+    const runPendingSave = pendingSaveGeneration === editorGeneration
+      && Boolean(currentEditor && currentRelPath && dirty);
+    pendingSaveGeneration = null;
+    if (runPendingSave) void saveNow(currentOnSaved, currentOnSaveError);
+  }
+}
+
+// Navigation muss nicht nur einen möglicherweise älteren laufenden Save
+// abwarten, sondern den beim Verlassen tatsächlich aktuellen Editorstand.
+// Die vorhandene Save-Serialisierung erledigt dabei jeden Folgesave; diese
+// Hilfe wartet so lange, bis dieselbe Dokumentgeneration wirklich clean ist
+// oder ein Schreibfehler den Leave-Vorgang abbrechen muss.
+export async function saveUntilClean(onSaved, onSaveError) {
+  const leaveGeneration = editorGeneration;
+  const leaveRelPath = currentRelPath;
+  if (!currentEditor || !leaveRelPath || !dirty) return true;
+
+  while (editorGeneration === leaveGeneration && currentRelPath === leaveRelPath && dirty) {
+    const result = await saveNow(onSaved, onSaveError);
+    if (editorGeneration !== leaveGeneration || currentRelPath !== leaveRelPath) return false;
+    if (!dirty) return true;
+    if (!result) return false;
+  }
+
+  return editorGeneration === leaveGeneration
+    && currentRelPath === leaveRelPath
+    && !dirty;
 }
 
 export function isDirty() {
@@ -344,12 +409,32 @@ export function getEditorContent() {
   return currentEditor?.getContent() ?? '';
 }
 
+// HTML-Exporte rendern den aktuellen Markdown-Quelltext frisch durch exakt
+// denselben DOMPurify-Vertrag wie die Vorschau. Dadurch können nachträgliche
+// DOM-Zustände der sichtbaren Vorschau nicht in die Exportdatei gelangen.
+export function renderMarkdownForExport(markdownText, options = {}) {
+  return renderPreview(String(markdownText ?? ''), {
+    noteIndex: options.noteIndex || [],
+    projectPath: options.projectPath || null
+  });
+}
+
 export function setEditorContent(text) {
   currentEditor?.setContent(text);
 }
 
 export function getOpenRelPath() {
   return currentRelPath;
+}
+
+// Rename/Move darf die Identität einer weiterhin geöffneten Notiz erst nach
+// erfolgreicher Dateisystemmutation umschalten. Der Inhaltsfingerprint bleibt
+// gültig, weil diese Operationen den Markdown-Body nicht verändern; beim
+// anschließenden Rendern wird er zusätzlich frisch vom neuen Pfad eingelesen.
+export function retargetOpenNote(expectedRelPath, nextRelPath) {
+  if (!currentEditor || currentRelPath !== expectedRelPath || !nextRelPath) return false;
+  currentRelPath = nextRelPath;
+  return true;
 }
 
 export function focusEditor() {
@@ -366,12 +451,16 @@ export function jumpToMatchInEditor(query) {
 export function closeEditor() {
   clearTimeout(autosaveTimer);
   clearTimeout(previewDebounceTimer);
+  editorGeneration += 1;
+  pendingSaveGeneration = null;
   if (currentEditor) currentEditor.destroy();
   currentEditor = null;
   clearPreviewSearchHighlights();
   currentPreviewContainer = null;
   currentPreviewSearch = { search: '', caseSensitive: false, regexp: false, wholeWord: false };
   currentRelPath = null;
+  currentFileVersion = null;
+  contentRevision = 0;
   dirty = false;
 }
 

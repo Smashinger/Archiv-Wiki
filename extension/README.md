@@ -23,13 +23,24 @@ Firefox als Flatpak wird derzeit nicht unterstützt.
 ## Einrichtung für Endnutzer
 
 1. Archiv-Wiki als AppImage starten.
-2. Die Browser-Erweiterung installieren.
-3. Archiv-Wiki richtet den lokalen Native-Messaging-Host beim Start automatisch ein.
-4. Eine normale Webseite öffnen und den Web Clipper verwenden.
+2. Den passenden Browserweg verwenden:
+   - **Firefox:** Den Web Clipper über [Mozilla Add-ons](https://addons.mozilla.org/de/firefox/addon/archiv-wiki-web-clipper/) installieren.
+   - **Brave als Flatpak:** In Archiv-Wiki **Einstellungen → Web Clipper** öffnen und **„Brave / Chromium“** wählen; danach Brave vollständig schließen und neu starten.
+3. Eine normale Webseite öffnen und den Web Clipper verwenden.
 
 Ein separat installiertes Node.js, ein Archiv-Wiki-Quellordner und eine manuelle Native-Host-Installation sind für Endnutzer nicht erforderlich.
 
+Die bestätigte lokale Brave-Installation benötigt weder Entwicklermodus noch Administratorrechte. Wird der Web Clipper in Brave bewusst entfernt, bleibt er auch nach einem Neustart entfernt. Brave blockiert danach die erneute automatische Installation derselben externen Erweiterungs-ID; Archiv-Wiki umgeht diese Browserentscheidung nicht.
+
 Archiv-Wiki muss beim Clip-Vorgang laufen und ein Projekt geöffnet haben.
+
+## Signierte Chromium-/Brave-Ausgabe
+
+- Endgültige Erweiterungs-ID: `dengpgfllpkndkgkbikigaejieogndbp`
+- Aktuelle CRX-Version: `0.2.0`
+- Die signierte CRX ist ein öffentlich verteilbares Laufzeitartefakt und wird beim AppImage-Build außerhalb von `app.asar` eingebunden.
+- Der private Chromium-Signierschlüssel gehört ausschließlich zum externen Release-Material. Er ist weder Bestandteil des Projekts noch des AppImage und wird von Archiv-Wiki zur Laufzeit nicht benötigt.
+- Für einen lokalen AppImage-Build wird die bereits signierte CRX unter `extension/distribution/chromium/archiv-wiki-web-clipper.crx` bereitgestellt. Der Build prüft Format, ID und Version vor dem Paketieren.
 
 ## Private und Inkognito-Fenster
 
@@ -78,4 +89,6 @@ Weitere Angaben stehen in [PRIVACY.md](PRIVACY.md).
 - [STORE-ASSETS.md](STORE-ASSETS.md) – vorhandene Icons sowie verpflichtend noch aufzunehmende Store-Grafiken
 - [PRIVACY.md](PRIVACY.md) – tatsächliche Datenverarbeitung und Store-Datenkategorien
 
-Es wurden noch keine Store-Uploads, Signierungen oder Veröffentlichungen durchgeführt.
+Store-Veröffentlichungen und deren Prüfung bleiben von der lokalen Brave-Distribution getrennt.
+
+Die Firefox-Version `0.2.0` ist von Mozilla freigegeben und öffentlich über AMO verfügbar. Eine Veröffentlichung im Chrome Web Store wird damit nicht behauptet.

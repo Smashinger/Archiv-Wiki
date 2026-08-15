@@ -1930,20 +1930,96 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
   margin-right:8px;
 }
 
-/* --- Eingang: bestehende Dashboard-Liste als ruhige, rein lesende Übersicht --- */
+/* --- Eingang: bestehende Dashboard-Liste mit kompakter Mehrfachauswahl --- */
 .incoming-view .dashboard-section{
   background: var(--bg-elev);
 }
+.incoming-view .dashboard-section-header{
+  gap:12px;
+}
+.incoming-bulk-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+  gap:6px;
+  text-transform:none;
+  letter-spacing:normal;
+}
+.incoming-selection-status{
+  min-width:76px;
+  color:var(--text-faint);
+  font-size:10.5px;
+  text-align:right;
+}
+.incoming-bulk-actions .btn{
+  padding:5px 8px;
+  font-size:10.5px;
+  line-height:1.2;
+}
+.incoming-bulk-actions .btn:disabled{
+  opacity:.4;
+  cursor:not-allowed;
+}
+.incoming-bulk-actions .btn:disabled:hover{
+  color:var(--text-muted);
+  border-color:var(--border);
+}
 .incoming-view .incoming-row{
+  grid-template-columns:18px minmax(0,1fr);
+  gap:8px;
+  padding:0 16px;
   cursor: default;
 }
 .incoming-view .incoming-row:hover{
   background: transparent;
   border-left-color: transparent;
 }
+.incoming-view .incoming-row.is-selected,
+.incoming-view .incoming-row.is-selected:hover{
+  background:var(--accent-soft);
+}
+.incoming-row-select{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  align-self:stretch;
+  cursor:pointer;
+}
+.incoming-select-checkbox{
+  width:14px;
+  height:14px;
+  margin:0;
+  accent-color:var(--accent-color);
+  cursor:pointer;
+}
+.incoming-select-checkbox:focus-visible,
+.incoming-row-open:focus-visible{
+  outline:2px solid var(--accent-dim);
+  outline-offset:2px;
+}
+.incoming-row-open{
+  display:grid;
+  grid-template-columns:26px minmax(100px,1fr) minmax(0,2fr) 90px 92px;
+  align-items:center;
+  gap:12px;
+  min-width:0;
+  padding:9px 0;
+  border:0;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  text-align:left;
+  cursor:pointer;
+}
 .incoming-view .incoming-row .dr-icon .lib-icon{
   width: 15px;
   height: 15px;
+}
+@media (max-width:900px){
+  .incoming-row-open{
+    grid-template-columns:22px minmax(80px,1fr) 70px 70px;
+  }
 }
 
 /* --- Eingang: Bild-Anhang innerhalb des bestehenden Vorschau-Panels --- */

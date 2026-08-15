@@ -50,6 +50,13 @@ contextBridge.exposeInMainWorld('archivAPI', {
   },
   webClipper: {
     getStatus: () => ipcRenderer.invoke('app:getWebClipperStatus'),
+    installBrave: () => ipcRenderer.invoke('webclip:installBrave'),
+    // M15: getrennt vom CRX-Installationsschritt — read-only Statusabfrage
+    // sowie der explizit zustimmungspflichtige Berechtigungsweg für die
+    // Brave-Flatpak-Native-Messaging-Freigabe (org.freedesktop.Flatpak).
+    getBraveFlatpakPermissionStatus: () => ipcRenderer.invoke('webclip:getBraveFlatpakPermissionStatus'),
+    grantBraveFlatpakPermission: () => ipcRenderer.invoke('webclip:grantBraveFlatpakPermission'),
+    revokeBraveFlatpakPermission: () => ipcRenderer.invoke('webclip:revokeBraveFlatpakPermission'),
     onStatusUpdated: (callback) => {
       const listener = (_event, status) => callback(status);
       ipcRenderer.on('webclip:statusUpdated', listener);
@@ -134,7 +141,7 @@ contextBridge.exposeInMainWorld('archivAPI', {
     createSubCategory: (mainCategoryRelPath, name) => ipcRenderer.invoke('fs:createSubCategory', mainCategoryRelPath, name),
     createNote: (categoryRelPath, title, templateBody, options) => ipcRenderer.invoke('fs:createNote', categoryRelPath, title, templateBody, options),
     readNote: (relPath) => ipcRenderer.invoke('fs:readNote', relPath),
-    writeNote: (relPath, body, frontmatterPatch) => ipcRenderer.invoke('fs:writeNote', relPath, body, frontmatterPatch),
+    writeNote: (relPath, body, frontmatterPatch, expectedVersion) => ipcRenderer.invoke('fs:writeNote', relPath, body, frontmatterPatch, expectedVersion),
     renameEntry: (relPath, newName) => ipcRenderer.invoke('fs:renameEntry', relPath, newName),
     moveEntry: (relPath, targetCategoryRelPath) => ipcRenderer.invoke('fs:moveEntry', relPath, targetCategoryRelPath),
     deleteEntry: (relPath) => ipcRenderer.invoke('fs:deleteEntry', relPath),

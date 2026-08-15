@@ -66,6 +66,8 @@ Es werden nur normale HTTP-/HTTPS-Seiten akzeptiert. Der Bilder-Modus sammelt ni
 
 Der gemeinsame Nachrichtenrahmen ist auf 10 MiB begrenzt. Textinhalt darf höchstens 9 MiB umfassen; ein erfasster PNG-Bildclip höchstens 6 MiB. Diese Grenzen werden vor beziehungsweise während der lokalen Speicherung erneut geprüft.
 
+Für `selection` und `page` gilt bereits im Content Script eine eigene, niedrigere Obergrenze von 8 MiB tatsächlicher UTF-8-Nutzdaten. Vor `selection.toString()` beziehungsweise `document.body.innerText` läuft ein inkrementeller, konservativer Preflight über die betroffenen DOM-Knoten; dabei werden UTF-8-Bytes ohne vollständigen Encode-Puffer gezählt und browserseitig mögliche Strukturzeichen mit Sicherheitsaufschlag berücksichtigt. Überschreitet bereits dieser Preflight die Grenze, wird der Clip abgewiesen, bevor der vollständige Inhalt als großer String entsteht oder über Extension Messaging kopiert wird. Nach der Materialisierung prüft das Content Script die tatsächliche UTF-8-Größe zusätzlich noch einmal exakt, bevor es den Inhalt an den Background-Prozess zurückgibt. Diese frühe Grenze ersetzt die späteren Nachrichtenrahmen- und Desktop-Grenzen nicht, sondern ergänzt sie um eine frühere Schutzschicht. Ein zu großer Inhalt wird vollständig abgewiesen, nie stillschweigend gekürzt.
+
 ## Eingang als Ziel
 
 Ein empfangener Clip wird als projektbezogener Eingang-Eintrag gespeichert. Der Eingang bleibt ein eigener Systembereich außerhalb des normalen Notizbestands; die Browser-Erweiterung schreibt keine Notizdatei direkt.
@@ -90,15 +92,19 @@ Fehlt die Native-Host-Registrierung, ist Archiv-Wiki nicht geöffnet, antwortet 
 - Chromium-Manifeste verwenden `allowed_origins` mit der aktiven Chromium-ID.
 - Das Firefox-Manifest verwendet `allowed_extensions` mit der Gecko-ID.
 
-Im Entwicklungsmodus verwendet der Host das lokal verfügbare Node.js. Erkannte normale Chromium-Installationen erhalten benutzerbezogene Native-Messaging-Manifeste. Für ein erkanntes Brave-Flatpak legt der Installer zusätzlich einen Wrapper innerhalb des Flatpak-Benutzerbereichs an, der den Host über `flatpak-spawn --host` startet und die erforderliche benutzerbezogene Flatpak-Berechtigung setzt. Im AppImage-Modus führt dieser Wrapper zum stabil vorbereiteten AppImage-Host; nur der Entwicklungsmodus verwendet dafür Node.js und den Projektquellstand.
+Im Entwicklungsmodus verwendet der Host das lokal verfügbare Node.js. Erkannte normale Chromium-Installationen erhalten benutzerbezogene Native-Messaging-Manifeste. Für ein erkanntes Brave-Flatpak legt der Installer zusätzlich einen Wrapper innerhalb des Flatpak-Benutzerbereichs an, der den Host über `flatpak-spawn --host` startet, sowie das zugehörige Native-Messaging-Manifest. Im AppImage-Modus führt dieser Wrapper zum stabil vorbereiteten AppImage-Host; nur der Entwicklungsmodus verwendet dafür Node.js und den Projektquellstand.
+
+Der Installer selbst setzt dabei **keine** Flatpak-Berechtigung mehr. `flatpak-spawn --host` benötigt für Brave zusätzlich die benutzerbezogene, für die gesamte Brave-App geltende Berechtigung `--talk-name=org.freedesktop.Flatpak`. Diese wird ausschließlich nutzerinitiiert und nach informierter Zustimmung über Einstellungen → Web Clipper → „Brave / Chromium“ gesetzt (`main/webclip-distribution.js`, siehe dortiger Abschnitt) — nie automatisch durch einen normalen App- oder AppImage-Start.
 
 ## Firefox
 
-Firefox-Unterstützung ist technisch in der gemeinsamen Extension vorhanden: Manifest V3, Gecko-ID, Native Messaging und die Sperre privater Fenster sind implementiert. Der Native-Host-Installer registriert normal installiertes Firefox unter dem benutzerbezogenen Mozilla-Pfad.
+Firefox-Unterstützung ist technisch in der gemeinsamen Extension vorhanden: Manifest V3, Gecko-ID `webclip@archiv-wiki.smashii.de`, Web-Clipper-Version `0.2.0`, Native Messaging und die Sperre privater Fenster sind implementiert. Der Native-Host-Installer registriert normal installiertes Firefox unter dem benutzerbezogenen Mozilla-Pfad.
 
-Firefox als Flatpak wird vom vorhandenen Installer bewusst nicht eingerichtet. Im Einstellungsfenster ist der Firefox-Installationsknopf derzeit deaktiviert und mit „Firefox (folgt)“ bezeichnet. Dieser UI-Zustand ist vom technischen Extension-Support zu unterscheiden.
+Die Firefox-Ausgabe wurde von Mozilla freigegeben und ist öffentlich unter <https://addons.mozilla.org/de/firefox/addon/archiv-wiki-web-clipper/> verfügbar. Die aktive Schaltfläche „Firefox“ in den Einstellungen öffnet diese offizielle Add-on-Seite im System-Browser.
 
-Ein öffentlicher AMO-Status wird aus dem lokalen Quellstand nicht abgeleitet und bleibt außerhalb dieser technischen Dokumentation.
+Der öffentliche AMO-Installationsweg wurde mit der veröffentlichten Version `0.2.0` real bestätigt. Erfolgreich geprüft wurden URL, Textauswahl, sichtbarer Seitentext, Bild, Native Messaging, Übernahme in den Eingang, ein erneuter Clip nach vollständigem Firefox-Neustart sowie die Sperre privater Firefox-Fenster.
+
+Firefox als Flatpak wird vom vorhandenen Native-Host-Installer weiterhin nicht eingerichtet. Die öffentliche AMO-Verfügbarkeit ändert diese technische Grenze nicht.
 
 ## Chromium und Brave
 
@@ -115,6 +121,8 @@ Die aktive Schaltfläche „Brave / Chromium“ in den Einstellungen ruft tatsä
 
 Die Vorbereitung wird ausdrücklich vom Nutzer in den Einstellungen ausgelöst; ein normaler App-Start installiert die Erweiterung nicht automatisch. Entfernt der Nutzer die externe Erweiterung bewusst, wird der daraus entstehende Brave-Blockierungszustand weder umgangen noch zurückgesetzt. Eine erneute automatische Installation derselben ID wird nicht erzwungen.
 
+Derselbe Schaltflächen-Weg übernimmt zusätzlich die für Brave-Flatpak nötige Native-Messaging-Berechtigung (`--talk-name=org.freedesktop.Flatpak`, siehe „AppImage-Rolle“): Fehlt sie, zeigt Archiv-Wiki vor dem Setzen einen Zustimmungsdialog mit den konkreten Auswirkungen; bricht der Nutzer ab, bleibt die Berechtigung unverändert und die weitere Vorbereitung stoppt kontrolliert. Ist sie bereits vorhanden, erscheint kein erneuter Dialog. Der Einstellungsbereich zeigt den aktuellen, rein lesend ermittelten Berechtigungsstatus und bietet bei vorhandener Berechtigung einen gezielten Widerruf, der ausschließlich diesen einen `talk-name` entfernt (`flatpak override --user --no-talk-name=…`) und keine anderen, unabhängig gesetzten Brave-Overrides verändert.
+
 Die UI-Bezeichnung „Brave / Chromium“ darf daher nicht als Zusage verstanden werden, dass dieser Installationsknopf jeden Chromium-basierten Browser unterstützt. Der aktuell implementierte UI-Distributionsweg ist auf Brave als Linux-Flatpak zugeschnitten.
 
 ## AppImage-Rolle
@@ -123,7 +131,7 @@ Das AppImage enthält als Web-Clipper-Ressourcen den Native Host, den Installer,
 
 Beim Start einer verpackten Linux-AppImage-Ausführung mit gültigem absolutem `APPIMAGE`-Pfad führt Archiv-Wiki den Installer im AppImage-Modus aus. Dieser kopiert Host- und Transportdateien in einen stabilen benutzerbezogenen XDG-Datenpfad und erzeugt einen Wrapper, der genau das aktuelle AppImage mit `ELECTRON_RUN_AS_NODE=1` als Native Host startet. Anschließend werden die Native-Messaging-Manifeste für normal installiertes Firefox und die bekannten normalen Chromium-Profilpfade auf diesen stabilen Wrapper ausgerichtet.
 
-Ist Brave als Flatpak installiert, erzeugt derselbe AppImage-Start zusätzlich im Brave-Flatpak-Benutzerbereich das Native-Messaging-Manifest und einen Sandbox-Wrapper. Dieser verwendet `flatpak-spawn --host`, um den bereits vorbereiteten stabilen AppImage-Host auf dem Hostsystem zu starten; eine lokale Node.js-Installation oder ein Projektquellstand werden dafür nicht benötigt. Die erforderliche benutzerbezogene Berechtigung für `org.freedesktop.Flatpak` wird dabei eingerichtet. Dieser automatische Schritt bereitet ausschließlich Native Messaging vor und installiert die Browser-Erweiterung nicht.
+Ist Brave als Flatpak installiert, erzeugt derselbe AppImage-Start zusätzlich im Brave-Flatpak-Benutzerbereich das Native-Messaging-Manifest und einen Sandbox-Wrapper. Dieser verwendet `flatpak-spawn --host`, um den bereits vorbereiteten stabilen AppImage-Host auf dem Hostsystem zu starten; eine lokale Node.js-Installation oder ein Projektquellstand werden dafür nicht benötigt. Dieser automatische Schritt bereitet ausschließlich Native Messaging vor, installiert die Browser-Erweiterung nicht und vergibt insbesondere **keine** neue Flatpak-Berechtigung — ohne die anschließend nutzerinitiiert erteilte `org.freedesktop.Flatpak`-Berechtigung bleibt der Wrapper bis dahin lediglich vorbereitet, aber unwirksam.
 
 Ein entpackter `linux-unpacked`-Build wird nicht dauerhaft registriert. Ein Fehler bei der AppImage-Host-Vorbereitung wird protokolliert, verhindert aber nicht den normalen Start von Archiv-Wiki. Die Extension selbst wird durch diese Startvorbereitung nicht automatisch installiert.
 
@@ -139,7 +147,7 @@ Der öffentliche Manifest-Schlüssel dient der stabilen ID-Zuordnung. Der privat
 
 ## Release-Schutz
 
-`npm run dist` und `npm run release` führen vor `electron-builder` automatisch `build/verify-webclip-crx.mjs` aus. Die Prüfung muss fehlschlagen und damit Build beziehungsweise Release stoppen, wenn die CRX fehlt, nicht lesbar oder beschädigt ist, keine gültige CRX3-Struktur besitzt, einer anderen signierten beziehungsweise aus dem Manifest-Schlüssel abgeleiteten ID zugeordnet ist oder nicht Version `0.2.0` enthält.
+`npm run dist` und `npm run release` führen vor `electron-builder` automatisch `build/verify-webclip-crx.mjs` aus. Die Prüfung muss fehlschlagen und damit Build beziehungsweise Release stoppen, wenn die CRX fehlt, nicht lesbar oder beschädigt ist, keine gültige CRX3-Struktur besitzt, ihre kryptografische CRX3-Signatur nicht gegen den signierten Kopf- und Archivinhalt verifiziert, keinen zur signierten Extension-ID gehörenden verifizierten Schlüssel enthält, einer anderen signierten beziehungsweise aus dem Manifest-Schlüssel abgeleiteten ID zugeordnet ist oder nicht Version `0.2.0` enthält. Build- und Laufzeitprüfung (`main/webclip-distribution.js`, `installBraveWebClipper()`) verwenden dieselbe `inspectCrxFile()`-Funktion und damit denselben Sicherheitsmaßstab.
 
 `electron-builder` paketiert die geprüfte CRX als `extraResource`. Der vollständige Release-Ablauf und seine manuellen Prüfungen stehen in `04_RELEASE_WORKFLOW.md`.
 

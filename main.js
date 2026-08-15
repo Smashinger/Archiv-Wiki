@@ -13,15 +13,29 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { readAppState, writeAppState } = require('./main/app-state');
-const { isValidProject, readProjectConfig } = require('./main/project');
+const { adoptProjectConfig, cloneProjectConfig, isValidProject, requireProjectConfig } = require('./main/project');
 const { registerWizardIpc } = require('./main/wizard-ipc');
 const { registerFilesystemIpc } = require('./main/filesystem-ipc');
 const { registerIncomingIpc } = require('./main/incoming-ipc');
 const { startWebClipReceiver } = require('./main/webclip-receiver');
+const {
+  INSTALL_SWITCH: WEBCLIP_INSTALL_SWITCH,
+  installBraveWebClipper,
+  registerWebClipperDistributionIpc
+} = require('./main/webclip-distribution');
 const { registerExportIpc, exportProjectZip } = require('./main/export-ipc');
 const { registerSyncIpc, isSyncInProgress } = require('./main/sync-ipc');
 const { registerSettingsIpc } = require('./main/settings-ipc');
-const { maybeRunAutoBackup, nextScheduledBackup, isBackupInProgress, readProjectBackupStatus, finishBackupBeforeQuit } = require('./main/backup');
+const {
+  maybeRunAutoBackup,
+  getBackupFolderState,
+  resolveBackupSuccessAt,
+  storedSuccessMatchesBackup,
+  isBackupInProgress,
+  readProjectBackupStatus,
+  finishBackupBeforeQuit
+} = require('./main/backup');
+const { getAppDocumentUrl, createNavigationHandlers } = require('./main/navigation-security');
 // Auf Modul-Ebene (wie alle require-Aufrufe hier oben), NICHT innerhalb einer
 // einzelnen Funktion — autoUpdater wird sowohl in registerCoreIpc() (IPC-
 // Handler, Ereignis-Verdrahtung) als auch im automatischen Programmstart-
@@ -277,6 +291,7 @@ function startUpdateDownload() {
 }
 
 const isDev = process.argv.includes('--dev');
+const installBraveWebClipperRequested = process.argv.includes(WEBCLIP_INSTALL_SWITCH);
 
 /**
  * Registriert den mitgelieferten Native Host nur für eine verpackte Linux-
@@ -400,31 +415,44 @@ let wizardWindow = null;
 let currentProject = { path: null, config: null };
 let webClipReceiver = null;
 
+function adoptCurrentProjectConfig(projectPath, config) {
+  const nextProject = adoptProjectConfig(currentProject, projectPath, config);
+  if (nextProject === currentProject) return false;
+  currentProject = nextProject;
+  return true;
+}
 
-function getCurrentBackupStatus() {
+
+async function getCurrentBackupStatus() {
   const projectPath = currentProject?.path;
   const stored = readProjectBackupStatus(projectPath);
   const intervalDays = currentProject?.config?.backupIntervalDays ?? 1;
   const backupPath = currentProject?.config?.backupPath;
+  const now = new Date();
+  const folderState = await getBackupFolderState(backupPath, intervalDays, { now });
+  const storedSuccessIsCurrent = storedSuccessMatchesBackup(folderState.latestValidBackup, stored);
   return {
     consecutiveFailures: stored.consecutiveFailures || 0,
-    lastSuccessAt: stored.lastSuccessAt || null,
+    lastSuccessAt: resolveBackupSuccessAt(folderState.latestValidBackup, stored, now),
     lastErrorAt: stored.lastErrorAt || null,
     lastErrorMessage: stored.lastErrorMessage || null,
     lastErrorCode: stored.lastErrorCode || null,
     lastErrorUserMessage: stored.lastErrorUserMessage || null,
-    lastCleanupErrorAt: stored.lastCleanupErrorAt || null,
-    lastCleanupErrorMessage: stored.lastCleanupErrorMessage || null,
-    lastCleanupErrorCode: stored.lastCleanupErrorCode || null,
-    lastCleanupErrorUserMessage: stored.lastCleanupErrorUserMessage || null,
+    lastCleanupErrorAt: storedSuccessIsCurrent ? stored.lastCleanupErrorAt || null : null,
+    lastCleanupErrorMessage: storedSuccessIsCurrent ? stored.lastCleanupErrorMessage || null : null,
+    lastCleanupErrorCode: storedSuccessIsCurrent ? stored.lastCleanupErrorCode || null : null,
+    lastCleanupErrorUserMessage: storedSuccessIsCurrent ? stored.lastCleanupErrorUserMessage || null : null,
     intervalDays,
-    nextScheduledAt: backupPath ? nextScheduledBackup(backupPath, intervalDays) : null,
+    nextScheduledAt: folderState.nextScheduledAt,
     inProgress: isBackupInProgress()
   };
 }
 
-function broadcastBackupStatus() {
-  const status = getCurrentBackupStatus();
+let backupStatusBroadcastGeneration = 0;
+async function broadcastBackupStatus() {
+  const generation = ++backupStatusBroadcastGeneration;
+  const status = await getCurrentBackupStatus();
+  if (generation !== backupStatusBroadcastGeneration) return status;
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('backup:statusUpdated', status);
   }
@@ -437,9 +465,12 @@ async function runBackup(force = false) {
   // maybeRunAutoBackup setzt die zentrale Sperre synchron vor dem ersten await.
   // Dadurch können alle Oberflächen den laufenden Zustand sofort aus derselben
   // Statusquelle übernehmen.
-  broadcastBackupStatus();
+  refreshTrayMenu({ inProgress: isBackupInProgress() });
+  void broadcastBackupStatus().catch(error => {
+    console.error('[Archiv Wiki] Backup-Status konnte nicht aktualisiert werden:', error?.message || error);
+  });
   const result = await operation;
-  return { ...result, status: broadcastBackupStatus() };
+  return { ...result, status: await broadcastBackupStatus() };
 }
 
 // Erlaubte Startmodi für das Hauptfenster. Diese Einstellung ist bewusst
@@ -480,6 +511,18 @@ function rememberMainWindowState() {
 // ---------------------------------------------------------------------------
 // Fenster-Erstellung
 // ---------------------------------------------------------------------------
+function secureWindowNavigation(browserWindow, documentPath) {
+  const handlers = createNavigationHandlers({
+    appDocumentUrl: getAppDocumentUrl(documentPath),
+    openExternal: url => shell.openExternal(url),
+    // Keine URL aus möglicherweise fremdem Inhalt protokollieren. Der Fehler
+    // ist für die Diagnose ausreichend, ohne persönliche Pfade preiszugeben.
+    onExternalError: () => console.error('[Archiv Wiki] Externer Link konnte nicht geöffnet werden.')
+  });
+  browserWindow.webContents.setWindowOpenHandler(handlers.handleWindowOpen);
+  browserWindow.webContents.on('will-navigate', handlers.handleWillNavigate);
+}
+
 function createWizardWindow() {
   wizardWindow = new BrowserWindow({
     width: 820,
@@ -497,14 +540,10 @@ function createWizardWindow() {
   });
 
   wizardWindow.once('ready-to-show', () => wizardWindow.show());
+  secureWindowNavigation(wizardWindow, rendererWizardPath);
   wizardWindow.loadFile(rendererWizardPath);
   wizardWindow.webContents.once('did-finish-load', () => wizardWindow?.webContents.send('update:statusChanged', getUpdateStatusSnapshot()));
   if (isDev) wizardWindow.webContents.openDevTools({ mode: 'detach' });
-
-  wizardWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
 
   // Wenn der Wizard geschlossen wird, OHNE dass ein Projekt fertig eingerichtet
   // wurde (kein Hauptfenster existiert), gibt es nichts mehr zu tun → App beenden.
@@ -515,13 +554,24 @@ function createWizardWindow() {
 }
 
 // Wird aufgerufen, sobald der Wizard ein Projekt fertig eingerichtet ODER ein
-// bestehendes geöffnet hat. Reihenfolge wichtig: erst Hauptfenster erzeugen,
-// DANN den Wizard schließen — sonst würde obiger 'closed'-Handler die App
+// bestehendes geöffnet hat (Erststart) — UND wiederverwendet für den Wiki-
+// Wechsel über "Projektordner öffnen …" bei bereits laufendem Hauptfenster
+// (M12). Reihenfolge beim Erststart wichtig: erst Hauptfenster erzeugen, DANN
+// den Wizard schließen — sonst würde obiger 'closed'-Handler die App
 // fälschlich beenden, weil mainWindow in dem Moment noch null wäre.
 function handleProjectReady(projectPath, config) {
   console.log(`[Archiv Wiki] Projekt bereit: ${projectPath}`);
-  currentProject = { path: projectPath, config };
-  createMainWindow();
+  currentProject = { path: projectPath, config: cloneProjectConfig(config) };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    // Bereits laufendes Hauptfenster wechselt das Projekt: kompletter Reload
+    // lädt den Renderer frisch, dessen init() den jetzt aktuellen
+    // currentProject-Stand (siehe 'project:getCurrent') von Grund auf neu
+    // aufbaut — keine zweite, parallele Projektwechsel-Logik nötig.
+    mainWindow.webContents.reload();
+    mainWindow.focus();
+  } else {
+    createMainWindow();
+  }
   if (wizardWindow) {
     wizardWindow.close();
   }
@@ -563,34 +613,11 @@ function createMainWindow() {
     if (isDev) console.log(`[Renderer] ${message} (${sourceId}:${line})`);
   });
 
+  secureWindowNavigation(mainWindow, rendererIndexPath);
   mainWindow.loadFile(rendererIndexPath);
   mainWindow.webContents.once('did-finish-load', () => mainWindow?.webContents.send('update:statusChanged', getUpdateStatusSnapshot()));
 
   if (isDev) mainWindow.webContents.openDevTools({ mode: 'detach' });
-
-  // Externe Links immer im System-Browser öffnen, nie im App-Fenster.
-  // setWindowOpenHandler fängt nur window.open()/target="_blank" ab — ein
-  // normaler Markdown-Link (<a href="...">, genau wie marked.js sie ohne
-  // target="_blank" erzeugt) löst stattdessen eine direkte Navigation DES
-  // AKTUELLEN Fensters aus (will-navigate), nicht window.open(). Ohne diesen
-  // zweiten Handler würde das Hauptfenster beim Klick auf einen externen
-  // Link tatsächlich zu der fremden Seite wechseln, statt sie im
-  // System-Browser zu öffnen.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    // WICHTIG: nur nach Protokoll unterscheiden, NICHT nach exaktem URL-
-    // Vergleich — die komplette interne Navigation dieser App läuft über
-    // location.hash-Wechsel (z. B. beim Öffnen einer Notiz), was ebenfalls
-    // will-navigate auslöst. file: (die eigene, per loadFile geladene Seite,
-    // Hash-Wechsel eingeschlossen) bleibt erlaubt, alles andere (http/https/
-    // mailto/...) wird abgefangen und im System-Browser geöffnet.
-    if (url.startsWith('file:')) return;
-    event.preventDefault();
-    shell.openExternal(url);
-  });
 
   // Rechtschreibprüfung (Nutzer-Feature): nutzt Electrons EINGEBAUTES,
   // natives Spellcheck (dieselben Chromium-Wörterbücher wie in jedem
@@ -700,8 +727,9 @@ function buildMenu() {
           label: 'Projektordner öffnen …',
           accelerator: 'CmdOrCtrl+O',
           click: () => {
-            // TODO Schritt 4/5: echte "bestehendes Projekt wechseln"-Logik
-            // (aktuell öffnet nur der Wizard beim allerersten Start ein Projekt).
+            // Restliche Ablauf (Dirty-Schutz, Ordnerdialog, Projektwechsel)
+            // läuft im Renderer über denselben Weg wie der Erststart-Wizard
+            // (dialog:selectDirectory + wizard:openExisting → handleProjectReady).
             mainWindow?.webContents.send('menu:open-project');
           }
         },
@@ -815,7 +843,7 @@ function registerCoreIpc() {
   // Backup-Warnung-Feature: Anzahl aufeinanderfolgender fehlgeschlagener
   // automatischer Backups (siehe main/backup.js) — ab 3 in Folge zeigt die
   // App eine sichtbare Warnung, statt dass es unbemerkt weiter fehlschlägt.
-  ipcMain.handle('app:getBackupStatus', () => getCurrentBackupStatus());
+  ipcMain.handle('app:getBackupStatus', async () => getCurrentBackupStatus());
 
   // "Backup jetzt erstellen"-Button im neuen Einstellungsfenster — erzwingt
   // ein Backup unabhängig vom Intervall. Bugfix (Audit-Punkt 3): löschte
@@ -1176,7 +1204,8 @@ function registerCoreIpc() {
   // stimmten (Schutz gegen Timing-Angriffe, auch wenn das Risiko hier gering
   // ist, da rein lokal — trotzdem der korrekte, saubere Weg).
   ipcMain.handle('app:verifyAppLock', (_e, enteredPassword) => {
-    const config = readProjectConfig(currentProject?.path);
+    const config = requireProjectConfig(currentProject?.path);
+    adoptCurrentProjectConfig(currentProject?.path, config);
     const appLock = config?.appLock;
     if (!appLock?.enabled) return { ok: true }; // kein Schutz gesetzt — nichts zu prüfen
     try {
@@ -1216,7 +1245,7 @@ function registerCoreIpc() {
 // unterschiedlich zuverlässig (unter GNOME z. B. oft nur mit einer
 // zusätzlichen Erweiterung sichtbar) — das ist eine Einschränkung des
 // jeweiligen Systems, keine Einschränkung dieser App.
-function refreshTrayMenu(status = getCurrentBackupStatus()) {
+function refreshTrayMenu(status = { inProgress: isBackupInProgress() }) {
   if (!tray || tray.isDestroyed()) return;
   function showAndFocus() { mainWindow?.show(); mainWindow?.focus(); }
   tray.setContextMenu(Menu.buildFromTemplate([
@@ -1267,6 +1296,32 @@ app.whenReady().then(async () => {
     console.error('[Archiv Wiki] Native Host konnte nicht vorbereitet werden:', error?.message || error);
   }
 
+  // Der ausdrücklich gesetzte AppImage-Schalter bleibt für technische
+  // Diagnosen verfügbar. Im normalen Programmablauf wird die Registrierung
+  // ausschließlich durch die sichtbare Nutzeraktion in den Einstellungen
+  // ausgelöst; ein normaler App-Start installiert die Erweiterung niemals.
+  if (installBraveWebClipperRequested) {
+    try {
+      const result = installBraveWebClipper({
+        resourcesPath: process.resourcesPath,
+        homePath: app.getPath('home'),
+        platform: process.platform,
+        isPackaged: app.isPackaged
+      });
+      console.log('[Archiv Wiki] Brave Web Clipper zur Installation vorbereitet.');
+      console.log(`[Archiv Wiki] ID: ${result.extensionId}`);
+      console.log(`[Archiv Wiki] Version: ${result.extensionVersion}`);
+      console.log(`[Archiv Wiki] CRX: ${result.crxPath}`);
+      console.log(`[Archiv Wiki] Registrierung: ${result.registrationPath}`);
+      console.log('[Archiv Wiki] Brave muss jetzt vollständig neu gestartet werden.');
+    } catch (error) {
+      process.exitCode = 1;
+      console.error('[Archiv Wiki] Brave Web Clipper konnte nicht zur Installation vorbereitet werden:', error?.message || error);
+    }
+    app.quit();
+    return;
+  }
+
   buildMenu();
   createTray();
 
@@ -1283,8 +1338,18 @@ app.whenReady().then(async () => {
     catch (err) { console.error(`[Archiv Wiki] Registrierung fehlgeschlagen: ${label}`, err); }
   }
   safeRegister('registerCoreIpc', () => registerCoreIpc());
-  safeRegister('registerFilesystemIpc', () => registerFilesystemIpc({ getCurrentProject: () => currentProject }));
+  safeRegister('registerFilesystemIpc', () => registerFilesystemIpc({
+    getCurrentProject: () => currentProject,
+    onProjectConfigLoaded: adoptCurrentProjectConfig
+  }));
   safeRegister('registerIncomingIpc', () => registerIncomingIpc({ getCurrentProject: () => currentProject }));
+  safeRegister('registerWebClipperDistributionIpc', () => registerWebClipperDistributionIpc({
+    ipcMain,
+    resourcesPath: process.resourcesPath,
+    homePath: app.getPath('home'),
+    platform: process.platform,
+    isPackaged: app.isPackaged
+  }));
   safeRegister('startWebClipReceiver', () => {
     webClipReceiver = startWebClipReceiver({
       getCurrentProject: () => currentProject,
@@ -1301,8 +1366,16 @@ app.whenReady().then(async () => {
     });
   });
   safeRegister('registerExportIpc', () => registerExportIpc({ getCurrentProject: () => currentProject, getMainWindow: () => mainWindow }));
-  safeRegister('registerSyncIpc', () => registerSyncIpc({ getCurrentProject: () => currentProject, getMainWindow: () => mainWindow }));
-  safeRegister('registerSettingsIpc', () => registerSettingsIpc({ getCurrentProject: () => currentProject, getMainWindow: () => mainWindow }));
+  safeRegister('registerSyncIpc', () => registerSyncIpc({
+    getCurrentProject: () => currentProject,
+    getMainWindow: () => mainWindow,
+    onProjectConfigLoaded: adoptCurrentProjectConfig
+  }));
+  safeRegister('registerSettingsIpc', () => registerSettingsIpc({
+    getCurrentProject: () => currentProject,
+    getMainWindow: () => mainWindow,
+    onProjectConfigLoaded: adoptCurrentProjectConfig
+  }));
   // Bugfix (Audit-Punkt 6): vorher nur im "kein Projekt bekannt"-Zweig weiter
   // unten registriert — wurde der Wizard stattdessen später über
   // app.on('activate') geöffnet (z. B. falls currentProject.path zwischen-
@@ -1344,7 +1417,10 @@ app.whenReady().then(async () => {
     // Bereits eingerichtetes Projekt aus einem früheren Start → Wizard
     // überspringen und direkt ins Hauptfenster.
     console.log(`[Archiv Wiki] Bekanntes Projekt gefunden: ${appState.lastProjectPath}`);
-    currentProject = { path: appState.lastProjectPath, config: readProjectConfig(appState.lastProjectPath) };
+    currentProject = {
+      path: appState.lastProjectPath,
+      config: cloneProjectConfig(requireProjectConfig(appState.lastProjectPath))
+    };
     createMainWindow();
   } else {
     // Kein (gültiges) Projekt bekannt → Setup-Wizard zeigen.

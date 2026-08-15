@@ -12,11 +12,110 @@
   const START_IMAGE_PICK = 'archiv-wiki:webclip:start-image-pick';
   const IMAGE_PICKED = 'archiv-wiki:webclip:image-picked';
   const browserApi = typeof browser !== 'undefined' ? browser : chrome;
+  // webclip-contract.js wird von background.js unmittelbar vor dieser Datei
+  // injiziert. Ohne den gemeinsamen Vertrag wird fail-closed abgebrochen,
+  // statt eine zweite, möglicherweise abweichende Grenzdefinition zu führen.
+  if (typeof ArchivWikiWebClip === 'undefined'
+      || !Number.isFinite(ArchivWikiWebClip.MAX_EARLY_TEXT_BYTES)
+      || typeof ArchivWikiWebClip.measureUtf8Bytes !== 'function') {
+    throw new Error('Der Web-Clip-Datenvertrag ist nicht geladen.');
+  }
+  const { MAX_EARLY_TEXT_BYTES, measureUtf8Bytes } = ArchivWikiWebClip;
 
   if (globalThis[INSTALL_FLAG]) return;
   globalThis[INSTALL_FLAG] = true;
 
   let imagePickCleanup = null;
+
+  // "Ganze Seite" darf niemals script-/style-/Vorlageninhalt zählen — diese
+  // Elemente tragen auch bei document.body.innerText nie zum Ergebnis bei.
+  const EXCLUDED_TEXT_ANCESTOR_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+  // innerText/Selection können zusätzlich zu DOM-Textknoten Strukturzeichen
+  // wie Zeilenumbrüche oder Tabellen-Trenner erzeugen. Vier UTF-8-Bytes pro
+  // beteiligtem Element sind absichtlich konservativ und verhindern, dass der
+  // Preflight diese browserseitig ergänzten Zeichen systematisch unterschätzt.
+  const MAX_STRUCTURAL_TEXT_OVERHEAD_BYTES_PER_ELEMENT = 4;
+
+  function addTextBytesWithinLimit(text, totalBytes, maxBytes) {
+    const measured = measureUtf8Bytes(text, Math.max(0, maxBytes - totalBytes));
+    return {
+      totalBytes: totalBytes + measured.bytes,
+      exceeds: measured.exceeds || totalBytes + measured.bytes > maxBytes
+    };
+  }
+
+  // Prüft die UTF-8-Größe des möglichen sichtbaren Seitentexts INKREMENTELL,
+  // OHNE zuvor document.body.innerText (eine volle Kopie des Textflusses)
+  // aufzurufen. CSS-versteckte Knoten werden bewusst mitgezählt; zusammen mit
+  // dem Strukturaufschlag ist der Preflight absichtlich konservativ.
+  function estimatedVisibleTextExceedsLimit(root, maxBytes) {
+    if (!root) return false;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => {
+        if (node.nodeType === Node.ELEMENT_NODE && EXCLUDED_TEXT_ANCESTOR_TAGS.has(node.tagName)) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    let total = 0;
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        total += MAX_STRUCTURAL_TEXT_OVERHEAD_BYTES_PER_ELEMENT;
+        if (total > maxBytes) return true;
+        continue;
+      }
+
+      const measured = addTextBytesWithinLimit(node.nodeValue, total, maxBytes);
+      if (measured.exceeds) return true;
+      total = measured.totalBytes;
+    }
+    return false;
+  }
+
+  // Dasselbe Prinzip für eine Textauswahl: läuft über die Textknoten jedes
+  // Selection-Bereichs, statt zuerst selection.toString() aufzurufen.
+  function estimatedSelectionExceedsLimit(selection, maxBytes) {
+    let total = 0;
+    for (let i = 0; i < selection.rangeCount; i += 1) {
+      const range = selection.getRangeAt(i);
+      if (range.collapsed) continue;
+
+      const container = range.commonAncestorContainer;
+      if (container.nodeType === Node.TEXT_NODE) {
+        const measured = addTextBytesWithinLimit(
+          container.nodeValue.slice(range.startOffset, range.endOffset),
+          total,
+          maxBytes
+        );
+        if (measured.exceeds) return true;
+        total = measured.totalBytes;
+        continue;
+      }
+
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => (range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT)
+      });
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          total += MAX_STRUCTURAL_TEXT_OVERHEAD_BYTES_PER_ELEMENT;
+          if (total > maxBytes) return true;
+          continue;
+        }
+
+        let value = node.nodeValue;
+        if (node === range.startContainer) value = value.slice(range.startOffset);
+        if (node === range.endContainer) value = value.slice(0, range.endOffset);
+
+        const measured = addTextBytesWithinLimit(value, total, maxBytes);
+        if (measured.exceeds) return true;
+        total = measured.totalBytes;
+      }
+    }
+    return false;
+  }
 
   function startImagePick() {
     imagePickCleanup?.();
@@ -115,6 +214,13 @@
     }
 
     async function onClick(event) {
+      // Sicherheitsgrenze WC-SP-003/M16: nur ein echter Nutzerklick darf als
+      // Bildauswahl zählen. event.isTrusted ist bei einem von der Seite selbst
+      // per dispatchEvent()/element.click() erzeugten Ereignis immer false;
+      // ein solches Ereignis wird hier vollständig ignoriert, statt es wie
+      // eine bewusste Auswahl zu behandeln.
+      if (!event.isTrusted) return;
+
       const image = closestImage(event.target);
       if (!image) return;
 
@@ -169,9 +275,16 @@
 
   browserApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === GET_SELECTION) {
-      const selection = typeof window.getSelection === 'function'
-        ? String(window.getSelection()?.toString() || '')
-        : '';
+      const selectionObj = typeof window.getSelection === 'function' ? window.getSelection() : null;
+      if (selectionObj && estimatedSelectionExceedsLimit(selectionObj, MAX_EARLY_TEXT_BYTES)) {
+        sendResponse({ ok: false, error: 'Die Textauswahl ist zu groß für einen Clip. Wähle einen kleineren Textbereich.' });
+        return false;
+      }
+      const selection = selectionObj ? String(selectionObj.toString() || '') : '';
+      if (measureUtf8Bytes(selection, MAX_EARLY_TEXT_BYTES).exceeds) {
+        sendResponse({ ok: false, error: 'Die Textauswahl ist zu groß für einen Clip. Wähle einen kleineren Textbereich.' });
+        return false;
+      }
 
       // Absichtlich keine Textbereinigung: Nur für die Leerprüfung wird später
       // trim() verwendet; gespeichert wird die Browser-Auswahl unverändert.
@@ -180,9 +293,18 @@
     }
 
     if (message?.type === GET_PAGE_TEXT) {
+      const root = document.body || document.documentElement;
+      if (estimatedVisibleTextExceedsLimit(root, MAX_EARLY_TEXT_BYTES)) {
+        sendResponse({ ok: false, error: 'Die Webseite enthält zu viel Text für einen Seiten-Clip. Wähle stattdessen eine kleinere Textauswahl.' });
+        return false;
+      }
       // "Ganze Seite" sammelt bewusst nur den sichtbaren Textfluss der Seite.
       // HTML, Bilder, Styles oder ein DOM-Snapshot werden nicht übernommen.
       const pageText = String(document.body?.innerText ?? document.documentElement?.innerText ?? '');
+      if (measureUtf8Bytes(pageText, MAX_EARLY_TEXT_BYTES).exceeds) {
+        sendResponse({ ok: false, error: 'Die Webseite enthält zu viel Text für einen Seiten-Clip. Wähle stattdessen eine kleinere Textauswahl.' });
+        return false;
+      }
       sendResponse({ ok: true, text: pageText });
       return false;
     }

@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Archiv-Wiki Web Clipper",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Sammle Webseiten, Texte und Bilder direkt in den Eingang von Archiv-Wiki.",
   "incognito": "not_allowed",
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzF/9/LyPl6EvngIF9dkRNLbilyfUT6HkCQ5CklI5mUjL3BNL0efy1M/c+E/LewAqPhWWf8LgICOoqbsVUJJ+u6IGLoh69lTaXbbzdnSHpbq51YNCVhb5yn7VK+oBUm+44vPmaB0Nouum86HQWBFotzco8a6eIlOXxLQQ6UirvwPlZz//mCEAotdzmq9Di0G/sXn5n+wImbi9MgmuNu4YBYRdYLhYBpY6pheLvWoRhphpPoBKlUKeyuwxMHtbfDkmHYrskFDer8SBlGPbRAsMoO0COhY9jiINqMwQArn1Kdtz+LMQTr+j7qHmopu0/KM4pWdaGBeAmbdqUXqBV+LGiQIDAQAB",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv8Y89Rejzb9QRqlzNDeVmA1EDyhX18KWOI0s+kFeOTqD+niVQZCDjRPxqXKj9vkPKvbx6IIVtLXuVGNmwmrhxJh9rrEPHK52r8KK7x2pzmPWHRggKtH2nZLXzTePZYjdfH3IRLq1NXvdwov4oEvU2+PLp8mXr9+dxZn0g+NIMPBBdPTFNlHapZ/AZxoXTe0YvvLKgykwD57k+6C6ipyqv+ugFlo6YCPstoLSKD4Xk6ilxSCVPvG92zajrQITaU35YbZw9Idmx5hWOd48Fa0UUYMYORC64BCXZTar3Ukw/UnTWWEftBul9gqMQpWacyNO8U7Q586dXLYtI3FXlTqNzQIDAQAB",
   "permissions": [
     "activeTab",
     "scripting",

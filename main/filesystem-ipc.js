@@ -12,13 +12,18 @@ const fs = require('fs');
 const path = require('path');
 const nfs = require('./notes-fs');
 const { atomicWriteFileSync } = require('./atomic-write');
-const { readProjectConfig, writeProjectConfig } = require('./project');
+const { cloneProjectConfig, requireProjectConfig, updateProjectConfig } = require('./project');
 
-function registerFilesystemIpc({ getCurrentProject }) {
+function registerFilesystemIpc({ getCurrentProject, onProjectConfigLoaded }) {
   function requireProjectPath() {
     const projectPath = getCurrentProject()?.path;
     if (!projectPath) throw new Error('Kein Projekt geöffnet.');
     return projectPath;
+  }
+
+  function adoptConfig(projectPath, config) {
+    onProjectConfigLoaded?.(projectPath, config);
+    return cloneProjectConfig(config);
   }
 
   // Jede Ordner-Ebene (Wurzel = Hauptkategorien, jede Unterkategorie = ihre
@@ -60,7 +65,8 @@ function registerFilesystemIpc({ getCurrentProject }) {
   ipcMain.handle('fs:listTree', () => {
     const projectPath = requireProjectPath();
     let tree = nfs.listProjectTree(projectPath);
-    const config = readProjectConfig(projectPath) || {};
+    const config = requireProjectConfig(projectPath);
+    adoptConfig(projectPath, config);
     if (config.childOrder) tree = applyChildOrder(tree, '', config.childOrder);
     if (config.categoryIcons) tree = applyCategoryIcons(tree, config.categoryIcons);
     return tree;
@@ -68,18 +74,18 @@ function registerFilesystemIpc({ getCurrentProject }) {
 
   ipcMain.handle('fs:reorderChildren', (_e, parentRelPath, orderedNames) => {
     const projectPath = requireProjectPath();
-    const config = readProjectConfig(projectPath) || {};
-    config.childOrder = { ...(config.childOrder || {}), [parentRelPath]: orderedNames };
-    writeProjectConfig(projectPath, config);
-    return { saved: true };
+    const config = updateProjectConfig(projectPath, draft => {
+      draft.childOrder = { ...(draft.childOrder || {}), [parentRelPath]: orderedNames };
+    });
+    return { saved: true, config: adoptConfig(projectPath, config) };
   });
 
   ipcMain.handle('fs:setCategoryIcon', (_e, relPath, icon) => {
     const projectPath = requireProjectPath();
-    const config = readProjectConfig(projectPath) || {};
-    config.categoryIcons = { ...(config.categoryIcons || {}), [relPath]: icon };
-    writeProjectConfig(projectPath, config);
-    return { saved: true };
+    const config = updateProjectConfig(projectPath, draft => {
+      draft.categoryIcons = { ...(draft.categoryIcons || {}), [relPath]: icon };
+    });
+    return { saved: true, config: adoptConfig(projectPath, config) };
   });
 
   // Generischer Setter für einzelne Top-Level-Einstellungen in .wiki-config.json
@@ -88,10 +94,10 @@ function registerFilesystemIpc({ getCurrentProject }) {
   // nachträglich änderbare Einstellungen absehbar dazukommen werden.
   ipcMain.handle('fs:setProjectSetting', (_e, key, value) => {
     const projectPath = requireProjectPath();
-    const config = readProjectConfig(projectPath) || {};
-    config[key] = value;
-    writeProjectConfig(projectPath, config);
-    return { saved: true };
+    const config = updateProjectConfig(projectPath, draft => {
+      draft[key] = value;
+    });
+    return { saved: true, config: adoptConfig(projectPath, config) };
   });
 
   // Bilder per Drag&Drop (siehe renderer/js/app.js) — landen gesammelt in
@@ -146,8 +152,8 @@ function registerFilesystemIpc({ getCurrentProject }) {
   ipcMain.handle('fs:readNote', (_e, relPath) =>
     nfs.readNote(requireProjectPath(), relPath));
 
-  ipcMain.handle('fs:writeNote', (_e, relPath, body, frontmatterPatch) =>
-    nfs.writeNote(requireProjectPath(), relPath, body, frontmatterPatch));
+  ipcMain.handle('fs:writeNote', (_e, relPath, body, frontmatterPatch, expectedVersion) =>
+    nfs.writeNote(requireProjectPath(), relPath, body, frontmatterPatch, expectedVersion));
 
   ipcMain.handle('fs:renameEntry', (_e, relPath, newName) =>
     nfs.renameEntry(requireProjectPath(), relPath, newName));

@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { Reader, ZipReader } = require('@zip.js/zip.js');
 const { zipProjectTo } = require('./export-ipc');
 const { readAppState, writeAppState } = require('./app-state');
 
@@ -63,9 +64,12 @@ function backupUserMessage(code) {
     EROFS: 'Das Ziellaufwerk ist schreibgeschützt.',
     BACKUP_PATH_INSIDE_PROJECT: 'Der Backup-Ordner darf nicht im Wiki-Ordner liegen.',
     BACKUP_ZIP_INVALID: 'Das erstellte Backup war beschädigt und wurde nicht übernommen.',
+    BACKUP_ZIP_INTEGRITY: 'Das Backup konnte nicht vollständig überprüft werden und wurde nicht übernommen.',
     BACKUP_ZIP_UNSUPPORTED: 'Das erstellte Backup verwendet ein nicht unterstütztes ZIP-Format.',
+    BACKUP_SOURCE_CHANGED: 'Das Backup konnte nicht vollständig erstellt werden. Wiki-Dateien wurden währenddessen verändert oder waren nicht lesbar.',
     BACKUP_ABORTED: 'Das Backup wurde beim Beenden kontrolliert abgebrochen.',
     BACKUP_PATH_MISSING: 'Es wurde kein Backup-Ordner ausgewählt.',
+    BACKUP_PATH_UNAVAILABLE: 'Der konfigurierte Backup-Ordner ist nicht verfügbar. Bitte prüfe das Laufwerk oder wähle den Ordner erneut aus.',
     BACKUP_PATH_INVALID: 'Der Backup-Ordner ist nicht verwendbar.'
   };
   return messages[code] || 'Das Backup konnte nicht erstellt werden.';
@@ -155,6 +159,38 @@ function validateBackupDestinationAccess(projectPath, backupPath) {
   }
 }
 
+// Ein bereits konfiguriertes Ziel wird bei einem Backup niemals neu angelegt.
+// Das ist insbesondere für entfernte Laufwerke wichtig: Ein verschwundener
+// Unterordner unterhalb eines nicht eingehängten Mountpoints darf nicht
+// unbemerkt auf dem lokalen Dateisystem neu entstehen. Das bewusste Einrichten
+// eines neuen Zielordners bleibt ausschließlich validateBackupDestinationAccess
+// beziehungsweise dem Setup-Wizard vorbehalten.
+function requireExistingBackupDestination(projectPath, backupPath) {
+  if (!backupPath || typeof backupPath !== 'string') {
+    throw createBackupError('Es wurde kein Backup-Ordner ausgewählt.', 'BACKUP_PATH_MISSING');
+  }
+
+  const { backupRoot } = validateBackupDestination(projectPath, backupPath);
+  let stat;
+  try {
+    stat = fs.statSync(backupRoot);
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      const unavailable = createBackupError(
+        'Der konfigurierte Backup-Ordner existiert nicht mehr und wurde nicht automatisch neu angelegt.',
+        'BACKUP_PATH_UNAVAILABLE'
+      );
+      unavailable.cause = error;
+      throw unavailable;
+    }
+    throw error;
+  }
+  if (!stat.isDirectory()) {
+    throw createBackupError('Der ausgewählte Backup-Pfad ist kein Ordner.', 'ENOTDIR');
+  }
+  return backupRoot;
+}
+
 function cleanupStaleBackupTemps(backupPath) {
   const errors = [];
   let files;
@@ -180,44 +216,73 @@ function cleanupStaleBackupTemps(backupPath) {
   return errors;
 }
 
-// Löscht die ältesten Backups, wenn mehr als keepCount vorhanden sind.
+// Löscht nur vollständig geprüfte Archiv-Wiki-Backups und zählt beschädigte
+// oder fremde Dateien nicht gegen die Aufbewahrungsgrenze. Zukunftsdatierte
+// Kandidaten bleiben entsprechend dem Status-/Fälligkeitsvertrag unangetastet.
 // Fehler beim Aufräumen ändern den erfolgreichen Zustand des neuen Snapshots
-// nicht; sie werden separat zurückgegeben und später getrennt gespeichert.
-function pruneOldBackups(backupPath, keepCount = DEFAULT_KEEP_COUNT) {
+// nicht; nach dem ersten Löschfehler wird kein weiterer Kandidat angefasst.
+async function pruneOldBackups(backupPath, keepCount = DEFAULT_KEEP_COUNT, options = {}) {
   const errors = [];
-  let files;
+  const now = normalizeNow(options.now);
+  const today = localCalendarDay(now);
+  let dirents;
   try {
-    files = fs.readdirSync(backupPath).filter(f => BACKUP_FILENAME_RE.test(f)).sort();
+    dirents = await fs.promises.readdir(backupPath, { withFileTypes: true });
   } catch (err) {
     console.error('[Archiv Wiki] Backup-Aufbewahrung konnte nicht geprüft werden:', err.message);
     errors.push({ fileName: null, error: err });
     return errors;
   }
 
-  const excess = files.length - keepCount;
+  const candidates = dirents
+    .filter(dirent => dirent.isFile())
+    .map(dirent => ({ fileName: dirent.name, backupDate: parseBackupDate(dirent.name) }))
+    .filter(candidate => candidate.backupDate && localCalendarDay(candidate.backupDate) <= today)
+    .sort((left, right) => {
+      const dateDifference = localCalendarDay(left.backupDate) - localCalendarDay(right.backupDate);
+      return dateDifference || left.fileName.localeCompare(right.fileName);
+    });
+
+  const validCandidates = [];
+  for (const candidate of candidates) {
+    const filePath = path.join(backupPath, candidate.fileName);
+    let stat;
+    try {
+      stat = await fs.promises.stat(filePath);
+      const result = await validateExistingBackup(filePath, stat);
+      if (!result.valid) continue;
+      const finalStat = await fs.promises.stat(filePath);
+      if (backupValidationKey(filePath, finalStat) !== backupValidationKey(filePath, stat)) continue;
+      validCandidates.push({ ...candidate, filePath, stat: finalStat });
+    } catch {
+      // Verschwundene oder nicht lesbare Kandidaten werden nicht gelöscht.
+    }
+  }
+
+  const normalizedKeepCount = Number.isInteger(keepCount) && keepCount >= 0
+    ? keepCount
+    : DEFAULT_KEEP_COUNT;
+  const excess = validCandidates.length - normalizedKeepCount;
   if (excess <= 0) return errors;
 
-  for (const fileName of files.slice(0, excess)) {
+  for (const candidate of validCandidates.slice(0, excess)) {
     try {
-      fs.unlinkSync(path.join(backupPath, fileName));
+      const currentStat = await fs.promises.stat(candidate.filePath);
+      if (backupValidationKey(candidate.filePath, currentStat)
+          !== backupValidationKey(candidate.filePath, candidate.stat)) {
+        throw createBackupError(
+          'Der Backup-Kandidat wurde während der Aufbewahrungsprüfung verändert.',
+          'BACKUP_ROTATION_CHANGED'
+        );
+      }
+      await fs.promises.unlink(candidate.filePath);
     } catch (err) {
-      console.error(`[Archiv Wiki] Altes Backup konnte nicht gelöscht werden (${fileName}):`, err.message);
-      errors.push({ fileName, error: err });
+      console.error(`[Archiv Wiki] Altes Backup konnte nicht gelöscht werden (${candidate.fileName}):`, err.message);
+      errors.push({ fileName: candidate.fileName, error: err });
+      break;
     }
   }
   return errors;
-}
-
-function latestBackupDate(backupPath) {
-  let files;
-  try {
-    files = fs.readdirSync(backupPath).filter(f => BACKUP_FILENAME_RE.test(f)).sort();
-  } catch {
-    return null;
-  }
-  if (files.length === 0) return null;
-  const match = files[files.length - 1].match(BACKUP_FILENAME_RE);
-  return new Date(match[1]);
 }
 
 function readUInt64LEAsNumber(buffer, offset, label) {
@@ -276,10 +341,131 @@ function parseZip64Extra(extra, needs) {
   throw createBackupError('Erforderliche ZIP64-Zusatzdaten fehlen.', 'BACKUP_ZIP_INVALID');
 }
 
+class FileHandleZipReader extends Reader {
+  constructor(fileHandle, size) {
+    super();
+    this.fileHandle = fileHandle;
+    this.size = size;
+  }
+
+  async readUint8Array(offset, length) {
+    const available = Math.max(0, Math.min(length, this.size - offset));
+    if (available === 0) return new Uint8Array();
+
+    const buffer = Buffer.allocUnsafe(available);
+    let bytesRead = 0;
+    while (bytesRead < available) {
+      const result = await this.fileHandle.read(
+        buffer,
+        bytesRead,
+        available - bytesRead,
+        offset + bytesRead
+      );
+      if (result.bytesRead === 0) break;
+      bytesRead += result.bytesRead;
+    }
+    return new Uint8Array(buffer.buffer, buffer.byteOffset, bytesRead);
+  }
+}
+
+function normalizeZipEntryPath(entryPath) {
+  const normalized = path.posix
+    .normalize(String(entryPath || '').replace(/\\/g, '/'))
+    .replace(/^(\.\/)+/, '')
+    .replace(/\/+$/, '');
+  return normalized.normalize('NFC');
+}
+
+async function validateZipEntryData(zipPath) {
+  const fileHandle = await fs.promises.open(zipPath, 'r');
+  let reader;
+
+  try {
+    const stat = await fileHandle.stat();
+    reader = new ZipReader(new FileHandleZipReader(fileHandle, stat.size), {
+      checkAmbiguity: true,
+      checkCrc32: true,
+      checkSignature: true,
+      checkOverlappingEntry: true,
+      strictness: 'strict',
+      useWebWorkers: false
+    });
+    const entries = await reader.getEntries();
+    const normalizedPaths = new Set();
+    let filesChecked = 0;
+    let uncompressedBytes = 0;
+    let hasProjectConfig = false;
+
+    for (const entry of entries) {
+      const normalizedPath = normalizeZipEntryPath(entry.filename);
+      if (!normalizedPath || normalizedPaths.has(normalizedPath)) {
+        throw createBackupError(
+          'Das Backup enthält doppelte oder ungültige normalisierte ZIP-Pfade.',
+          'BACKUP_ZIP_INTEGRITY'
+        );
+      }
+      normalizedPaths.add(normalizedPath);
+
+      if (entry.directory) continue;
+      if (normalizedPath === '.wiki-config.json') hasProjectConfig = true;
+
+      let entryBytes = 0;
+      const discardStream = new WritableStream({
+        write(chunk) {
+          entryBytes += chunk.byteLength;
+          if (entryBytes > entry.uncompressedSize) {
+            throw createBackupError(
+              `Die entpackte Größe von ${entry.filename} ist inkonsistent.`,
+              'BACKUP_ZIP_INTEGRITY'
+            );
+          }
+        }
+      });
+
+      await entry.getData(discardStream, {
+        checkAmbiguity: true,
+        checkCrc32: true,
+        checkSignature: true,
+        checkOverlappingEntry: true,
+        strictness: 'strict',
+        useWebWorkers: false
+      });
+
+      if (entryBytes !== entry.uncompressedSize) {
+        throw createBackupError(
+          `Die entpackte Größe von ${entry.filename} ist inkonsistent.`,
+          'BACKUP_ZIP_INTEGRITY'
+        );
+      }
+      filesChecked += 1;
+      uncompressedBytes += entryBytes;
+    }
+
+    return { entries: entries.length, filesChecked, uncompressedBytes, hasProjectConfig };
+  } catch (error) {
+    if (error?.code === 'BACKUP_ZIP_INTEGRITY') throw error;
+    const integrityError = createBackupError(
+      `Die ZIP-Nutzdatenprüfung ist fehlgeschlagen: ${error?.message || 'Unbekannter Integritätsfehler'}`,
+      'BACKUP_ZIP_INTEGRITY'
+    );
+    integrityError.cause = error;
+    throw integrityError;
+  } finally {
+    try {
+      if (reader) await reader.close();
+    } finally {
+      await fileHandle.close();
+    }
+  }
+}
+
 // Prüft die tatsächliche ZIP-Struktur: Abschlussdatensatz, zentrales
-// Verzeichnis und alle referenzierten lokalen Dateiköpfe. Eine reine
-// Dateigrößenprüfung reicht ausdrücklich nicht aus.
+// Verzeichnis und alle referenzierten lokalen Dateiköpfe. Anschließend werden
+// alle regulären Einträge vollständig dekomprimiert und per CRC-32 sowie
+// unkomprimierter Größe geprüft. Die Nutzdaten werden dabei verworfen und
+// nicht vollständig im Arbeitsspeicher gesammelt.
 async function validateZipArchive(zipPath) {
+  let structuralEntries = 0;
   const fileHandle = await fs.promises.open(zipPath, 'r');
   try {
     const stat = await fileHandle.stat();
@@ -397,11 +583,193 @@ async function validateZipArchive(zipPath) {
     if (cursor !== centralEnd || entriesRead !== totalEntries) {
       throw createBackupError('Die Anzahl oder Länge der ZIP-Einträge ist inkonsistent.', 'BACKUP_ZIP_INVALID');
     }
-
-    return { valid: true, entries: entriesRead };
+    structuralEntries = entriesRead;
   } finally {
     await fileHandle.close();
   }
+
+  const dataValidation = await validateZipEntryData(zipPath);
+  if (dataValidation.entries !== structuralEntries) {
+    throw createBackupError(
+      'Struktur- und Nutzdatenprüfung melden unterschiedliche ZIP-Einträge.',
+      'BACKUP_ZIP_INTEGRITY'
+    );
+  }
+
+  return {
+    valid: true,
+    entries: structuralEntries,
+    filesChecked: dataValidation.filesChecked,
+    uncompressedBytes: dataValidation.uncompressedBytes,
+    hasProjectConfig: dataValidation.hasProjectConfig
+  };
+}
+
+async function validateArchivWikiBackup(zipPath) {
+  const validation = await validateZipArchive(zipPath);
+  if (!validation.hasProjectConfig) {
+    throw createBackupError(
+      'Das ZIP enthält keine .wiki-config.json im Projektwurzelverzeichnis.',
+      'BACKUP_ZIP_INVALID'
+    );
+  }
+  return validation;
+}
+
+// Bereits geprüfte historische ZIPs werden innerhalb eines App-Laufs nur
+// erneut dekomprimiert, wenn sich ihre Dateimetadaten geändert haben. Der
+// Cache ist keine persistente Wahrheitsquelle: Nach jedem Neustart erfolgt
+// mindestens eine neue M-09b-Prüfung des tatsächlich verwendeten Kandidaten.
+const existingBackupValidationCache = new Map();
+
+function normalizeNow(now) {
+  const date = now instanceof Date ? new Date(now.getTime()) : new Date(now ?? Date.now());
+  if (!Number.isFinite(date.getTime())) throw new TypeError('Ungültiger Zeitpunkt für die Backup-Prüfung.');
+  return date;
+}
+
+function parseBackupDate(fileName) {
+  const match = String(fileName || '').match(BACKUP_FILENAME_RE);
+  if (!match) return null;
+  const [year, month, day] = match[1].split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return date;
+}
+
+function localCalendarDay(date) {
+  return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+}
+
+function backupValidationKey(filePath, stat) {
+  return [
+    path.resolve(filePath),
+    stat.size,
+    stat.mtimeMs,
+    stat.ctimeMs,
+    stat.ino ?? ''
+  ].join('\0');
+}
+
+async function validateExistingBackup(filePath, stat) {
+  if (!stat.isFile() || stat.size === 0) return { valid: false, validation: null };
+
+  const cacheKey = backupValidationKey(filePath, stat);
+  let cached = existingBackupValidationCache.get(cacheKey);
+  if (!cached) {
+    cached = validateArchivWikiBackup(filePath)
+      .then(validation => ({ valid: true, validation }))
+      .catch(error => {
+        console.warn(
+          `[Archiv Wiki] Backup-Kandidat ist ungültig (${path.basename(filePath)}):`,
+          error?.message || 'Validierung fehlgeschlagen'
+        );
+        return { valid: false, validation: null };
+      });
+    existingBackupValidationCache.set(cacheKey, cached);
+    if (existingBackupValidationCache.size > 256) existingBackupValidationCache.clear();
+  }
+  return cached;
+}
+
+async function rememberValidatedBackup(filePath, validation) {
+  const stat = await fs.promises.stat(filePath);
+  existingBackupValidationCache.set(
+    backupValidationKey(filePath, stat),
+    Promise.resolve({ valid: true, validation })
+  );
+  return stat;
+}
+
+async function findLatestValidBackup(backupPath, options = {}) {
+  const now = normalizeNow(options.now);
+  const today = localCalendarDay(now);
+  let dirents;
+  try {
+    dirents = await fs.promises.readdir(backupPath, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.warn('[Archiv Wiki] Backup-Status konnte den Backup-Ordner nicht lesen:', error?.message || error);
+    }
+    return null;
+  }
+
+  const candidates = dirents
+    .filter(dirent => dirent.isFile())
+    .map(dirent => ({ fileName: dirent.name, backupDate: parseBackupDate(dirent.name) }))
+    .filter(candidate => candidate.backupDate && localCalendarDay(candidate.backupDate) <= today)
+    .sort((left, right) => {
+      const dateDifference = localCalendarDay(right.backupDate) - localCalendarDay(left.backupDate);
+      return dateDifference || right.fileName.localeCompare(left.fileName);
+    });
+
+  for (const candidate of candidates) {
+    const filePath = path.join(backupPath, candidate.fileName);
+    let stat;
+    try {
+      stat = await fs.promises.stat(filePath);
+    } catch {
+      continue;
+    }
+    const result = await validateExistingBackup(filePath, stat);
+    if (!result.valid) continue;
+    let finalStat;
+    try {
+      finalStat = await fs.promises.stat(filePath);
+    } catch {
+      continue;
+    }
+    if (backupValidationKey(filePath, finalStat) !== backupValidationKey(filePath, stat)) continue;
+    return {
+      ...candidate,
+      filePath,
+      stat: finalStat,
+      validation: result.validation
+    };
+  }
+  return null;
+}
+
+function isBackupDue(latestValidBackup, intervalDays, now = new Date()) {
+  if (!intervalDays || intervalDays <= 0) return false;
+  if (!latestValidBackup) return true;
+  const elapsedDays = localCalendarDay(normalizeNow(now)) - localCalendarDay(latestValidBackup.backupDate);
+  return elapsedDays < 0 || elapsedDays >= intervalDays;
+}
+
+async function getBackupFolderState(backupPath, intervalDays, options = {}) {
+  const now = normalizeNow(options.now);
+  if (!backupPath) return { latestValidBackup: null, due: false, nextScheduledAt: null };
+  const latestValidBackup = await findLatestValidBackup(backupPath, { now });
+  const due = isBackupDue(latestValidBackup, intervalDays, now);
+  let nextScheduledAt = null;
+  if (intervalDays > 0) {
+    nextScheduledAt = latestValidBackup
+      ? new Date(latestValidBackup.backupDate.getFullYear(), latestValidBackup.backupDate.getMonth(), latestValidBackup.backupDate.getDate() + intervalDays)
+      : now;
+  }
+  return { latestValidBackup, due, nextScheduledAt };
+}
+
+function storedSuccessMatchesBackup(latestValidBackup, storedStatus) {
+  return Boolean(latestValidBackup)
+    && storedStatus?.lastSuccessFileName === latestValidBackup.fileName
+    && storedStatus?.lastSuccessFileSize === latestValidBackup.stat.size
+    && storedStatus?.lastSuccessFileMtimeMs === latestValidBackup.stat.mtimeMs
+    && storedStatus?.lastSuccessFileCtimeMs === latestValidBackup.stat.ctimeMs
+    && storedStatus?.lastSuccessFileIno === (latestValidBackup.stat.ino ?? null);
+}
+
+function resolveBackupSuccessAt(latestValidBackup, storedStatus, now = new Date()) {
+  if (!latestValidBackup) return null;
+  const currentTime = normalizeNow(now).getTime();
+  const storedTime = new Date(storedStatus?.lastSuccessAt || '').getTime();
+  if (storedSuccessMatchesBackup(latestValidBackup, storedStatus)
+      && Number.isFinite(storedTime) && storedTime <= currentTime) {
+    return new Date(storedTime).toISOString();
+  }
+
+  return latestValidBackup.backupDate.toISOString();
 }
 
 let backupInProgress = false;
@@ -409,7 +777,7 @@ let activeBackupPromise = null;
 let activeBackupAbortController = null;
 function isBackupInProgress() { return backupInProgress; }
 
-async function maybeRunAutoBackup({ getCurrentProject }, force = false) {
+async function maybeRunAutoBackup({ getCurrentProject }, force = false, options = {}) {
   if (backupInProgress) return { started: false, reason: 'busy' };
 
   const project = getCurrentProject();
@@ -419,43 +787,58 @@ async function maybeRunAutoBackup({ getCurrentProject }, force = false) {
   if (!projectPath || !backupPath) return { started: false, reason: 'not-configured' };
   if (!force && intervalDays <= 0) return { started: false, reason: 'disabled' };
 
-  if (!force) {
-    const lastDate = latestBackupDate(backupPath);
-    if (lastDate) {
-      const daysSinceLast = (Date.now() - lastDate.getTime()) / 86400000;
-      if (daysSinceLast < intervalDays) return { started: false, reason: 'not-due' };
-    }
-  }
-
-  const destPath = path.join(backupPath, backupFileNameFor(new Date()));
-  if (!force && fs.existsSync(destPath)) return { started: false, reason: 'already-created' };
-  const tempPath = `${destPath}.tmp-${process.pid}`;
+  const now = normalizeNow(options.now);
+  let tempPath = null;
   const abortController = new AbortController();
 
   backupInProgress = true;
   activeBackupAbortController = abortController;
   const operation = (async () => {
     try {
-      validateBackupDestination(projectPath, backupPath);
-      fs.mkdirSync(backupPath, { recursive: true });
-      cleanupStaleBackupTemps(backupPath);
+      if (!force) {
+        const folderState = await getBackupFolderState(backupPath, intervalDays, { now });
+        if (!folderState.due) {
+          return {
+            started: false,
+            reason: 'not-due',
+            latestValidBackup: folderState.latestValidBackup?.fileName || null
+          };
+        }
+      }
+
+      const backupRoot = requireExistingBackupDestination(projectPath, backupPath);
+      const destPath = path.join(backupRoot, backupFileNameFor(now));
+      tempPath = `${destPath}.tmp-${process.pid}`;
+      cleanupStaleBackupTemps(backupRoot);
 
       await zipProjectTo(projectPath, tempPath, { signal: abortController.signal });
       if (abortController.signal.aborted) {
         throw createBackupError('Das Backup wurde beim Beenden kontrolliert abgebrochen.', 'BACKUP_ABORTED');
       }
 
-      await validateZipArchive(tempPath);
+      const validation = await validateArchivWikiBackup(tempPath);
       if (abortController.signal.aborted) {
         throw createBackupError('Das Backup wurde beim Beenden kontrolliert abgebrochen.', 'BACKUP_ABORTED');
       }
 
       fs.renameSync(tempPath, destPath);
-      const pruneErrors = pruneOldBackups(backupPath);
+      const finalStat = await rememberValidatedBackup(destPath, validation);
+      let pruneErrors;
+      try {
+        pruneErrors = await pruneOldBackups(backupRoot, DEFAULT_KEEP_COUNT, { now });
+      } catch (error) {
+        console.error('[Archiv Wiki] Backup-Aufbewahrung ist unerwartet fehlgeschlagen:', error?.message || error);
+        pruneErrors = [{ fileName: null, error }];
+      }
       const firstPruneError = pruneErrors[0]?.error || null;
       const status = writeProjectBackupStatus(projectPath, {
         consecutiveFailures: 0,
-        lastSuccessAt: new Date().toISOString(),
+        lastSuccessAt: now.toISOString(),
+        lastSuccessFileName: path.basename(destPath),
+        lastSuccessFileSize: finalStat.size,
+        lastSuccessFileMtimeMs: finalStat.mtimeMs,
+        lastSuccessFileCtimeMs: finalStat.ctimeMs,
+        lastSuccessFileIno: finalStat.ino ?? null,
         lastErrorAt: null,
         lastErrorMessage: null,
         lastErrorCode: null,
@@ -478,7 +861,9 @@ async function maybeRunAutoBackup({ getCurrentProject }, force = false) {
         status
       };
     } catch (err) {
-      try { fs.unlinkSync(tempPath); } catch { /* Temp-Datei existiert evtl. nicht */ }
+      if (tempPath) {
+        try { fs.unlinkSync(tempPath); } catch { /* Temp-Datei existiert evtl. nicht */ }
+      }
       const previous = readProjectBackupStatus(projectPath);
       const status = writeProjectBackupStatus(projectPath, {
         consecutiveFailures: (previous.consecutiveFailures || 0) + 1,
@@ -536,26 +921,22 @@ async function finishBackupBeforeQuit(graceMs = BACKUP_QUIT_GRACE_MS) {
   return { hadBackup: true, aborted: true };
 }
 
-function nextScheduledBackup(backupPath, intervalDays) {
-  if (!intervalDays || intervalDays <= 0) return null;
-  const lastDate = latestBackupDate(backupPath);
-  if (!lastDate) return new Date();
-  const next = new Date(lastDate);
-  next.setDate(next.getDate() + intervalDays);
-  return next;
-}
-
 module.exports = {
   maybeRunAutoBackup,
   pruneOldBackups,
   backupFileNameFor,
-  nextScheduledBackup,
-  latestBackupDate,
+  findLatestValidBackup,
+  getBackupFolderState,
+  isBackupDue,
+  resolveBackupSuccessAt,
+  storedSuccessMatchesBackup,
   isBackupInProgress,
   readProjectBackupStatus,
   validateBackupDestination,
   validateBackupDestinationAccess,
+  requireExistingBackupDestination,
   cleanupStaleBackupTemps,
   validateZipArchive,
+  validateArchivWikiBackup,
   finishBackupBeforeQuit
 };

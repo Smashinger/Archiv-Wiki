@@ -1,8 +1,8 @@
 # Store-Unterlagen – Archiv-Wiki Web Clipper
 
-Stand: 9. August 2026
+Stand: 12. August 2026
 
-Diese Datei enthält die final vorbereiteten Texte für eine spätere Einreichung bei Firefox Add-ons (AMO) und im Chrome Web Store. Sie führt keine Veröffentlichung oder Signierung durch.
+Diese Datei enthält die für Firefox Add-ons (AMO) verwendeten sowie die für den Chrome Web Store vorbereiteten Listing-Texte. Der Firefox Web Clipper ist veröffentlicht; für den Chrome Web Store wird keine Veröffentlichung behauptet.
 
 ## Verbindliche Produktangaben
 
@@ -18,6 +18,12 @@ Diese Datei enthält die final vorbereiteten Texte für eine spätere Einreichun
 ---
 
 # Firefox / AMO
+
+## Veröffentlichungsstatus
+
+- Eingereicht und von Mozilla freigegeben
+- Öffentlich verfügbar in Version `0.2.0`
+- <https://addons.mozilla.org/de/firefox/addon/archiv-wiki-web-clipper/>
 
 ## Name
 
@@ -269,11 +275,8 @@ Keine automatische Hintergrundsammlung.
 MANUELL NOCH EINZUTRAGEN – PRIVACY.md muss vor der Einreichung unter einer dauerhaft öffentlich erreichbaren URL veröffentlicht werden.
 ```
 
-## Noch nicht durchgeführte Store-Aktionen
+## Store-Status
 
-- kein AMO-Upload
-- keine AMO-Signierung
-- kein Chrome-Web-Store-Upload
-- keine Veröffentlichung
-- keine Entwicklerkonten oder Gebühren im Rahmen dieses Schritts
-
+- Firefox / AMO: eingereicht, von Mozilla freigegeben und als Version `0.2.0` öffentlich verfügbar
+- Firefox / AMO: <https://addons.mozilla.org/de/firefox/addon/archiv-wiki-web-clipper/>
+- Chrome Web Store: kein Upload und keine Veröffentlichung dokumentiert

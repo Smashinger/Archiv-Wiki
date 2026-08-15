@@ -13,11 +13,12 @@ const crypto = require('crypto');
 const {
   isDirWritable,
   hasExistingConfig,
-  readProjectConfig,
+  requireProjectConfig,
   writeProjectConfig,
   defaultBackupPath,
   TRASH_DIRNAME
 } = require('./project');
+const { validateBackupDestinationAccess } = require('./backup');
 const { writeAppState } = require('./app-state');
 const { savePasswordForProject } = require('./sync-ipc');
 
@@ -70,10 +71,7 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
   // Bereits vorhandenes Projekt direkt öffnen (Ordner enthält schon .wiki-config.json)
   ipcMain.handle('wizard:openExisting', async (_event, projectPath) => {
-    const config = readProjectConfig(projectPath);
-    if (!config) {
-      throw new Error('In diesem Ordner wurde keine gültige .wiki-config.json gefunden.');
-    }
+    const config = requireProjectConfig(projectPath);
     writeAppState({ lastProjectPath: projectPath });
     onProjectReady(projectPath, config);
     return { ok: true };
@@ -88,6 +86,21 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
     }
 
     const resolvedBackupPath = backupPath || defaultBackupPath();
+
+    // Setup-Commit-Reihenfolge (Audit-Punkt CLEAN-001/CLEAN-002): ALLE
+    // vorbereitenden, potenziell fehlschlagenden Schritte laufen vor dem
+    // eigentlichen Commit (.wiki-config.json). Existenz dieser Datei ist
+    // andernorts (hasExistingConfig/isValidProject) das alleinige Kriterium
+    // für "Projekt fertig eingerichtet" — sie darf deshalb erst entstehen,
+    // wenn Papierkorb und Backup-Ziel bereits nachweislich verfügbar sind.
+    // Schlägt einer dieser Schritte fehl, bleibt der Ordner unkonfiguriert
+    // und der Wizard bleibt für einen erneuten Versuch nutzbar, statt ein
+    // scheinbar fertiges Teilprojekt zu hinterlassen.
+    const backupAccess = validateBackupDestinationAccess(projectPath, resolvedBackupPath);
+    if (!backupAccess.valid) {
+      throw new Error(backupAccess.message || 'Der gewählte Backup-Ordner ist nicht verwendbar.');
+    }
+    fs.mkdirSync(path.join(projectPath, TRASH_DIRNAME), { recursive: true });
 
     // App-Passwortschutz: NIE im Klartext gespeichert — nur Salt (zufällig,
     // pro Projekt einmalig) + Hash (scrypt, Node-eingebaut, kein zusätzliches
@@ -112,9 +125,8 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
       sync: sync || { enabled: false }
     };
 
-    writeProjectConfig(projectPath, config);
-    fs.mkdirSync(path.join(projectPath, TRASH_DIRNAME), { recursive: true });
-    fs.mkdirSync(resolvedBackupPath, { recursive: true });
+    // Commit-Punkt: ab hier gilt der Ordner als fertig eingerichtetes Projekt.
+    const persistedConfig = writeProjectConfig(projectPath, config, { create: true });
 
     // Passwort erst JETZT sicher speichern — der projectPath steht jetzt
     // endgültig fest (vorher, während des Wizard-Ausfüllens, gab es noch kein
@@ -129,7 +141,7 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
       lastProjectPath: projectPath,
       windowStartBehavior: allowedWindowStartBehaviors.has(windowStartBehavior) ? windowStartBehavior : 'maximized'
     });
-    onProjectReady(projectPath, config);
+    onProjectReady(projectPath, persistedConfig);
     return { ok: true };
   });
 }

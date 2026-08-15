@@ -11,14 +11,24 @@
 
 const { ipcMain, dialog } = require('electron');
 const crypto = require('crypto');
-const { readProjectConfig, writeProjectConfig } = require('./project');
+const { cloneProjectConfig, requireProjectConfig, updateProjectConfig } = require('./project');
 const { validateBackupDestinationAccess } = require('./backup');
 
 // Verschachtelt zusammenführen (z. B. { editor: { tabSize: 4 } } lässt
 // editor.autoSave unangetastet) — flache Object.assign würde stattdessen den
 // ganzen "editor"-Unterbereich überschreiben.
+//
+// Ein per IPC ankommender Patch ist strukturell fremdes Renderer-Datenmaterial:
+// JSON.parse erzeugt "__proto__" als GEWÖHNLICHE eigene Property, wodurch
+// target[key] = ... hier sonst den Prototyp von target selbst verändern würde
+// (Prototype Pollution). "constructor"/"prototype" werden aus demselben Grund
+// vorsorglich mitgesperrt, da kein bestehendes Konfigurationsfeld diese Namen
+// je legitim verwendet.
+const UNSAFE_MERGE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function deepMerge(target, patch) {
   for (const [key, value] of Object.entries(patch)) {
+    if (UNSAFE_MERGE_KEYS.has(key)) continue;
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       target[key] = (target[key] && typeof target[key] === 'object') ? target[key] : {};
       deepMerge(target[key], value);
@@ -29,11 +39,16 @@ function deepMerge(target, patch) {
   return target;
 }
 
-function registerSettingsIpc({ getCurrentProject, getMainWindow }) {
+function registerSettingsIpc({ getCurrentProject, getMainWindow, onProjectConfigLoaded }) {
   function requireProjectPath() {
     const projectPath = getCurrentProject()?.path;
     if (!projectPath) throw new Error('Kein Projekt geöffnet.');
     return projectPath;
+  }
+
+  function adoptConfig(projectPath, config) {
+    onProjectConfigLoaded?.(projectPath, config);
+    return cloneProjectConfig(config);
   }
 
   // Backup-Ordner-Auswahl fürs neue Einstellungsfenster — gleiches
@@ -60,7 +75,7 @@ function registerSettingsIpc({ getCurrentProject, getMainWindow }) {
   // Einstellungsfenster beim Öffnen sowie bei jedem erneuten Anzeigen abfragt.
   ipcMain.handle('settings:get', () => {
     const projectPath = requireProjectPath();
-    return readProjectConfig(projectPath) || {};
+    return adoptConfig(projectPath, requireProjectConfig(projectPath));
   });
 
   // Nimmt ein TEILWEISES Objekt entgegen (nur die geänderten Felder, beliebig
@@ -70,10 +85,8 @@ function registerSettingsIpc({ getCurrentProject, getMainWindow }) {
   // anwenden kann, ohne ein zweites Mal nachzufragen.
   ipcMain.handle('settings:update', (_e, patch) => {
     const projectPath = requireProjectPath();
-    const config = readProjectConfig(projectPath) || {};
-    deepMerge(config, patch);
-    writeProjectConfig(projectPath, config);
-    return config;
+    const config = updateProjectConfig(projectPath, draft => deepMerge(draft, patch));
+    return adoptConfig(projectPath, config);
   });
 
   // App-Passwortschutz: eigener Handler statt des generischen settings:update,
@@ -82,16 +95,16 @@ function registerSettingsIpc({ getCurrentProject, getMainWindow }) {
   // Leeres/kein Passwort übergeben → Schutz wird deaktiviert.
   ipcMain.handle('settings:setAppLockPassword', (_e, password) => {
     const projectPath = requireProjectPath();
-    const config = readProjectConfig(projectPath) || {};
-    if (password && password.trim()) {
-      const salt = crypto.randomBytes(16).toString('hex');
-      const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-      config.appLock = { enabled: true, salt, hash };
-    } else {
-      config.appLock = { enabled: false };
-    }
-    writeProjectConfig(projectPath, config);
-    return config;
+    const config = updateProjectConfig(projectPath, draft => {
+      if (password && password.trim()) {
+        const salt = crypto.randomBytes(16).toString('hex');
+        const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+        draft.appLock = { enabled: true, salt, hash };
+      } else {
+        draft.appLock = { enabled: false };
+      }
+    });
+    return adoptConfig(projectPath, config);
   });
 }
 

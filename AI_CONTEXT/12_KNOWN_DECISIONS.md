@@ -128,7 +128,7 @@ Eine UUID wird dann als allgemeine Architekturentscheidung umgesetzt und nicht a
 - Für Chromium wird eine signierte CRX mitgeführt. Ihre ID und Version werden vor `dist` und `release` geprüft; die CRX wird als `extraResource` in das App-Paket aufgenommen.
 - Die Brave-Flatpak-Installation wird ausdrücklich vom Nutzer angestoßen und ohne Root-Rechte vorbereitet. Eine bewusste Entfernung der Erweiterung wird respektiert und nicht automatisch rückgängig gemacht.
 - Die AppImage-Ausführung richtet einen stabilen Native-Host-Weg für die Kommunikation mit dem Browser ein.
-- Firefox-Unterstützung und Gecko-ID sind technisch vorhanden. Der tatsächliche öffentliche Store-/AMO-Status wird separat anhand des realen Veröffentlichungsstands bestimmt und aus dem lokalen Quellstand nicht abgeleitet.
+- Der Firefox Web Clipper `0.2.0` ist unter der festen Gecko-ID öffentlich über Mozilla Add-ons verfügbar; der öffentliche Installations- und Clip-Weg ist real bestätigt. Technische Details und die weiterhin bestehende Grenze für Firefox als Flatpak stehen in `16_WEB_CLIPPER.md`.
 
 ## Wissenspflege
 
@@ -149,7 +149,7 @@ Eine UUID wird dann als allgemeine Architekturentscheidung umgesetzt und nicht a
 - Auto-Save-Intervall wirkt sofort, ohne die Notiz erneut zu öffnen.
 - Bild-Größenänderung ausschließlich über Hover-Knöpfe (25/50/75/100 %), nicht per Ziehen am Bild.
 - Bildbreiten-Angabe wird über reguläre Markdown-Bildsyntax mit Zusatzattribut transportiert, nie über ein rohes HTML-`<img>`-Tag.
-- Der Fokus-Modus konzentriert die Arbeitsfläche auf den Editor: Er blendet die Sidebar aus, gibt ihren Platz für den Editorbereich frei und wechselt beim Aktivieren vorübergehend zur Editoransicht, ohne diesen temporären Ansichtswechsel projektweit zu speichern. Die vier Intensitätsstufen und die zurückhaltende neutrale Fokus-/Schattenwirkung bleiben erhalten; die Intensität wird gespeichert, der An/Aus-Zustand selbst nicht.
+- Der Fokus-Modus konzentriert die Arbeitsfläche auf den Editor: Er blendet die Sidebar aus, gibt ihren Platz für den Editorbereich frei und wechselt beim Aktivieren vorübergehend zur Editoransicht, ohne diesen temporären Ansichtswechsel projektweit zu speichern. Die zurückhaltende neutrale Schattenwirkung bleibt fest erhalten; eine separate Intensitäts- oder Abdunkelungsoption gibt es nicht. Der An/Aus-Zustand wird nicht gespeichert.
 - Fokus-Modus-Hervorhebung ist bewusst farblich neutral, ohne Akzentfarbe.
 - Tabellen-Bearbeitung über ein eigenes Fenster (Doppelklick in der Vorschau), keine Pfeiltasten-Navigation zwischen Zellen.
 
@@ -184,6 +184,7 @@ Eine UUID wird dann als allgemeine Architekturentscheidung umgesetzt und nicht a
 - Jede Änderung speichert sofort, kein gesonderter Speichern-Knopf.
 - Alle projektbezogenen Einstellungen liegen in der Projekt-Konfiguration, nie in einer separaten, zwischengespeicherten Kopie.
 - Live-wirksame Einstellungsänderungen laufen über einen einzigen, zentralen Konfigurationsänderungs-Rückruf.
+- Der zentrale Settings-Merge (`deepMerge()` in `main/settings-ipc.js`) verwirft die Schlüssel `__proto__`, `constructor` und `prototype` grundsätzlich, statt sie zu übernehmen oder in sie hinein zu rekursieren — verhindert, dass ein Patch den globalen Objektprototyp verändert.
 
 ## Suche
 
@@ -266,14 +267,15 @@ Eine UUID wird dann als allgemeine Architekturentscheidung umgesetzt und nicht a
 ## Fokus-Modus – editorgebundener Gültigkeitsbereich
 
 - Der Fokus-Modus ist eine editorgebundene Konzentrationsansicht. Er darf nur bei geöffneter Notiz aktiv sein und wird beim Verlassen des Editors automatisch beendet.
-- Beim Wechsel zwischen Notizen bleibt der Modus aktiv; Intensität und zentraler Body-Zustand werden beibehalten und der neu gerenderte Toolbar-Button daraus synchronisiert.
-- Die Intensität bleibt projektbezogen gespeichert. Der aktive Ein/Aus-Zustand wird weiterhin nicht über Sitzungen hinweg gespeichert.
-- Der Toolbar-Schalter und die Intensitätsauswahl verwenden zentrale semantische Zustände über `aria-pressed`; sichtbarer und semantischer Zustand dürfen nicht getrennt aktualisiert werden.
-- Aktivierung oder Deaktivierung über die Toolbar gibt den Fokus an den Schreibbereich zurück. Einstellungen behalten ihren Dialogfokus. Im Fokus-Modus wird die Werkzeugleiste bei Tastaturfokus über `:focus-within` vollständig sichtbar.
+- Beim Wechsel zwischen Notizen bleibt der Modus aktiv; der zentrale Body-Zustand wird beibehalten und der neu gerenderte Toolbar-Button daraus synchronisiert.
+- Der aktive Ein/Aus-Zustand wird weiterhin nicht über Sitzungen hinweg gespeichert.
+- Der Toolbar-Schalter verwendet einen zentralen semantischen Zustand über `aria-pressed`; sichtbarer und semantischer Zustand dürfen nicht getrennt aktualisiert werden.
+- Aktivierung oder Deaktivierung über die Toolbar gibt den Fokus an den Schreibbereich zurück. Im Fokus-Modus wird die Werkzeugleiste bei Tastaturfokus über `:focus-within` vollständig sichtbar.
 - Modale Dialoge, Suche und HTML-Kontextmenüs haben bei Shortcut und Escape Vorrang vor dem Fokus-Modus.
+- Unter Einstellungen → Darstellung existiert kein eigener Fokus-Modus-Ein-/Aus-Schalter; Aktivierung und Deaktivierung laufen ausschließlich über die Editor-Werkzeugleiste und das vorhandene Tastenkürzel.
 - Die sichtbare und dokumentierte Bezeichnung lautet verbindlich „Fokus-Modus“. Bestehende technische Schlüssel oder Klassennamen werden nicht allein aus kosmetischen Gründen migriert.
 - Fokus-Modus-spezifische Übergänge verwenden `150ms ease` und werden bei `prefers-reduced-motion: reduce` deaktiviert.
-- Der neutrale weiche Schatten des Arbeitsbereichs bleibt als bewusste Designausnahme bestehen: Er trennt den aktiven Arbeitsbereich vom gedimmten Umfeld, ohne Akzentfarbe, Größenänderung oder neue Hervorhebungsart.
+- Der feste neutrale weiche Schatten des Arbeitsbereichs bleibt als bewusste Designausnahme bestehen: Er trennt den aktiven Arbeitsbereich von der umgebenden Oberfläche, ohne Akzentfarbe, Größenänderung oder neue Hervorhebungsart.
 ## Dashboard-Tipps – dezente, projektbezogene Ausspielung
 
 - Das Tipp-Symbol bleibt auch im leeren Wiki erreichbar und verwendet weiterhin das bestehende kleine Popover; es entsteht kein eigener Dashboard-Bereich, keine Tour und kein automatisches Popup.

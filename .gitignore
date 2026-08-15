@@ -7,3 +7,5 @@ release/
 *.log
 .DS_Store
 .wiki-config.json
+extension/distribution/chromium/*.pem
+extension/distribution/chromium/*.key

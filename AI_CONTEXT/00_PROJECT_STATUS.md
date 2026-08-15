@@ -18,7 +18,7 @@ Archiv-Wiki ist eine vollständig funktionsfähige, im täglichen Gebrauch befin
 - **Dashboard** (Statistiken, angeheftete/zuletzt bearbeitete Notizen, Sperr-/Umsortier-Funktion)
 - **Einstellungsfenster** (alle sieben Abschnitte: Allgemein, Darstellung, Editor, Backup, Updates, Web Clipper, Sicherheit)
 - **Eingang** (getrennter Sammelbereich für Texte, Dateien, Bilder und Web-Clips mit Auswahl, Löschung und Verarbeitung zu Notizen)
-- **Web Clipper** (Firefox-Unterstützung, Brave-/Chromium-Code, Native Messaging, Eingang-Anbindung und signierte Chromium-CRX sind technisch vorhanden; ein öffentlicher Browser-Store-Status wird hier nicht behauptet)
+- **Web Clipper** (Firefox Web Clipper öffentlich über Mozilla Add-ons verfügbar und als Endnutzerweg real bestätigt; Brave-/Chromium-Weg, Native Messaging, Eingang-Anbindung und signierte Chromium-CRX sind ebenfalls vorhanden)
 - **Wissenspflege** (Prüfung auf defekte Wikilinks, Notizen ohne Tags und leere Notizen)
 - **Papierkorb** (weiches Löschen, Wiederherstellung, endgültiges Leeren)
 - **Tags/Schlagworte** (Übersicht, Filterung)
@@ -38,7 +38,7 @@ Keine bekannten, vollständig fehlenden Hauptbereiche. Der Funktionsumfang der A
 
 ## Aktuelle Priorität
 
-Aus dem aktuellen Projektstand geht keine eindeutig beschlossene nächste Entwicklungspriorität hervor. Diese Datei legt daher derzeit keine neue Projektpriorität fest.
+Nach der bestätigten Firefox-AMO-Freigabe ist der Web-Clipper Security-&-Privacy-Audit der nächste separat vereinbarte Prüfpunkt. Daraus folgt noch keine Freigabe für einen neuen Archiv-Wiki-Release.
 
 ## Bekannte größere Baustellen
 

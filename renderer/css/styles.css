@@ -99,6 +99,10 @@ input{ font: inherit; }
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  /* CodeMirrors eigenes Suchpanel (.cm-panels) setzt fest z-index:300 ohne
+     eigenen Stacking Context darüber — ohne isolation würde es damit über
+     fixed-position App-Overlays wie das Einstellungsfenster hinausragen. */
+  isolation: isolate;
 }
 .editor-pane .cm-editor{ height: 100%; }
 .preview-pane{
@@ -137,25 +141,16 @@ body.reading-width .preview-content > table{
   display: block;
   overflow-x: auto;
 }
-/* Lesebreite jetzt auch im Editor (Nutzer-Feature) — dieselbe Einstellung,
-   keine zusätzliche Option. Anders als bei der Vorschau gibt es hier keine
-   separaten HTML-Elemente pro Markdown-Konstrukt, sondern eine einzige,
-   durchgehende CodeMirror-Textfläche — deshalb wird JEDE Zeile einzeln
-   zentriert, statt einen äußeren Container zu begrenzen (das würde auch
-   die Ausnahme-Zeilen einschränken). Tabellen-/Code-Zeilen (per echtem
-   Syntaxbaum erkannt, siehe editor-bundle.js) bekommen bewusst die volle
-   Breite mit eigenem horizontalen Scrollen statt Umbruch — genau das
-   Prinzip, das die Vorschau bei Tabellen/Code bereits nutzt, nur zeilen-
-   statt elementweise umgesetzt. */
-body.reading-width .cm-content .cm-line{
-  max-width: var(--read-width);
-  margin-left: auto;
-  margin-right: auto;
+/* Im Editor begrenzt die Lesebreite die gemeinsame CodeMirror-Scrollfläche.
+   Gutter, Text, Cursor- und Auswahlebenen bleiben damit ein zusammenhängender
+   Block. Eine zeilenweise Zentrierung würde dagegen nur den Text verschieben,
+   während die Zeilennummern am linken Rand stehen bleiben. Unterhalb der
+   gewählten Breite fällt der zusätzliche Außenabstand automatisch auf null. */
+body.reading-width .cm-scroller{
+  box-sizing: border-box;
+  padding-inline: max(0px, calc((100% - var(--read-width)) / 2));
 }
 body.reading-width .cm-content .cm-line.cm-line-nowrap{
-  max-width: none;
-  margin-left: 0;
-  margin-right: 0;
   white-space: pre;
   overflow-x: auto;
 }

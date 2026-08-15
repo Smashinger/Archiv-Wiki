@@ -25,6 +25,53 @@
   const DEFAULT_CAPTURE_MODE = CAPTURE_MODES.SELECTION;
   const VALID_CAPTURE_MODES = new Set(Object.values(CAPTURE_MODES));
 
+  // Sicherheitsfund WC-SP-005/M18: frühe, browserseitige Obergrenze für
+  // Text-/Seiteninhalt, bewusst UNTER der späteren Desktop-Inhaltsgrenze
+  // (main/incoming-store.js: MAX_WEB_CLIP_CONTENT_BYTES = 9 MiB), damit für
+  // JSON-/Umschlag-Overhead vor dem späteren 10-MiB-Nachrichtenrahmen
+  // (archiv-wiki-bridge.js/main/webclip-transport.js: MAX_MESSAGE_BYTES)
+  // Raum bleibt. Diese frühe Grenze ERSETZT die späteren, unabhängigen
+  // Grenzen nicht — beide bleiben als eigene Schutzschichten bestehen.
+  const MAX_EARLY_TEXT_BYTES = 8 * 1024 * 1024;
+
+  function measureUtf8Bytes(value, maxBytes = Number.POSITIVE_INFINITY) {
+    const text = String(value ?? '');
+    const finiteLimit = Number.isFinite(maxBytes) ? Math.max(0, Number(maxBytes)) : Number.POSITIVE_INFINITY;
+    let bytes = 0;
+
+    // Absichtlich ohne TextEncoder.encode(): Der frühe Größencheck darf nicht
+    // selbst für einen einzigen sehr großen DOM-Textknoten noch einmal einen
+    // ebenso großen Uint8Array-Puffer anlegen. Die Zählung entspricht der
+    // UTF-8-Kodierung von TextEncoder, einschließlich U+FFFD für isolierte
+    // UTF-16-Surrogate, und kann nach Überschreiten des Limits sofort stoppen.
+    for (let index = 0; index < text.length; index += 1) {
+      const codeUnit = text.charCodeAt(index);
+      if (codeUnit <= 0x7f) {
+        bytes += 1;
+      } else if (codeUnit <= 0x7ff) {
+        bytes += 2;
+      } else if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+        const next = text.charCodeAt(index + 1);
+        if (next >= 0xdc00 && next <= 0xdfff) {
+          bytes += 4;
+          index += 1;
+        } else {
+          bytes += 3;
+        }
+      } else {
+        bytes += 3;
+      }
+
+      if (bytes > finiteLimit) return { bytes, exceeds: true };
+    }
+
+    return { bytes, exceeds: false };
+  }
+
+  function byteLengthUtf8(value) {
+    return measureUtf8Bytes(value).bytes;
+  }
+
   function normalizeCreatedAt(value) {
     const raw = String(value || '').trim();
     if (!raw) return new Date().toISOString();
@@ -156,6 +203,9 @@
     WEB_CLIP_TYPE,
     CAPTURE_MODES,
     DEFAULT_CAPTURE_MODE,
+    MAX_EARLY_TEXT_BYTES,
+    measureUtf8Bytes,
+    byteLengthUtf8,
     normalizeCaptureMode,
     createWebClip,
     createImageClip,

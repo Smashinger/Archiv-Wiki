@@ -135,6 +135,17 @@ export const ICON_LIBRARY = [
   { id: 'projects/layers', label: 'Ebenen', category: 'projects', synonyms: ['stapel', 'struktur'], brand: false }
 ];
 
+const ICON_LIBRARY_IDS = new Set(ICON_LIBRARY.map(icon => icon.id));
+
+// Frontmatter kann auch aus Importen oder synchronisierten Dateien stammen.
+// Deshalb wird eine Icon-ID erst dann zu einem HTML-Attributwert, wenn sie
+// exakt in der kuratierten Bibliothek enthalten ist.
+export function resolveIconLibraryPath(iconId) {
+  return ICON_LIBRARY_IDS.has(iconId)
+    ? `assets/icon-library/${iconId}.svg`
+    : null;
+}
+
 // Sucht per Name, Kategorie-Name und Synonymen — case-insensitive.
 export function searchIconLibrary(query) {
   const q = query.trim().toLowerCase();

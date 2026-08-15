@@ -10,10 +10,10 @@
 // neben jedem Feld) UND sofort über den Settings-Service (settings:update)
 // gespeichert — kein Neustart nötig, kein separater "Speichern"-Button.
 
-import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, setFocusMode, isFocusModeAvailable, syncFocusIntensitySelection, READING_WIDTH_PRESETS, applyReadingWidth, generateRandomAccentColor } from './theme.js';
+import { ACCENT_PALETTES, applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, READING_WIDTH_PRESETS, applyReadingWidth, generateRandomAccentColor } from './theme.js';
 import { fetchUpdateStatus, requestUpdateCheck, onUpdateStatusChanged, renderUpdateStatus } from './update-check.js';
 import { animateIn, animateOut } from './motion.js';
-import { manageModalDialog } from './dialog.js';
+import { manageModalDialog, showConfirmDialog } from './dialog.js';
 
 function escapeAttr(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -99,6 +99,7 @@ export async function showSettingsWindow(context = {}) {
   let configLoadError = null;
   try {
     config = await window.archivAPI.settings.get();
+    if (context.onConfigChange) context.onConfigChange(config);
   } catch (error) {
     console.error('Einstellungen konnten nicht geladen werden:', error);
     config = {};
@@ -439,18 +440,6 @@ function renderAppearanceSection(el, config, updateSetting) {
     <section class="settings-group" aria-labelledby="stAppearanceWorkspaceGroup">
       <h4 id="stAppearanceWorkspaceGroup">Arbeitsansicht</h4>
     <div class="settings-field">
-      <span>Fokus-Modus</span>
-      <label class="settings-checkbox-row">
-        <input type="checkbox" id="stFocusModeEnabled" ${document.body.classList.contains('focus-mode') ? 'checked' : ''} ${isFocusModeAvailable() ? '' : 'disabled'}>
-        <span>Fokus-Modus aktivieren</span>
-      </label>
-      <div class="density-option-row" id="stFocusIntensityRow" role="group" aria-label="Stärke des Fokus-Modus">
-        ${[{ v: 'light', l: 'Leicht' }, { v: 'medium', l: 'Mittel' }, { v: 'strong', l: 'Stark' }, { v: 'stronger', l: 'Sehr stark' }].map(o =>
-          `<button type="button" aria-pressed="${(config.focusModeIntensity || 'medium') === o.v ? 'true' : 'false'}" class="density-option ${(config.focusModeIntensity || 'medium') === o.v ? 'active' : ''}" data-intensity="${o.v}">${o.l}</button>`
-        ).join('')}
-      </div>
-    </div>
-    <div class="settings-field">
       <span>Lesebreite</span>
       <label class="settings-checkbox-row">
         <input type="checkbox" id="stReadingWidthEnabled" ${config.readingWidthEnabled ? 'checked' : ''}>
@@ -544,26 +533,10 @@ function renderAppearanceSection(el, config, updateSetting) {
     await updateSetting({ sidebarDensity: btn.dataset.density });
     el.querySelectorAll('#stDensityRow button').forEach(b => b.classList.toggle('active', b === btn));
   });
-  // Fokus-Modus: die Checkbox schaltet direkt live um (Einstellungsfenster
-  // läuft im selben Dokument wie die Hauptansicht, kein separates
-  // BrowserWindow — siehe setFocusMode in theme.js). Die Intensität ist eine
-  // Stil-Vorliebe und wird gespeichert; ist der Modus gerade aktiv, wirkt sie
-  // sofort sichtbar.
-  el.querySelector('#stFocusModeEnabled').addEventListener('change', (e) => {
-    const active = setFocusMode(e.target.checked, config.focusModeIntensity);
-    e.target.checked = active;
-  });
-  el.querySelector('#stFocusIntensityRow').addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-intensity]');
-    if (!btn) return;
-    await updateSetting({ focusModeIntensity: btn.dataset.intensity });
-    config.focusModeIntensity = btn.dataset.intensity;
-    if (document.body.classList.contains('focus-mode')) setFocusMode(true, btn.dataset.intensity);
-    syncFocusIntensitySelection(btn.dataset.intensity);
-  });
-  // Lesebreite: läuft im selben Dokument wie die Hauptansicht (siehe Kommentar
-  // beim Fokus-Modus oben) — Checkbox und Breiten-Auswahl wirken deshalb ohne
-  // Umweg sofort sichtbar in der offenen Notiz, kein Neustart nötig.
+  // Lesebreite: Einstellungsfenster läuft im selben Dokument wie die
+  // Hauptansicht (kein separates BrowserWindow) — Checkbox und
+  // Breiten-Auswahl wirken deshalb ohne Umweg sofort sichtbar in der
+  // offenen Notiz, kein Neustart nötig.
   el.querySelector('#stReadingWidthEnabled').addEventListener('change', async (e) => {
     applyReadingWidth(e.target.checked, config.readingWidthKey || 'standard');
     await updateSetting({ readingWidthEnabled: e.target.checked });
@@ -572,7 +545,6 @@ function renderAppearanceSection(el, config, updateSetting) {
     const btn = e.target.closest('[data-reading-width]');
     if (!btn) return;
     await updateSetting({ readingWidthKey: btn.dataset.readingWidth });
-    config.readingWidthKey = btn.dataset.readingWidth;
     applyReadingWidth(config.readingWidthEnabled, btn.dataset.readingWidth);
     el.querySelectorAll('#stReadingWidthRow button').forEach(b => b.classList.toggle('active', b === btn));
   });
@@ -910,8 +882,8 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
 
   const updateErrorHtml = showUpdateError ? `
     <div class="settings-hint settings-hint-error" id="stUpdateError">
-      ${escapeHtml(status.errorMessage || 'Der Update-Status konnte nicht ermittelt werden.')}
-      ${status.errorDetails ? `<details class="settings-technical-details"><summary>Technische Details anzeigen</summary><div>${escapeHtml(status.errorDetails)}</div></details>` : ''}
+      ${escapeAttr(status.errorMessage || 'Der Update-Status konnte nicht ermittelt werden.')}
+      ${status.errorDetails ? `<details class="settings-technical-details"><summary>Technische Details anzeigen</summary><div>${escapeAttr(status.errorDetails)}</div></details>` : ''}
     </div>` : '';
   el.innerHTML = `
     <h3>Updates</h3>
@@ -1071,6 +1043,7 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
 }
 
 // --- Web Clipper ---
+const FIREFOX_AMO_URL = 'https://addons.mozilla.org/de/firefox/addon/archiv-wiki-web-clipper/';
 const WEB_CLIPPER_CAPTURE_MODES = Object.freeze([
   { value: 'selection', label: '✍ Markierter Text' },
   { value: 'url', label: '🔗 Nur URL' },
@@ -1158,9 +1131,18 @@ async function renderWebClipperSection(el, config, updateSetting, context, lifec
     <section class="settings-group" aria-labelledby="stWebClipperStoreGroup">
       <h4 id="stWebClipperStoreGroup">Browser-Erweiterung</h4>
       <div class="settings-field">
-        <span>Store-Veröffentlichung</span>
-        <button type="button" class="btn ghost settings-inline-btn" disabled>Store-Link folgt</button>
-        <p class="settings-hint">Platzhalter für eine spätere Store-Verlinkung. Aktuell wird kein externer Link verwendet.</p>
+        <span>Installationswege</span>
+        <div class="settings-button-row" role="group" aria-label="Installationswege für die Browser-Erweiterung">
+          <button type="button" class="btn ghost" id="stOpenFirefoxAmo">Firefox</button>
+          <button type="button" class="btn ghost" id="stInstallBraveWebClipper">Brave / Chromium</button>
+        </div>
+        <p class="settings-hint">Firefox: Öffnet die offizielle Erweiterung bei Mozilla Add-ons. Archiv-Wiki muss für die lokale Übergabe von Clips geöffnet sein.</p>
+        <p class="settings-hint">Brave / Chromium: Bereitet die mitgelieferte Erweiterung ohne Entwicklermodus und ohne Administratorrechte für den nächsten vollständigen Brave-Start vor.</p>
+        <p class="settings-hint" id="stBraveInstallStatus" role="status" aria-live="polite"></p>
+        <p class="settings-hint" id="stBraveFlatpakPermissionStatus" role="status" aria-live="polite" hidden></p>
+        <div class="settings-button-row" id="stBraveFlatpakPermissionActions" style="display:none;">
+          <button type="button" class="btn ghost" id="stRevokeBraveFlatpakPermission">Native-Messaging-Berechtigung entfernen</button>
+        </div>
       </div>
     </section>
   `;
@@ -1172,6 +1154,103 @@ async function renderWebClipperSection(el, config, updateSetting, context, lifec
 
   el.querySelector('#stIncomingShowInSidebar').addEventListener('change', async (event) => {
     await updateSetting({ incoming: { showInSidebar: event.target.checked } });
+  });
+
+  el.querySelector('#stOpenFirefoxAmo').addEventListener('click', () => {
+    window.open(FIREFOX_AMO_URL, '_blank');
+  });
+
+  // M15: read-only Statusanzeige für die Brave-Flatpak-Native-Messaging-
+  // Berechtigung (org.freedesktop.Flatpak). Nur sichtbar, wenn Brave
+  // tatsächlich als Flatpak installiert ist; auf anderen Systemen bleibt
+  // dieser Bereich verborgen statt eine irrelevante Zeile anzuzeigen.
+  const permissionStatusEl = el.querySelector('#stBraveFlatpakPermissionStatus');
+  const permissionActionsEl = el.querySelector('#stBraveFlatpakPermissionActions');
+  const revokePermissionButton = el.querySelector('#stRevokeBraveFlatpakPermission');
+
+  async function refreshBraveFlatpakPermissionUi() {
+    const status = await window.archivAPI.webClipper?.getBraveFlatpakPermissionStatus?.();
+    if (!lifecycle.isCurrent()) return;
+    if (!status?.supported || !status.installed) {
+      permissionStatusEl.hidden = true;
+      permissionActionsEl.style.display = 'none';
+      return;
+    }
+    permissionStatusEl.hidden = false;
+    permissionStatusEl.className = 'settings-hint';
+    permissionStatusEl.textContent = status.granted
+      ? 'Native-Messaging-Berechtigung für Brave (Flatpak): vorhanden.'
+      : 'Native-Messaging-Berechtigung für Brave (Flatpak): noch nicht erteilt.';
+    // .settings-button-row erzwingt display:flex per Klasse — [hidden] allein
+    // würde von dieser Regel überschrieben, daher hier gezielt per Inline-Style.
+    permissionActionsEl.style.display = status.granted ? 'flex' : 'none';
+  }
+  void refreshBraveFlatpakPermissionUi();
+
+  revokePermissionButton.addEventListener('click', async () => {
+    revokePermissionButton.disabled = true;
+    try {
+      await window.archivAPI.webClipper?.revokeBraveFlatpakPermission?.();
+    } catch (error) {
+      if (!lifecycle.isCurrent()) return;
+      console.error('Native-Messaging-Berechtigung konnte nicht entfernt werden:', error);
+      permissionStatusEl.hidden = false;
+      permissionStatusEl.className = 'settings-hint settings-hint-error';
+      permissionStatusEl.textContent = error?.message || 'Die Berechtigung konnte nicht entfernt werden.';
+    } finally {
+      if (lifecycle.isCurrent()) revokePermissionButton.disabled = false;
+    }
+    await refreshBraveFlatpakPermissionUi();
+  });
+
+  el.querySelector('#stInstallBraveWebClipper').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    const statusEl = el.querySelector('#stBraveInstallStatus');
+    button.disabled = true;
+    button.textContent = 'Installation wird vorbereitet …';
+    statusEl.className = 'settings-hint';
+    statusEl.textContent = '';
+
+    try {
+      // M15: Brave läuft als Flatpak sandboxed und kann den Native Host ohne
+      // eine zusätzliche, persistente Host-Berechtigung nicht starten. Diese
+      // Berechtigung wird ausschließlich hier, nach ausdrücklicher Zustimmung,
+      // gesetzt — nie automatisch beim App-Start.
+      const permissionStatus = await window.archivAPI.webClipper?.getBraveFlatpakPermissionStatus?.();
+      if (permissionStatus?.installed && !permissionStatus.granted) {
+        const consent = await showConfirmDialog({
+          title: 'Native-Messaging-Berechtigung für Brave (Flatpak)',
+          message: 'Brave läuft als Flatpak in einer eigenen Sandbox und kann den Archiv-Wiki-Native-Host deshalb nicht direkt starten.\n\nDafür braucht Brave zusätzlich die dauerhafte Berechtigung, mit dem Flatpak-Hostdienst (org.freedesktop.Flatpak) zu sprechen. Das erweitert die Brave-Sandbox gegenüber deinem System und gilt für die gesamte Brave-App, nicht nur für Archiv-Wiki.\n\nDu kannst diese Berechtigung hier jederzeit wieder entfernen.',
+          confirmLabel: 'Berechtigung erteilen',
+          cancelLabel: 'Abbrechen'
+        });
+        if (!lifecycle.isCurrent()) return;
+        if (!consent) {
+          statusEl.className = 'settings-hint';
+          statusEl.textContent = 'Abgebrochen. Es wurde keine Berechtigung gesetzt und nichts verändert.';
+          button.textContent = 'Erneut versuchen';
+          return;
+        }
+        await window.archivAPI.webClipper.grantBraveFlatpakPermission();
+        if (!lifecycle.isCurrent()) return;
+        await refreshBraveFlatpakPermissionUi();
+      }
+
+      const result = await window.archivAPI.webClipper?.installBrave?.();
+      if (!result?.prepared) throw new Error('Die Installation konnte nicht vorbereitet werden.');
+      if (!lifecycle.isCurrent()) return;
+      statusEl.className = 'settings-hint settings-hint-success';
+      statusEl.textContent = 'Vorbereitet. Schließe Brave vollständig und starte es neu. Falls du den Web Clipper zuvor bewusst entfernt hast, respektiert Brave diese Entscheidung und installiert ihn nicht automatisch erneut.';
+      button.textContent = 'Erneut vorbereiten';
+    } catch (error) {
+      if (!lifecycle.isCurrent()) return;
+      console.error('Brave Web Clipper konnte nicht vorbereitet werden:', error);
+      statusEl.className = 'settings-hint settings-hint-error';
+      statusEl.textContent = error?.message || 'Die Installation konnte nicht vorbereitet werden.';
+      button.textContent = 'Erneut versuchen';
+    } finally {
+      if (lifecycle.isCurrent()) button.disabled = false;
+    }
   });
 }
 
@@ -1267,6 +1346,7 @@ function renderSecuritySection(el, config, updateSetting, context) {
       if (enabled && !(await verifyCurrentPassword())) return;
 
       config = await window.archivAPI.settings.setAppLockPassword(newPassword);
+      context.onConfigChange?.(config);
       context.showSettingsSavedFeedback?.();
       if (el.isConnected) renderSecuritySection(el, config, updateSetting, context);
     } catch (error) {
@@ -1282,6 +1362,7 @@ function renderSecuritySection(el, config, updateSetting, context) {
       if (!(await verifyCurrentPassword())) return;
 
       config = await window.archivAPI.settings.setAppLockPassword('');
+      context.onConfigChange?.(config);
       context.showSettingsSavedFeedback?.();
       if (el.isConnected) renderSecuritySection(el, config, updateSetting, context);
     } catch (error) {

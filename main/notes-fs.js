@@ -8,11 +8,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const matter = require('gray-matter');
 const { CONFIG_FILENAME, TRASH_DIRNAME, INCOMING_DIRNAME, INCOMING_MARKER_FILENAME } = require('./project');
 const { atomicWriteFileSync } = require('./atomic-write');
 
 const NOTE_EXT = '.md';
+const NOTE_CONFLICT_MARKER = 'ARCHIV_WIKI_NOTE_CONFLICT:';
 
 // ---------------------------------------------------------------------------
 // Namens- und Pfad-Sicherheit
@@ -79,6 +81,10 @@ function readNoteRaw(fullPath) {
 function writeNoteRaw(fullPath, frontmatter, body) {
   const fileString = matter.stringify(body || '', frontmatter || {});
   atomicWriteFileSync(fullPath, fileString, 'utf8');
+}
+
+function noteBodyVersion(body) {
+  return crypto.createHash('sha256').update(String(body ?? ''), 'utf8').digest('hex');
 }
 
 // ---------------------------------------------------------------------------
@@ -284,19 +290,30 @@ function createNote(projectPath, subCategoryRelPath, title, templateBody, option
 function readNote(projectPath, relPath) {
   const fullPath = resolveSafe(projectPath, relPath);
   const { frontmatter, body } = readNoteRaw(fullPath);
-  return { relPath, frontmatter, body };
+  return { relPath, frontmatter, body, version: noteBodyVersion(body) };
 }
 
-function writeNote(projectPath, relPath, body, frontmatterPatch) {
+function writeNote(projectPath, relPath, body, frontmatterPatch, expectedVersion) {
   const fullPath = resolveSafe(projectPath, relPath);
   const existing = readNoteRaw(fullPath);
+  const currentVersion = noteBodyVersion(existing.body);
+  if (typeof expectedVersion === 'string' && expectedVersion !== currentVersion) {
+    const error = new Error(
+      `${NOTE_CONFLICT_MARKER} Die Notiz wurde außerhalb von Archiv-Wiki geändert. `
+      + 'Deine Änderungen wurden nicht überschrieben. Lade die Notiz neu, bevor du weiterarbeitest.'
+    );
+    error.code = 'NOTE_CONFLICT';
+    throw error;
+  }
   const frontmatter = {
     ...existing.frontmatter,
     ...(frontmatterPatch || {}),
     modified: new Date().toISOString()
   };
-  writeNoteRaw(fullPath, frontmatter, body ?? existing.body);
-  return { relPath, frontmatter };
+  const nextBody = body ?? existing.body;
+  writeNoteRaw(fullPath, frontmatter, nextBody);
+  const written = readNoteRaw(fullPath);
+  return { relPath, frontmatter: written.frontmatter, version: noteBodyVersion(written.body) };
 }
 
 // ---------------------------------------------------------------------------
@@ -403,22 +420,154 @@ function trashDirOf(projectPath) {
   return path.join(path.resolve(projectPath), TRASH_DIRNAME);
 }
 
-function readTrashIndex(trashDir) {
+function createTrashError(code, message, cause, rollbackCause) {
+  const error = new Error(message);
+  error.code = code;
+  if (cause) error.cause = cause;
+  if (rollbackCause) error.rollbackCause = rollbackCause;
+  return error;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isSafeTrashName(value) {
+  return typeof value === 'string'
+    && value.length > 0
+    && value !== '.'
+    && value !== '..'
+    && value !== TRASH_INDEX_FILE
+    && !value.includes('/')
+    && !value.includes('\\')
+    && !value.includes('\0');
+}
+
+function isSafeOriginalRelPath(value) {
+  if (typeof value !== 'string' || !value || value.includes('\0') || path.isAbsolute(value)) return false;
+  const portablePath = value.replace(/\\/g, '/');
+  if (portablePath.startsWith('/') || /^[a-z]:\//i.test(portablePath)) return false;
+  const parts = portablePath.split('/');
+  return parts.every(part => part && part !== '.' && part !== '..');
+}
+
+function validateTrashIndexSchema(value) {
+  if (!isPlainObject(value)) {
+    throw createTrashError('TRASH_INDEX_INVALID', 'Der Papierkorbindex besitzt kein gültiges Format. Papierkorbänderungen wurden abgebrochen.');
+  }
+
+  const normalized = Object.create(null);
+  for (const [trashName, meta] of Object.entries(value)) {
+    const validDeletedAt = typeof meta?.deletedAt === 'string'
+      && meta.deletedAt.length > 0
+      && !Number.isNaN(Date.parse(meta.deletedAt));
+    if (!isSafeTrashName(trashName)
+        || !isPlainObject(meta)
+        || !isSafeOriginalRelPath(meta.originalRelPath)
+        || !['note', 'folder'].includes(meta.type)
+        || !validDeletedAt) {
+      throw createTrashError('TRASH_INDEX_INVALID', 'Der Papierkorbindex enthält ungültige Herkunftsinformationen. Papierkorbänderungen wurden abgebrochen.');
+    }
+    normalized[trashName] = {
+      originalRelPath: meta.originalRelPath,
+      type: meta.type,
+      deletedAt: meta.deletedAt
+    };
+  }
+  return normalized;
+}
+
+function trashEntries(trashDir) {
+  if (!fs.existsSync(trashDir)) return [];
   try {
-    return JSON.parse(fs.readFileSync(path.join(trashDir, TRASH_INDEX_FILE), 'utf8'));
-  } catch {
-    return {};
+    return fs.readdirSync(trashDir, { withFileTypes: true })
+      .filter(entry => entry.name !== TRASH_INDEX_FILE);
+  } catch (error) {
+    throw createTrashError('TRASH_INDEX_UNREADABLE', 'Der Papierkorbzustand konnte nicht gelesen werden. Papierkorbänderungen wurden abgebrochen.', error);
   }
 }
 
+function assertTrashIndexMatchesDirectory(trashDir, index) {
+  const actualEntries = trashEntries(trashDir);
+  const actualNames = actualEntries.map(entry => entry.name);
+  const indexedNames = Object.keys(index);
+  const actualSet = new Set(actualNames);
+  if (actualNames.some(name => !Object.prototype.hasOwnProperty.call(index, name))
+      || indexedNames.some(name => !actualSet.has(name))
+      || actualEntries.some(entry => index[entry.name]?.type !== (entry.isDirectory() ? 'folder' : 'note'))) {
+    throw createTrashError(
+      'TRASH_INDEX_INCONSISTENT',
+      'Papierkorb und Herkunftsindex stimmen nicht überein. Es wurden keine Änderungen vorgenommen.'
+    );
+  }
+}
+
+function readTrashIndex(trashDir) {
+  const indexPath = path.join(trashDir, TRASH_INDEX_FILE);
+  if (!fs.existsSync(indexPath)) {
+    if (trashEntries(trashDir).length > 0) {
+      throw createTrashError(
+        'TRASH_INDEX_MISSING',
+        'Für vorhandene Papierkorbeinträge fehlen die Herkunftsinformationen. Es wurden keine Änderungen vorgenommen.'
+      );
+    }
+    return Object.create(null);
+  }
+
+  let raw;
+  try {
+    raw = fs.readFileSync(indexPath, 'utf8');
+  } catch (error) {
+    throw createTrashError('TRASH_INDEX_UNREADABLE', 'Der Papierkorbindex konnte nicht gelesen werden. Papierkorbänderungen wurden abgebrochen.', error);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw createTrashError('TRASH_INDEX_INVALID', 'Der Papierkorbindex ist beschädigt. Papierkorbänderungen wurden abgebrochen.', error);
+  }
+
+  const index = validateTrashIndexSchema(parsed);
+  assertTrashIndexMatchesDirectory(trashDir, index);
+  return index;
+}
+
 function writeTrashIndex(trashDir, index) {
-  fs.writeFileSync(path.join(trashDir, TRASH_INDEX_FILE), JSON.stringify(index, null, 2), 'utf8');
+  const validated = validateTrashIndexSchema(index);
+  atomicWriteFileSync(path.join(trashDir, TRASH_INDEX_FILE), JSON.stringify(validated, null, 2), 'utf8');
+}
+
+function rollbackTrashMove(sourcePath, targetPath) {
+  if (fs.existsSync(targetPath)) {
+    const collision = new Error('Rollback-Ziel existiert bereits.');
+    collision.code = 'EEXIST';
+    throw collision;
+  }
+  renameOrMove(sourcePath, targetPath);
+}
+
+function trashMutationError(action, writeError, rollbackError) {
+  if (rollbackError) {
+    return createTrashError(
+      'TRASH_ROLLBACK_FAILED',
+      `Der Eintrag konnte nicht sicher ${action} werden und die Rücknahme ist ebenfalls fehlgeschlagen. Der Papierkorbzustand muss geprüft werden.`,
+      writeError,
+      rollbackError
+    );
+  }
+  return createTrashError(
+    'TRASH_INDEX_WRITE_FAILED',
+    `Der Eintrag konnte nicht sicher ${action} werden. Die Dateisystemänderung wurde zurückgenommen.`,
+    writeError
+  );
 }
 
 function deleteEntry(projectPath, relPath) {
   const fullPath = resolveSafe(projectPath, relPath);
   const trashDir = trashDirOf(projectPath);
   fs.mkdirSync(trashDir, { recursive: true });
+  const index = readTrashIndex(trashDir);
 
   const stat = fs.statSync(fullPath);
   const isDir = stat.isDirectory();
@@ -426,16 +575,24 @@ function deleteEntry(projectPath, relPath) {
   const baseName = isDir ? path.basename(fullPath) : path.basename(fullPath, ext);
 
   const destInTrash = uniquePath(trashDir, baseName, ext);
-  renameOrMove(fullPath, destInTrash);
-
   const trashName = path.basename(destInTrash);
-  const index = readTrashIndex(trashDir);
-  index[trashName] = {
+  const nextIndex = { ...index, [trashName]: {
     originalRelPath: path.relative(projectPath, fullPath),
     type: isDir ? 'folder' : 'note',
     deletedAt: new Date().toISOString()
-  };
-  writeTrashIndex(trashDir, index);
+  } };
+
+  renameOrMove(fullPath, destInTrash);
+  try {
+    writeTrashIndex(trashDir, nextIndex);
+  } catch (writeError) {
+    try {
+      rollbackTrashMove(destInTrash, fullPath);
+    } catch (rollbackError) {
+      throw trashMutationError('in den Papierkorb verschoben', writeError, rollbackError);
+    }
+    throw trashMutationError('in den Papierkorb verschoben', writeError);
+  }
 
   return { trashRelPath: trashName };
 }
@@ -447,19 +604,19 @@ function listTrash(projectPath) {
   const index = readTrashIndex(trashDir);
 
   return fs.readdirSync(trashDir, { withFileTypes: true })
-    .filter(e => !isHidden(e.name) && e.name !== TRASH_INDEX_FILE)
+    .filter(e => e.name !== TRASH_INDEX_FILE)
     .map(e => {
-      const meta = index[e.name] || {};
+      const meta = index[e.name];
       let title = e.name;
       if (e.isFile() && e.name.toLowerCase().endsWith(NOTE_EXT)) {
         try { title = readNoteRaw(path.join(trashDir, e.name)).frontmatter.title || e.name; } catch { /* Frontmatter defekt, egal */ }
       }
       return {
         trashRelPath: e.name,
-        type: meta.type || (e.isDirectory() ? 'folder' : 'note'),
+        type: meta.type,
         title,
-        originalRelPath: meta.originalRelPath || e.name,
-        deletedAt: meta.deletedAt || null
+        originalRelPath: meta.originalRelPath,
+        deletedAt: meta.deletedAt
       };
     })
     .sort((a, b) => (a.deletedAt || '') < (b.deletedAt || '') ? 1 : -1);
@@ -467,10 +624,19 @@ function listTrash(projectPath) {
 
 function restoreFromTrash(projectPath, trashRelPath) {
   const trashDir = trashDirOf(projectPath);
-  const source = resolveSafe(trashDir, trashRelPath);
+  if (!isSafeTrashName(trashRelPath)) {
+    throw createTrashError('TRASH_ENTRY_INVALID', 'Der ausgewählte Papierkorbeintrag ist ungültig.');
+  }
+  const source = path.join(trashDir, trashRelPath);
   const index = readTrashIndex(trashDir);
   const meta = index[trashRelPath];
-  const originalRelPath = meta?.originalRelPath || trashRelPath;
+  if (!meta) {
+    throw createTrashError('TRASH_ENTRY_METADATA_MISSING', 'Für den Papierkorbeintrag fehlen gültige Herkunftsinformationen. Die Wiederherstellung wurde abgebrochen.');
+  }
+  if (!fs.existsSync(source)) {
+    throw createTrashError('TRASH_ENTRY_MISSING', 'Der Papierkorbeintrag wurde nicht gefunden. Die Wiederherstellung wurde abgebrochen.');
+  }
+  const originalRelPath = meta.originalRelPath;
 
   const destParentDir = resolveSafe(projectPath, path.dirname(originalRelPath) || '.');
   fs.mkdirSync(destParentDir, { recursive: true }); // falls Ursprungsordner zwischenzeitlich weg ist
@@ -479,18 +645,33 @@ function restoreFromTrash(projectPath, trashRelPath) {
   const baseName = path.basename(originalRelPath, ext || undefined);
   const destPath = uniquePath(destParentDir, baseName, ext);
 
-  fs.renameSync(source, destPath);
-  delete index[trashRelPath];
-  writeTrashIndex(trashDir, index);
+  const nextIndex = { ...index };
+  delete nextIndex[trashRelPath];
+  renameOrMove(source, destPath);
+  try {
+    writeTrashIndex(trashDir, nextIndex);
+  } catch (writeError) {
+    try {
+      rollbackTrashMove(destPath, source);
+    } catch (rollbackError) {
+      throw trashMutationError('wiederhergestellt', writeError, rollbackError);
+    }
+    throw trashMutationError('wiederhergestellt', writeError);
+  }
 
   return { relPath: path.relative(projectPath, destPath) };
 }
 
 function emptyTrash(projectPath) {
   const trashDir = trashDirOf(projectPath);
+  // Ein beschädigter oder bereits inkonsistenter Index wird nicht durch
+  // endgültiges Leeren still als neue Wahrheit überschrieben.
+  if (fs.existsSync(trashDir)) readTrashIndex(trashDir);
   fs.rmSync(trashDir, { recursive: true, force: true });
   fs.mkdirSync(trashDir, { recursive: true });
-  writeTrashIndex(trashDir, {});
+  // Ein fehlender Index ist für einen tatsächlich leeren Papierkorb ein
+  // gültiger Zustand. Dadurch gibt es nach dem irreversiblen Entfernen keinen
+  // zweiten Schreibschritt mehr, der einen halben Leerzustand erzeugen kann.
   return { ok: true };
 }
 

@@ -11,18 +11,7 @@ Ein Overlay (kein separates Betriebssystem-Fenster) mit Kopfzeile, linker Naviga
 ## Kategorien (Abschnitte)
 
 1. **Allgemein** — Wiki-Name, Speicherort (mit Verschieben-Möglichkeit), Verhalten beim Programmstart (Kategorien auf-/zugeklappt), Verhalten beim Schließen über den X-Knopf (immer nachfragen / in den Tray minimieren / vollständig beenden) sowie ein direkter Einstieg in die vorhandene Tastenkürzelübersicht.
-2. **Darstellung** — Akzentfarbe, Sidebar-Größe, Fokus-Modus (an/aus), Lesemodus (optimale Lesebreite an/aus).
-
-### Fokus-Modus in den Einstellungen
-
-- Der Aktivierungsschalter spiegelt ausschließlich den zentralen `body.focus-mode`-Zustand.
-- Ohne geöffnete Notiz ist der Schalter deaktiviert und kann keinen Fokus-Modus vortäuschen.
-- Beim automatischen Beenden auf einer Route ohne Editor wird ein geöffnetes Einstellungsfenster unmittelbar synchronisiert.
-- Die Intensitätsstufe bleibt unabhängig davon projektbezogen speicherbar; der aktive Ein/Aus-Zustand bleibt ein nicht gespeicherter Sitzungszustand.
-- Die vier Intensitätsstufen bilden eine beschriftete Button-Gruppe; genau eine Schaltfläche ist sichtbar und semantisch über `aria-pressed` ausgewählt. Die Auswahl bleibt mit der bestehenden Speicherung synchron.
-- Das Ein- oder Ausschalten im Einstellungsfenster behält den Fokus im Dialog; nur die Toolbar-Aktion führt den Fokus zurück in den Schreibbereich.
-- Die sichtbare Bezeichnung lautet überall verbindlich „Fokus-Modus“. Ältere Bezeichnungen werden weder in Einstellungen, Tooltips noch Tastenkürzeltexten verwendet.
-- Die vier Intensitätsstufen bleiben Leicht, Mittel, Stark und Sehr stark. Ihre Auswahl verändert nur die Dimmung der umgebenden Oberfläche; Editor-, Split- und Vorschau-Layout bleiben unverändert.
+2. **Darstellung** — Akzentfarbe, Sidebar-Größe, Lesemodus (optimale Lesebreite an/aus). Der Fokus-Modus ist eine reine Editor-Funktion (Werkzeugleisten-Schaltfläche und Tastenkürzel) und besitzt keinen eigenen Ein-/Aus-Schalter in den Einstellungen, siehe `08_EDITOR.md`.
 3. **Editor** — Schriftgröße, Auto-Save-Intervall, Tab-Größe, Rechtschreibprüfung (siehe `08_EDITOR.md` für Details).
 4. **Backup** — Backup-Ordner, automatisches Backup, letzter Erfolg, letzter Fehler, Aufräumhinweise, manuelles Backup und kurze Anleitung zur manuellen Wiederherstellung.
 5. **Updates** — installierte und neueste verfügbare Version, letzte Prüfung, Status, sowie Verhalten (automatische Prüfung beim Start, automatischer Download, Rückfrage vor Herunterladen, Rückfrage vor Neustart).
@@ -35,8 +24,9 @@ Ein Overlay (kein separates Betriebssystem-Fenster) mit Kopfzeile, linker Naviga
 - Der lokale Web-Clip-Empfänger ist nur verfügbar, solange Archiv-Wiki geöffnet ist. Die Browser-Kommunikation verwendet Native Messaging; eine separate manuelle Native-Host-Konfiguration wird im Einstellungsbereich nicht angeboten.
 - Als Standard-Sammelmodus kann Markierter Text, Nur URL, Ganze Seite oder Bilder gewählt werden. Die Auswahl wird mit den Wiki-Einstellungen gespeichert.
 - „Eingang anzeigen“ steuert ausschließlich die Sichtbarkeit des Eingang-Eintrags in der Sidebar. Vorhandene Eingänge und Clips werden beim Ausblenden nicht gelöscht.
-- Unter den Installationswegen wird „Firefox (folgt)“ deaktiviert und als noch nicht verfügbar dargestellt. Firefox-Unterstützung ist im Projekt technisch vorhanden; der Einstellungsbereich bietet derzeit jedoch keinen aktiven Firefox-Installationsweg und trifft keine Aussage über eine öffentliche AMO-Verfügbarkeit.
+- Die aktive Schaltfläche „Firefox“ öffnet die offizielle Mozilla-Add-ons-Seite des Archiv-Wiki Web Clippers im System-Browser. Archiv-Wiki muss für die anschließende lokale Übergabe von Clips geöffnet sein.
 - Die aktive Schaltfläche „Brave / Chromium“ stößt die Vorbereitung der mitgelieferten Erweiterung für Brave an. Sie benötigt weder Entwicklermodus noch Administratorrechte; anschließend muss Brave vollständig geschlossen und neu gestartet werden.
+- „Firefox“ und „Brave / Chromium“ bleiben getrennte Installationswege. Der Firefox-Link richtet keine Firefox-Flatpak-Unterstützung ein; der Brave-/Chromium-Knopf bleibt auf den lokalen Brave-Flatpak-Weg zugeschnitten.
 - Nach erfolgreicher Vorbereitung wird der erforderliche Neustart angezeigt. Eine frühere bewusste Entfernung der Erweiterung wird respektiert und nicht automatisch rückgängig gemacht.
 
 ## Bedienung

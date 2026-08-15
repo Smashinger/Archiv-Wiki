@@ -11,11 +11,120 @@ const fs = require('fs');
 const path = require('path');
 const { TRASH_DIRNAME } = require('./project');
 
-// Kernlogik ohne Dialog — direkt wiederverwendbar sowohl vom manuellen
-// Export (unten, mit Speichern-Dialog) als auch vom automatischen
-// Hintergrund-Backup (main/backup.js), damit beide exakt dieselbe
-// Zip-Erstellung (inkl. .wiki-trash-Ausschluss) nutzen statt sie zu duplizieren.
-async function zipProjectTo(projectPath, destFilePath, options = {}) {
+function createArchiveSourceError(message, cause) {
+  const error = new Error(message);
+  error.code = 'BACKUP_SOURCE_CHANGED';
+  if (cause) error.cause = cause;
+  return error;
+}
+
+function archivePathOf(relativePath, isDirectory = false) {
+  const normalized = relativePath.split(path.sep).join('/');
+  return isDirectory ? `${normalized}/` : normalized;
+}
+
+// Erfasst genau den Bestand, den der bisherige ZIP-Vertrag einschließt.
+// .wiki-trash bleibt als bewusste Produktentscheidung ausgenommen; ein
+// innerhalb des Projekts gewähltes ZIP-Ziel wird nicht in sich selbst gepackt.
+function collectProjectArchiveInventory(projectPath, excludedPaths = []) {
+  const projectRoot = path.resolve(projectPath);
+  const excluded = new Set(excludedPaths.map(filePath => path.resolve(filePath)));
+  let rootStat;
+  try {
+    rootStat = fs.statSync(projectRoot);
+  } catch (error) {
+    throw createArchiveSourceError('Der Wiki-Ordner ist für das Backup nicht lesbar.', error);
+  }
+  if (!rootStat.isDirectory()) {
+    throw createArchiveSourceError('Der Wiki-Ordner ist für das Backup nicht lesbar.');
+  }
+
+  const inventory = [];
+  function visit(directoryPath, relativeDirectory = '') {
+    let entries;
+    try {
+      entries = fs.readdirSync(directoryPath, { withFileTypes: true })
+        .sort((left, right) => left.name.localeCompare(right.name));
+    } catch (error) {
+      throw createArchiveSourceError('Das Backup konnte den erwarteten Wiki-Inhalt nicht vollständig erfassen.', error);
+    }
+
+    for (const entry of entries) {
+      if (!relativeDirectory && entry.name === TRASH_DIRNAME) continue;
+      const absolutePath = path.join(directoryPath, entry.name);
+      if (excluded.has(path.resolve(absolutePath))) continue;
+
+      let stats;
+      try {
+        stats = fs.lstatSync(absolutePath);
+      } catch (error) {
+        throw createArchiveSourceError('Eine erwartete Wiki-Datei ist während der Backup-Erstellung nicht mehr verfügbar.', error);
+      }
+
+      const relativePath = relativeDirectory
+        ? path.join(relativeDirectory, entry.name)
+        : entry.name;
+      let type;
+      let linkTarget = null;
+      if (stats.isDirectory()) type = 'directory';
+      else if (stats.isFile()) type = 'file';
+      else if (stats.isSymbolicLink()) {
+        type = 'symlink';
+        try {
+          linkTarget = fs.readlinkSync(absolutePath);
+        } catch (error) {
+          throw createArchiveSourceError('Eine erwartete Wiki-Verknüpfung konnte nicht gelesen werden.', error);
+        }
+      } else {
+        throw createArchiveSourceError('Der Wiki-Ordner enthält einen Dateityp, der nicht zuverlässig gesichert werden kann.');
+      }
+
+      inventory.push({
+        absolutePath,
+        archivePath: archivePathOf(relativePath, type === 'directory'),
+        type,
+        size: stats.size,
+        mtimeMs: stats.mtimeMs,
+        ctimeMs: stats.ctimeMs,
+        linkTarget
+      });
+      if (type === 'directory') visit(absolutePath, relativePath);
+    }
+  }
+
+  visit(projectRoot);
+  return inventory;
+}
+
+function assertSameArchiveInventory(expected, actual) {
+  if (expected.length !== actual.length) {
+    throw createArchiveSourceError('Der Wiki-Inhalt hat sich während der Backup-Erstellung verändert. Das unvollständige Backup wurde verworfen.');
+  }
+  const actualByPath = new Map(actual.map(entry => [entry.archivePath, entry]));
+  for (const expectedEntry of expected) {
+    const actualEntry = actualByPath.get(expectedEntry.archivePath);
+    if (!actualEntry
+        || actualEntry.type !== expectedEntry.type
+        || actualEntry.size !== expectedEntry.size
+        || actualEntry.mtimeMs !== expectedEntry.mtimeMs
+        || actualEntry.ctimeMs !== expectedEntry.ctimeMs
+        || actualEntry.linkTarget !== expectedEntry.linkTarget) {
+      throw createArchiveSourceError('Der Wiki-Inhalt hat sich während der Backup-Erstellung verändert. Das unvollständige Backup wurde verworfen.');
+    }
+  }
+}
+
+function archiveSourceProcessingError(error) {
+  if (error?.code === 'ENOENT') {
+    return createArchiveSourceError('Eine erwartete Wiki-Datei ist während der Backup-Erstellung verschwunden. Das unvollständige Backup wurde verworfen.', error);
+  }
+  if (['EACCES', 'EPERM', 'EBUSY', 'EIO'].includes(error?.code)) {
+    return createArchiveSourceError('Eine erwartete Wiki-Datei konnte während der Backup-Erstellung nicht vollständig gelesen werden.', error);
+  }
+  return error;
+}
+
+async function zipInventoryTo(inventory, destFilePath, options = {}) {
   const { signal } = options;
   const { ZipArchive } = await import('archiver');
   if (typeof ZipArchive !== 'function') {
@@ -31,46 +140,105 @@ async function zipProjectTo(projectPath, destFilePath, options = {}) {
     throw err;
   }
 
-  await new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const output = fs.createWriteStream(destFilePath);
     const archive = new ZipArchive({ zlib: { level: 9 } });
+    const expectedByPath = new Map(inventory.map(entry => [entry.archivePath, entry]));
+    const processedPaths = new Set();
     let settled = false;
+    let failure = null;
 
     function finishResolve() {
       if (settled) return;
       settled = true;
       signal?.removeEventListener('abort', handleAbort);
-      resolve();
+      resolve({ entries: processedPaths.size });
     }
 
-    function finishReject(err) {
+    function finishReject(error) {
       if (settled) return;
       settled = true;
       signal?.removeEventListener('abort', handleAbort);
-      reject(err);
+      reject(error);
+    }
+
+    function fail(error) {
+      if (settled || failure) return;
+      failure = error;
+      try { archive.abort(); } catch { /* Archiv kann bereits abgeschlossen sein */ }
+      if (!output.destroyed) output.destroy();
+      if (output.closed) finishReject(failure);
     }
 
     function handleAbort() {
       const err = new Error('Die ZIP-Erstellung wurde abgebrochen.');
       err.code = 'BACKUP_ABORTED';
-      try { archive.abort(); } catch { /* Archiv kann bereits abgeschlossen sein */ }
-      output.destroy(err);
-      finishReject(err);
+      fail(err);
     }
 
-    output.on('close', finishResolve);
-    output.on('error', finishReject);
-    archive.on('error', finishReject);
-    archive.on('warning', (err) => { if (err.code !== 'ENOENT') finishReject(err); });
+    output.on('close', () => {
+      if (failure) {
+        finishReject(failure);
+        return;
+      }
+      if (processedPaths.size !== expectedByPath.size) {
+        finishReject(createArchiveSourceError('Das Backup enthält nicht alle erwarteten Wiki-Dateien. Das unvollständige Backup wurde verworfen.'));
+        return;
+      }
+      finishResolve();
+    });
+    output.on('error', fail);
+    // Da ausschließlich vorher inventarisierte Einträge verarbeitet werden,
+    // bezeichnet jede Archiver-Warnung ein Problem mit erwartetem Bestand.
+    // Bekannte Quellfehler werden nutzerfreundlich klassifiziert; unbekannte
+    // Warnungen bleiben mit ihrem technischen Fehlercode fatal sichtbar.
+    archive.on('error', error => fail(archiveSourceProcessingError(error)));
+    archive.on('warning', error => fail(archiveSourceProcessingError(error)));
+    archive.on('entry', entry => {
+      const expected = expectedByPath.get(entry.name);
+      if (!expected || processedPaths.has(entry.name) || entry.type !== expected.type) {
+        fail(createArchiveSourceError('Die erzeugten ZIP-Einträge stimmen nicht mit dem erwarteten Wiki-Inhalt überein.'));
+        return;
+      }
+      processedPaths.add(entry.name);
+    });
     signal?.addEventListener('abort', handleAbort, { once: true });
+    if (signal?.aborted) {
+      handleAbort();
+      return;
+    }
 
     archive.pipe(output);
-    archive.directory(projectPath, false, (entry) => {
-      if (entry.name === TRASH_DIRNAME || entry.name.startsWith(TRASH_DIRNAME + '/')) return false;
-      return entry;
-    });
-    Promise.resolve(archive.finalize()).catch(finishReject);
+    for (const entry of inventory) {
+      archive.file(entry.absolutePath, { name: entry.archivePath });
+    }
+    Promise.resolve(archive.finalize()).catch(fail);
   });
+}
+
+// Kernlogik ohne Dialog — direkt wiederverwendbar sowohl vom manuellen
+// Export (unten, mit Speichern-Dialog) als auch vom automatischen
+// Hintergrund-Backup (main/backup.js), damit beide exakt dieselbe
+// Zip-Erstellung (inkl. .wiki-trash-Ausschluss) nutzen statt sie zu duplizieren.
+async function zipProjectTo(projectPath, destFilePath, options = {}) {
+  const projectRoot = path.resolve(projectPath);
+  const destination = path.resolve(destFilePath);
+  const relativeDestination = path.relative(projectRoot, destination);
+  const destinationInsideProject = relativeDestination !== ''
+    && relativeDestination !== '..'
+    && !relativeDestination.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relativeDestination);
+  const excludedPaths = destinationInsideProject ? [destination] : [];
+  const inventory = collectProjectArchiveInventory(projectRoot, excludedPaths);
+
+  try {
+    await zipInventoryTo(inventory, destination, options);
+    const finalInventory = collectProjectArchiveInventory(projectRoot, excludedPaths);
+    assertSameArchiveInventory(inventory, finalInventory);
+  } catch (error) {
+    try { fs.unlinkSync(destination); } catch { /* Datei wurde evtl. nicht angelegt */ }
+    throw error;
+  }
 }
 
 async function exportProjectZip({ getCurrentProject, getMainWindow }) {
@@ -88,6 +256,11 @@ async function exportProjectZip({ getCurrentProject, getMainWindow }) {
   await zipProjectTo(projectPath, result.filePath);
 
   return { saved: true, filePath: result.filePath };
+}
+
+function writeHtmlExportFile(filePath, html) {
+  if (typeof html !== 'string') throw new TypeError('HTML-Export erwartet Textinhalt.');
+  fs.writeFileSync(filePath, html, 'utf8');
 }
 
 function registerExportIpc({ getCurrentProject, getMainWindow }) {
@@ -110,7 +283,7 @@ function registerExportIpc({ getCurrentProject, getMainWindow }) {
       filters: [{ name: 'HTML-Datei', extensions: ['html'] }]
     });
     if (result.canceled || !result.filePath) return { saved: false };
-    fs.writeFileSync(result.filePath, html, 'utf8');
+    writeHtmlExportFile(result.filePath, html);
     return { saved: true, filePath: result.filePath };
   });
 
@@ -158,4 +331,9 @@ function registerExportIpc({ getCurrentProject, getMainWindow }) {
   ipcMain.handle('export:projectZip', () => exportProjectZip({ getCurrentProject, getMainWindow }));
 }
 
-module.exports = { registerExportIpc, exportProjectZip, zipProjectTo };
+module.exports = {
+  registerExportIpc,
+  exportProjectZip,
+  zipProjectTo,
+  writeHtmlExportFile
+};

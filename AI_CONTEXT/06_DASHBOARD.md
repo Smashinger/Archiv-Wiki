@@ -61,7 +61,7 @@ Die Sammlung enthält aktuell **14 feste lokale Tipps**:
 7. „Angepinnte Notizen sind auf dem Dashboard schnell erreichbar — ideal für Notizen, die du oft brauchst.“
 8. „Backups richtest du in den Einstellungen ein und kannst sie dort jederzeit manuell starten.“
 9. „Gelöschte Notizen landen zuerst im Papierkorb und können dort wiederhergestellt werden.“
-10. „Der Fokus-Modus in der Editor-Werkzeugleiste dimmt die übrige Oberfläche für konzentriertes Schreiben und Lesen.“
+10. „Der Fokus-Modus in der Editor-Werkzeugleiste blendet die Sidebar aus und schafft mehr Platz für konzentriertes Schreiben und Lesen.“
 11. „Eigene Notiz-Vorlagen lassen sich speichern und für neue Notizen wiederverwenden.“
 
 **Allgemein / niedrige Priorität**

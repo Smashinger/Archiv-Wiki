@@ -25,6 +25,7 @@ import langXml from 'highlight.js/lib/languages/xml';
 import langCss from 'highlight.js/lib/languages/css';
 
 import katex from 'katex';
+import { sanitizePreviewHtml } from './preview-sanitizer.js';
 
 hljs.registerLanguage('javascript', langJavascript);
 hljs.registerLanguage('js', langJavascript);
@@ -405,7 +406,7 @@ marked.use({
       } catch {
         highlighted = escapeHtml(token.text);
       }
-      return `<div class="code-block"><span class="lang">${escapeHtml(lang || 'text')}</span><button type="button" class="copy-btn" data-copy-btn>Kopieren</button><pre><code class="hljs">${highlighted}</code></pre></div>`;
+      return `<div class="code-block"><span class="lang">${escapeHtml(lang || 'text')}</span><pre><code class="hljs">${highlighted}</code></pre></div>`;
     },
     // Standardmäßig rendert marked.js Checkboxen mit disabled="" (rein
     // dekorativ). Für klickbares Abhaken brauchen wir sie OHNE disabled,
@@ -413,7 +414,7 @@ marked.use({
     // Quelle wiederfindet und dort [ ] <-> [x] umschaltet.
     checkbox({ checked }) {
       const idx = taskCheckboxCounter++;
-      return `<input type="checkbox" data-task-index="${idx}"${checked ? ' checked' : ''}> `;
+      return `@@TASKCHECKBOX${idx}_${checked ? '1' : '0'}@@ `;
     }
   }
 });
@@ -499,11 +500,11 @@ function renderMathToPlaceholders(text) {
     return `@@MATH${store.length - 1}@@`;
   }
   let out = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) => {
-    try { return stash(katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false })); }
+    try { return stash(katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false, output: 'html', trust: false })); }
     catch { return stash(`<span class="katex-error">${escapeHtml(expr)}</span>`); }
   });
   out = out.replace(/(^|[^\\$])\$([^\$\n]+?)\$/g, (_, pre, expr) => {
-    try { return pre + stash(katex.renderToString(expr.trim(), { displayMode: false, throwOnError: false })); }
+    try { return pre + stash(katex.renderToString(expr.trim(), { displayMode: false, throwOnError: false, output: 'html', trust: false })); }
     catch { return pre + stash(`<span class="katex-error">${escapeHtml(expr)}</span>`); }
   });
   return { out, store };
@@ -515,8 +516,8 @@ function renderMathToPlaceholders(text) {
 // von { title, relPath } — kommt live aus app.js (siehe getNoteIndex oben).
 function renderWikiLinksToPlaceholders(text, noteIndex) {
   const store = [];
-  function stash(html) {
-    store.push(html);
+  function stash(entry) {
+    store.push(entry);
     return `@@WIKILINK${store.length - 1}@@`;
   }
   // Unterstützt sowohl [[Notizname]] als auch [[Notizname|Eigener Anzeigetext]]
@@ -527,9 +528,9 @@ function renderWikiLinksToPlaceholders(text, noteIndex) {
     const display = (rawDisplay || rawTarget).trim();
     const match = (noteIndex || []).find(n => n.title.toLowerCase() === target.toLowerCase());
     if (match) {
-      return stash(`<a class="wiki-link" data-wikilink-target="${escapeHtml(match.relPath)}">${escapeHtml(display)}</a>`);
+      return stash({ target, display, relPath: match.relPath });
     }
-    return stash(`<a class="wiki-link wiki-link-missing" data-wikilink-create="${escapeHtml(target)}" title="Notiz existiert noch nicht — klicken zum Anlegen">${escapeHtml(display)}</a>`);
+    return stash({ target, display, relPath: null });
   });
   return { out, store };
 }
@@ -583,6 +584,13 @@ function renderCalloutsToPlaceholders(text, codeStore) {
   return { out: out.join('\n'), store };
 }
 
+function attachmentPreviewSource(projectPath, rawName) {
+  const name = String(rawName || '');
+  if (!name || name === '.' || name === '..' || name.includes('/') || name.includes('\\')) return '';
+  const base = 'file://' + String(projectPath).replace(/\\/g, '/').replace(/\/+$/, '') + '/.attachments/';
+  return base + encodeURIComponent(name);
+}
+
 export function renderPreview(markdownText, options = {}) {
   taskCheckboxCounter = 0; // vor JEDEM Render zurücksetzen — auch vor den intern in Callouts genutzten marked.parse()-Aufrufen
   const noteIndex = options.noteIndex || [];
@@ -592,8 +600,6 @@ export function renderPreview(markdownText, options = {}) {
   const { out: mathProtected, store: mathStore } = renderMathToPlaceholders(wikiProtected);
   const restoredCode = restoreCodeRegions(mathProtected, codeStore);
   let html = marked.parse(restoredCode);
-  html = html.replace(/@@MATH(\d+)@@/g, (_, i) => mathStore[Number(i)]);
-  html = html.replace(/@@WIKILINK(\d+)@@/g, (_, i) => wikiStore[Number(i)]);
   // Callouts zuletzt: marked wrappt eine alleinstehende Platzhalter-Zeile in
   // <p>...</p> — das würde ein Block-Element (unser .callout-div) ungültig
   // in ein Inline-<p> verschachteln. Erst den <p>-Wrapper mit auflösen,
@@ -606,51 +612,14 @@ export function renderPreview(markdownText, options = {}) {
   // vermeidet jede Unsicherheit über Verzeichnistiefe/relative Pfade. Hier
   // erst zur ECHTEN file://-URL aufgelöst, sobald der Projektpfad bekannt ist.
   if (options.projectPath) {
-    const base = 'file://' + options.projectPath.replace(/\\/g, '/') + '/.attachments/';
-    html = html.replace(/src="attachment:([^"]+)"/g, (_, name) => `src="${base}${encodeURIComponent(name)}"`);
+    html = html.replace(/src="attachment:([^"]+)"/g, (_, name) => `src="${attachmentPreviewSource(options.projectPath, name)}"`);
   }
 
   // Aus der Icon-Bibliothek eingefügte Symbole (siehe showIconPicker in
   // app.js) werden mit "icon:kategorie/name" referenziert — gleiches Prinzip
   // wie bei attachment:, nur zeigt es auf die mit der App mitgelieferte
   // Icon-Bibliothek statt auf projekteigene Anhänge.
-  html = html.replace(/src="icon:([^"]+)"/g, (_, id) => `src="assets/icon-library/${id}.svg" class="preview-lib-icon"`);
-
-  // Tabellen-Bearbeitungsfenster (Nutzer-Feature): jede Tabelle bekommt einen
-  // fortlaufenden Index in Dokumentreihenfolge — Doppelklick öffnet darüber
-  // das eigene Bearbeitungsfenster (app.js: showTableEditorModal), das über
-  // dieselbe Zählweise (parseMarkdownTables) die passende Stelle in der
-  // rohen Markdown-Quelle wiederfindet.
-  let tableIndex = 0;
-  html = html.replace(/<table(\s[^>]*)?>/g, (match, attrs) => `<table${attrs || ''} data-table-index="${tableIndex++}" title="Doppelklick zum Bearbeiten">`);
-
-  // Bild-Größe per Prozent-Auswahl (Nutzer-Feature, ersetzt das vorherige
-  // Ziehen — das verursachte unzuverlässige Darstellung und störte den
-  // Editor, da bei JEDEM Tastenanschlag die komplette Vorschau samt aller
-  // Bild-Beobachter neu aufgebaut wurde). Jetzt bewusst einfach: ein
-  // schlichter Hover-Wrapper mit vier Knöpfen (25/50/75/100%), keine
-  // laufenden Beobachter mehr. Der Wrapper bekommt den fortlaufenden Index
-  // in Dokumentreihenfolge, über den app.js beim Klick die passende Stelle
-  // in der rohen Markdown-Quelle wiederfindet. Icon-Bibliothek-Symbole
-  // (erkennbar an class="preview-lib-icon") bekommen bewusst KEINE Knöpfe.
-  let imgIndex = 0;
-  html = html.replace(/<img\b([^>]*)>/g, (match, attrs) => {
-    if (/\bclass="[^"]*preview-lib-icon/.test(attrs)) return match; // unverändert
-    // Die Breite kommt aus dem title-Attribut ("width:50%"), nicht aus
-    // einem rohen style-Attribut — siehe setNthImageWidthInMarkdown in
-    // app.js: das hält das Bild als normale Markdown-Bildsyntax, die
-    // marked.js zuverlässig in einen umschließenden <p> einbettet, statt
-    // es als eigenständigen HTML-Block zu behandeln (was es sonst aus dem
-    // normalen Textfluss herausfallen ließe). Hier wird daraus erst das
-    // tatsächlich wirksame style-Attribut erzeugt.
-    const titleWidthMatch = attrs.match(/\btitle\s*=\s*"width:(\d+)%"/);
-    const finalAttrs = titleWidthMatch
-      ? attrs.replace(/\s*title\s*=\s*"width:\d+%"/, '') + ` style="width:${titleWidthMatch[1]}%"`
-      : attrs;
-    const idx = imgIndex++;
-    const buttons = [25, 50, 75, 100].map(p => `<button type="button" data-img-pct="${p}">${p}%</button>`).join('');
-    return `<span class="img-size-wrap" data-img-index="${idx}"><img${finalAttrs}><span class="img-size-buttons">${buttons}</span></span>`;
-  });
+  html = html.replace(/src="icon:([^"]+)"/g, (_, id) => `src="assets/icon-library/${id}.svg"`);
 
   // Gemeinsamer Inhaltscontainer (Bugfix): EINZIGER Ort, an dem die
   // Lesebreite greift. Vorher wurde jedes direkte Kind von .preview-pane
@@ -660,5 +629,10 @@ export function renderPreview(markdownText, options = {}) {
   // bekam. Jetzt bestimmt dieser eine Wrapper die Breite, alle Inhalte
   // (inklusive Bilder, die innerhalb eines <p> liegen) folgen ihm über den
   // normalen Dokumentfluss, ohne eigene Regeln pro Element.
-  return `<div class="preview-content">${html}</div>`;
+  return sanitizePreviewHtml(html, {
+    mathStore,
+    wikiStore,
+    taskCheckboxCount: taskCheckboxCounter,
+    projectPath: options.projectPath
+  });
 }

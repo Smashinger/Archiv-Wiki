@@ -130,11 +130,6 @@ body.sidebar-resizing .sidebar, body.sidebar-resizing .main-area{ transition: no
    Statusleiste bleiben sichtbar und unverändert. Kein echter Fullscreen und
    keine Änderung der Fenstergröße. Der Ein/Aus-Zustand wird bewusst nicht
    über Programmstarts gespeichert. */
-body.focus-mode{ --focus-shadow-opacity: 0.20; }
-body.focus-mode[data-focus-intensity="light"]{ --focus-shadow-opacity: 0.10; }
-body.focus-mode[data-focus-intensity="strong"]{ --focus-shadow-opacity: 0.28; }
-body.focus-mode[data-focus-intensity="stronger"]{ --focus-shadow-opacity: 0.36; }
-
 body.focus-mode .sidebar{
   transform: translateX(-100%);
 }
@@ -149,7 +144,7 @@ body.focus-mode .main-area{
 body.focus-mode .note-split{
   background: var(--bg-elev);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 28px rgba(0,0,0,var(--focus-shadow-opacity));
+  box-shadow: 0 8px 28px rgba(0,0,0,.20);
   transition: box-shadow 150ms ease;
 }
 

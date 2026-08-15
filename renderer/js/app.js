@@ -5,13 +5,14 @@
 import * as fs from './filesystem.js';
 import { buildSyncIntervalOptionsHtml } from './sync-shared.js';
 import { applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, EDITOR_FONT_SIZE_DEFAULT, setFocusMode, applyReadingWidth } from './theme.js';
-import { ICON_LIBRARY, ICON_CATEGORIES, searchIconLibrary } from './icon-library.js';
+import { ICON_LIBRARY, ICON_CATEGORIES, searchIconLibrary, resolveIconLibraryPath } from './icon-library.js';
+import { escapeHtml, buildStandaloneNoteHtml } from './html-export.js';
 import { fetchUpdateStatus, requestUpdateCheck, onUpdateStatusChanged, renderUpdateStatus } from './update-check.js';
 import { showSettingsWindow } from './settings-window.js';
 import { animateIn, animateOut } from './motion.js';
 import { manageModalDialog, closeManagedDialogs, showMessageDialog, showConfirmDialog } from './dialog.js';
 import { initEllipsisTooltips } from './tooltip.js';
-import { openNoteInEditor, openIncomingInEditor, openNoteDraftInEditor, saveNow, isDirty, getOpenRelPath, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, setEditorContent, jumpToMatchInEditor, focusEditor, setSyncScrollEnabled, setAutoSaveSeconds } from './editor.js';
+import { openNoteInEditor, openIncomingInEditor, openNoteDraftInEditor, saveNow, saveUntilClean, isDirty, getOpenRelPath, retargetOpenNote, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, renderMarkdownForExport, setEditorContent, jumpToMatchInEditor, focusEditor, setSyncScrollEnabled, setAutoSaveSeconds } from './editor.js';
 import { rebuildIndex, getSearchState, search as searchNotes, searchWithDetails } from './search.js';
 import { findBrokenWikiLinks, findNotesWithoutTags, findEmptyNotes } from './knowledge-audit.js';
 
@@ -27,6 +28,13 @@ const state = {
   incomingProcessing: null, // { incomingId, mode } – Vorbereitung für den nächsten Verarbeitungsschritt
   incomingNoteDraft: null // { incomingId, title, content, source } – noch nicht gespeicherter Notiz-Entwurf
 };
+
+function applyPersistedProjectConfig(config) {
+  if (state.project && config) state.project.config = config;
+  return config;
+}
+
+fs.setProjectConfigPersistedHandler(applyPersistedProjectConfig);
 
 const els = {
   updateStatusTop: document.getElementById('updateStatusTop'),
@@ -56,18 +64,15 @@ const els = {
   contentScroll: document.getElementById('contentScroll'),
 };
 
-function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
 // Icon-Wert kann jetzt ZWEIERLEI sein: ein klassisches Emoji-Zeichen (wie
 // bisher, z. B. "📄") ODER eine ID aus der neuen Icon-Bibliothek (Format
 // "kategorie/name", z. B. "os/tux") — bestehende Emoji bleiben dadurch
 // vollständig unverändert funktionsfähig, die Bibliothek ergänzt nur.
 function renderIconHtml(iconValue, fallbackEmoji) {
   const resolvedIcon = iconValue || fallbackEmoji;
-  if (resolvedIcon && resolvedIcon.includes('/')) {
-    return `<img class="lib-icon" src="assets/icon-library/${resolvedIcon}.svg" alt="">`;
+  const libraryPath = resolveIconLibraryPath(resolvedIcon);
+  if (libraryPath) {
+    return `<img class="lib-icon" src="${escapeHtml(libraryPath)}" alt="">`;
   }
   return escapeHtml(resolvedIcon);
 }
@@ -443,7 +448,6 @@ function showWikiLinkModal(prefillDisplay = '') {
       currentMatches = [];
       recentTargets = [doc.relPath, ...recentTargets.filter(r => r !== doc.relPath)].slice(0, 20);
       fs.setProjectSetting('recentWikilinkTargets', recentTargets).catch(() => {});
-      if (state.project?.config) state.project.config.recentWikilinkTargets = recentTargets;
     }
 
     targetInput.addEventListener('input', () => {
@@ -559,8 +563,18 @@ function showPromptModal({ title, defaultValue = '', okLabel = 'OK' }) {
   });
 }
 
+function normalizeRouteHash(hash) {
+  const normalized = String(hash || '#home');
+  if (!normalized || normalized === '#') return '#home';
+  return normalized.startsWith('#') ? normalized : `#${normalized}`;
+}
+
+function slugFromHash(hash) {
+  return decodeURIComponent(normalizeRouteHash(hash).slice(1)) || 'home';
+}
+
 function currentSlug() {
-  return decodeURIComponent((location.hash || '#home').replace('#', '')) || 'home';
+  return slugFromHash(location.hash);
 }
 
 // ---------------------------------------------------------------------------
@@ -577,7 +591,6 @@ async function setSidebarCollapsed(collapsed) {
   document.body.classList.toggle('sidebar-collapsed', collapsed);
   els.burgerBtn.title = collapsed ? 'Sidebar einblenden' : 'Sidebar ausblenden';
   await fs.setProjectSetting('sidebarCollapsed', collapsed);
-  if (state.project?.config) state.project.config.sidebarCollapsed = collapsed;
 }
 els.burgerBtn.addEventListener('click', () => {
   // Unterhalb von 901px gilt weiterhin ausschließlich die bestehende,
@@ -606,7 +619,6 @@ async function setSidebarWidth(px) {
   const clamped = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, px));
   document.documentElement.style.setProperty('--sidebar-w', clamped + 'px');
   await fs.setProjectSetting('sidebarWidth', clamped);
-  if (state.project?.config) state.project.config.sidebarWidth = clamped;
 }
 
 (function initSidebarResize() {
@@ -795,7 +807,7 @@ function showBackupErrorModal(status) {
 // ---------------------------------------------------------------------------
 // Topbar: Papierkorb + Info direkt als Icon-Buttons (kein Dropdown mehr)
 // ---------------------------------------------------------------------------
-els.btnTrash.addEventListener('click', () => { location.hash = '#trash'; });
+els.btnTrash.addEventListener('click', () => { void navigateTo('#trash'); });
 els.btnBugReport.addEventListener('click', async () => {
   await showBugReportModal();
 });
@@ -895,10 +907,44 @@ document.getElementById('btnSettings').addEventListener('click', openSettingsWin
 
 // --- Tray-/Menü-Ereignisse aus dem Hauptprozess ---
 window.archivAPI.onShowCloseDialog(() => showCloseDialog());
-window.archivAPI.onGoHome(() => { location.hash = '#home'; });
+window.archivAPI.onGoHome(() => { void navigateTo('#home'); });
 window.archivAPI.onCheckForUpdatesRequested(() => requestUpdateCheck());
 window.archivAPI.onOpenSettingsRequested(() => openSettingsWindow());
 window.archivAPI.onShowShortcutsRequested?.(() => showShortcutsCheatsheet());
+
+// "Projektordner öffnen …" (Datei-Menü / Strg+O) — Wiki-Wechsel zu einem
+// bereits bestehenden Archiv-Wiki-Projekt. Nutzt denselben Ordnerdialog und
+// dieselbe Projektöffnungs-Logik wie der Erststart-Wizard
+// (dialog:selectDirectory + wizard:openExisting), statt einen zweiten,
+// konkurrierenden Projektöffnungsweg zu bauen.
+let openProjectRequestPending = false;
+async function handleMenuOpenProjectRequest() {
+  if (openProjectRequestPending) return;
+  openProjectRequestPending = true;
+  try {
+    // Dieselbe zentrale Dirty-/Save-Barriere wie jede reguläre Navigation
+    // weg von der aktuell offenen Notiz — ein Wiki-Wechsel verlässt die
+    // aktuelle Route endgültig, ungespeicherte Änderungen dürfen dabei nicht
+    // stillschweigend verloren gehen.
+    if (!await canLeaveCurrentRoute()) return;
+
+    const folder = await window.archivAPI.selectDirectory();
+    if (!folder) return; // Dialog abgebrochen — aktuelles Projekt bleibt unverändert
+
+    // Bei Erfolg lädt der Hauptprozess dieses Fenster selbst neu
+    // (main.js, handleProjectReady) — ab hier läuft kein weiterer
+    // Renderer-Code mehr in diesem Dokumentkontext.
+    await window.archivAPI.openExistingProject(folder);
+  } catch (err) {
+    await showMessageDialog({
+      title: 'Projektordner konnte nicht geöffnet werden',
+      message: err?.message || 'Der gewählte Ordner enthält kein bestehendes Archiv-Wiki-Projekt.'
+    });
+  } finally {
+    openProjectRequestPending = false;
+  }
+}
+window.archivAPI.onMenuOpenProject(() => { void handleMenuOpenProjectRequest(); });
 
 // Automatisches Update-System (Nutzer-Feature): dezente Ecken-Benachrichtigung
 // statt eines blockierenden Dialogs — passend zum Wunsch "keine aufdringlichen
@@ -1026,8 +1072,11 @@ function showMoveUndoToast(originalRelPath, moved) {
     primaryLabel: 'Rückgängig',
     dismissLabel: 'Schließen',
     onPrimary: async () => {
-      await fs.moveEntry(moved.relPath, originalParent);
-      await refreshAll();
+      await mutateEntryPath({
+        sourceRelPath: moved.relPath,
+        actionLabel: 'Verschieben',
+        mutate: () => fs.moveEntry(moved.relPath, originalParent)
+      });
     }
   });
 }
@@ -1188,6 +1237,7 @@ onUpdateStatusChanged(applyCentralUpdateStatus);
 async function openSyncSettingsModal() {
   closeManagedDialogs('.prompt-overlay', { restoreFocus: false });
   const settings = await window.archivAPI.syncApi.getSettings();
+  applyPersistedProjectConfig(settings.config);
 
   const overlay = document.createElement('div');
   overlay.className = 'prompt-overlay';
@@ -1272,6 +1322,7 @@ async function openSyncSettingsModal() {
   // Passwort (siehe main/sync-ipc.js) — ohne das kann niemand da sein, der es
   // eintippt. Deshalb an "Passwort merken" gekoppelt, nicht unabhängig davon.
   const autoSettings = await window.archivAPI.syncApi.getAutoSyncSettings();
+  applyPersistedProjectConfig(autoSettings.config);
   autoCheckbox.checked = autoSettings.enabled;
   intervalSelect.value = String(autoSettings.intervalMinutes);
   function refreshAutoAvailability() {
@@ -1291,7 +1342,8 @@ async function openSyncSettingsModal() {
   rememberCheckbox.addEventListener('change', refreshAutoAvailability);
 
   async function persistAutoSyncSettings() {
-    await window.archivAPI.syncApi.saveAutoSyncSettings({ enabled: autoCheckbox.checked, intervalMinutes: Number(intervalSelect.value) });
+    const result = await window.archivAPI.syncApi.saveAutoSyncSettings({ enabled: autoCheckbox.checked, intervalMinutes: Number(intervalSelect.value) });
+    applyPersistedProjectConfig(result.config);
   }
   autoCheckbox.addEventListener('change', persistAutoSyncSettings);
   intervalSelect.addEventListener('change', persistAutoSyncSettings);
@@ -1302,7 +1354,8 @@ async function openSyncSettingsModal() {
   }
 
   async function persistUrlAndUser() {
-    await window.archivAPI.syncApi.saveSettings({ url: urlInput.value.trim(), username: userInput.value.trim() });
+    const result = await window.archivAPI.syncApi.saveSettings({ url: urlInput.value.trim(), username: userInput.value.trim() });
+    applyPersistedProjectConfig(result.config);
   }
 
   // Nach jeder erfolgreichen Aktion: Passwort merken/vergessen je nach Checkbox-Stand.
@@ -1472,9 +1525,9 @@ window.archivAPI.syncApi.onStatusUpdate(applySyncStatus);
 
 // Bug-Fix: "Startseite"/homeLink lag außerhalb von #navTree und wurde daher
 // nie von wireNavInteractions() erfasst — hatte bislang GAR keinen Klick-Handler.
-els.homeLink.addEventListener('click', () => { location.hash = '#home'; });
-els.incomingLink.addEventListener('click', () => { location.hash = '#incoming'; });
-els.knowledgeCareLink.addEventListener('click', () => { location.hash = '#knowledge-care'; });
+els.homeLink.addEventListener('click', () => { void navigateTo('#home'); });
+els.incomingLink.addEventListener('click', () => { void navigateTo('#incoming'); });
+els.knowledgeCareLink.addEventListener('click', () => { void navigateTo('#knowledge-care'); });
 // Tags/Statistik haben keinen eigenen Sidebar-Link mehr — Navigation dorthin
 // läuft jetzt über die Dashboard-Kacheln (siehe renderHome), Routen selbst
 // bleiben unverändert erreichbar (#tags, #stats).
@@ -1687,7 +1740,6 @@ function wireNavInteractions() {
       if (state.project?.config?.categoryStartupBehavior === 'restore') {
         const saved = [...state.collapsedGroups];
         fs.setProjectSetting('savedCollapsedGroups', saved).catch(() => {});
-        if (state.project?.config) state.project.config.savedCollapsedGroups = saved;
       }
     });
   });
@@ -1821,8 +1873,12 @@ function wireNavInteractions() {
         return;
       }
 
-      const moved = await fs.moveEntry(draggedRelPath, targetRelPath);
-      await refreshAll();
+      const moved = await mutateEntryPath({
+        sourceRelPath: draggedRelPath,
+        actionLabel: 'Verschieben',
+        mutate: () => fs.moveEntry(draggedRelPath, targetRelPath)
+      });
+      if (!moved) return;
       // Kurzer Erfolgs-Puls, damit ein erfolgreiches Einrasten sichtbar quittiert wird.
       const movedRow = els.navTree.querySelector(`[data-relpath="${CSS.escape(moved.relPath)}"]`);
       if (movedRow) {
@@ -1830,9 +1886,6 @@ function wireNavInteractions() {
         setTimeout(() => movedRow.classList.remove('drop-success'), 500);
       }
       showMoveUndoToast(draggedRelPath, moved);
-      if (getOpenRelPath() && location.hash.includes(encodeURIComponent(getOpenRelPath())) && getOpenRelPath() === draggedRelPath) {
-        location.hash = '#note/' + encodeURIComponent(moved.relPath);
-      }
     });
   });
 
@@ -1876,10 +1929,33 @@ function wireNavInteractions() {
       const draggedParent = draggedRelPath.split('/').slice(0, -1).join('/');
       const targetParent = targetRelPath.split('/').slice(0, -1).join('/');
 
+      // Aktuelle Reihenfolge VOR einer möglichen Verschiebung lesen. Der
+      // zentrale Mutationsvertrag rendert den Baum nach dem Pfadwechsel neu;
+      // die gewünschte Einfügeposition muss deshalb vorher feststehen.
+      const targetGroupEl = els.navTree.querySelector(`.nav-group[data-relpath="${CSS.escape(targetParent)}"]`);
+      const siblingNames = targetGroupEl
+        ? [...targetGroupEl.querySelectorAll(':scope > .group-list > li.nav-item-row')].map(li => li.dataset.relpath.split('/').pop())
+        : [];
+
       let finalRelPath = draggedRelPath;
       let movedResult = null;
       if (draggedParent !== targetParent) {
-        movedResult = await fs.moveEntry(draggedRelPath, targetParent);
+        movedResult = await mutateEntryPath({
+          sourceRelPath: draggedRelPath,
+          actionLabel: 'Verschieben',
+          mutate: () => fs.moveEntry(draggedRelPath, targetParent),
+          afterMutation: (moved) => {
+            const draggedName = moved.relPath.split('/').pop();
+            const targetName = targetRelPath.split('/').pop();
+            const withoutDragged = siblingNames.filter(n => n !== draggedName);
+            const targetIdx = withoutDragged.indexOf(targetName);
+            const baseIdx = targetIdx === -1 ? withoutDragged.length : targetIdx;
+            const insertAt = dropPosition === 'after' ? baseIdx + 1 : baseIdx;
+            withoutDragged.splice(insertAt, 0, draggedName);
+            return fs.reorderChildren(targetParent, withoutDragged);
+          }
+        });
+        if (!movedResult) return;
         finalRelPath = movedResult.relPath;
       }
 
@@ -1888,29 +1964,25 @@ function wireNavInteractions() {
       // der Ziel-Notiz losgelassen wurde (aktuelle Anzeige-Reihenfolge aus
       // dem DOM lesen — die spiegelt bereits jede zuvor gesetzte eigene
       // Reihenfolge oder sonst die alphabetische Standard-Sortierung wider).
-      const targetGroupEl = els.navTree.querySelector(`.nav-group[data-relpath="${CSS.escape(targetParent)}"]`);
-      const siblingNames = targetGroupEl
-        ? [...targetGroupEl.querySelectorAll(':scope > .group-list > li.nav-item-row')].map(li => li.dataset.relpath.split('/').pop())
-        : [];
-      const draggedName = finalRelPath.split('/').pop();
-      const targetName = targetRelPath.split('/').pop();
-      const withoutDragged = siblingNames.filter(n => n !== draggedName);
-      const targetIdx = withoutDragged.indexOf(targetName);
-      const baseIdx = targetIdx === -1 ? withoutDragged.length : targetIdx;
-      const insertAt = dropPosition === 'after' ? baseIdx + 1 : baseIdx;
-      withoutDragged.splice(insertAt, 0, draggedName);
-      await fs.reorderChildren(targetParent, withoutDragged);
-
-      await refreshAll();
+      if (!movedResult) {
+        const draggedName = finalRelPath.split('/').pop();
+        const targetName = targetRelPath.split('/').pop();
+        const withoutDragged = siblingNames.filter(n => n !== draggedName);
+        const targetIdx = withoutDragged.indexOf(targetName);
+        const baseIdx = targetIdx === -1 ? withoutDragged.length : targetIdx;
+        const insertAt = dropPosition === 'after' ? baseIdx + 1 : baseIdx;
+        withoutDragged.splice(insertAt, 0, draggedName);
+        await fs.reorderChildren(targetParent, withoutDragged);
+        await refreshAll();
+      }
       const movedRow = els.navTree.querySelector(`[data-relpath="${CSS.escape(finalRelPath)}"]`);
       if (movedRow) { movedRow.classList.add('drop-success'); setTimeout(() => movedRow.classList.remove('drop-success'), 500); }
       if (movedResult) showMoveUndoToast(draggedRelPath, movedResult);
-      if (getOpenRelPath() === draggedRelPath) location.hash = '#note/' + encodeURIComponent(finalRelPath);
     });
   });
 
   els.navTree.querySelectorAll('a.nav-link[data-relpath]').forEach(a => {
-    a.addEventListener('click', () => { location.hash = '#note/' + encodeURIComponent(a.dataset.relpath); });
+    a.addEventListener('click', () => { void navigateTo('#note/' + encodeURIComponent(a.dataset.relpath)); });
   });
 }
 
@@ -1977,57 +2049,6 @@ function getLoadedKatexCss() {
   return '';
 }
 
-// Kompaktes, handgeschriebenes Highlight.js-Theme (statt eines zusätzlichen
-// fetch/Vendor-Assets) — deckt die gängigen Klassen ab, die marked+highlight.js
-// beim Rendern von Codeblöcken erzeugt.
-const HLJS_EXPORT_CSS = `
-  .hljs{ color:#24292e; }
-  .hljs-comment,.hljs-quote{ color:#6a737d; font-style:italic; }
-  .hljs-keyword,.hljs-selector-tag,.hljs-literal{ color:#d73a49; }
-  .hljs-string,.hljs-attr,.hljs-template-tag{ color:#032f62; }
-  .hljs-number,.hljs-literal{ color:#005cc5; }
-  .hljs-title,.hljs-name,.hljs-built_in{ color:#6f42c1; }
-  .hljs-type,.hljs-class .hljs-title{ color:#22863a; }
-  .hljs-variable,.hljs-attribute{ color:#e36209; }
-`;
-
-// Baut ein eigenständiges, teilbares HTML-Dokument aus dem bereits gerenderten
-// Vorschau-HTML (previewContainer.innerHTML) — eigenes helles Stylesheet statt
-// des App-Dark-Themes, damit die Datei auch außerhalb der App gut lesbar ist.
-function buildStandaloneNoteHtml({ title, tags, category, bodyHtml }) {
-  const metaParts = [];
-  if (category) metaParts.push(escapeHtml(category));
-  const tagsHtml = tags.map(t => `<span class="tag">#${escapeHtml(t)}</span>`).join(' ');
-  return `<!DOCTYPE html>
-<html lang="de">
-<head>
-<meta charset="UTF-8">
-<title>${escapeHtml(title)}</title>
-<style>
-  ${getLoadedKatexCss()}
-  ${HLJS_EXPORT_CSS}
-  body{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 24px; color:#1a1a1a; line-height:1.65; }
-  h1{ font-size: 28px; margin: 0 0 6px; }
-  .meta{ color:#666; font-size:13px; margin-bottom:26px; }
-  .tag{ display:inline-block; background:#eee; border-radius:12px; padding:2px 10px; font-size:11px; margin-right:4px; }
-  pre{ background:#f4f4f4; padding:12px; border-radius:6px; overflow-x:auto; }
-  code{ background:#f4f4f4; padding:1px 5px; border-radius:4px; font-size:.9em; }
-  pre code{ background:none; padding:0; }
-  a{ color:#1a56db; }
-  blockquote{ border-left:3px solid #ddd; margin-left:0; padding-left:16px; color:#555; }
-  img{ max-width:100%; }
-  table{ border-collapse:collapse; }
-  th, td{ border:1px solid #ddd; padding:6px 10px; }
-</style>
-</head>
-<body>
-<h1>${escapeHtml(title)}</h1>
-<div class="meta">${metaParts.join(' · ')}${metaParts.length && tagsHtml ? ' · ' : ''}${tagsHtml}</div>
-${bodyHtml}
-</body>
-</html>`;
-}
-
 // ---------------------------------------------------------------------------
 // Gemeinsame Lösch-Logik — genutzt vom Sidebar-Kontextmenü (siehe showContextMenu).
 // ---------------------------------------------------------------------------
@@ -2042,13 +2063,12 @@ async function performDelete(relPath, type) {
   })) return;
   const openRelPath = getOpenRelPath();
   const affectsOpenNote = openRelPath && (type === 'note' ? openRelPath === relPath : (openRelPath === relPath || openRelPath.startsWith(relPath + '/')));
-  if (affectsOpenNote) { closeEditor(); location.hash = '#home'; }
+  if (affectsOpenNote) { closeEditor(); void navigateAfterEntryMutation('#home'); }
   await fs.deleteEntry(relPath);
   await refreshAll();
 }
 
 function showContextMenu(relPath, anchorEl, type = 'note', position = null) {
-  const isFolder = type !== 'note';
   const menu = createHtmlContextMenu({
     trigger: anchorEl,
     label: type === 'note' ? 'Notizaktionen' : 'Kategorieaktionen',
@@ -2079,15 +2099,14 @@ function showContextMenu(relPath, anchorEl, type = 'note', position = null) {
     }
     if (btn.dataset.action !== 'rename') return;
     closeHtmlContextMenu(menu, { reason: 'action' });
-    const openRelPath = getOpenRelPath();
-    const affectsOpenNote = openRelPath && (isFolder ? (openRelPath.startsWith(relPath + '/') || openRelPath === relPath) : openRelPath === relPath);
     const currentName = relPath.split('/').pop().replace(/\.md$/, '');
     const newName = await showPromptModal({ title: 'Neuer Name', defaultValue: currentName });
     if (newName && newName !== currentName) {
-      const renamed = await fs.renameEntry(relPath, newName);
-      await refreshAll();
-      if (!isFolder && openRelPath === relPath) location.hash = '#note/' + encodeURIComponent(renamed.relPath);
-      else if (isFolder && affectsOpenNote) location.hash = '#home'; // Pfad der offenen Notiz hat sich mitgeändert
+      await mutateEntryPath({
+        sourceRelPath: relPath,
+        actionLabel: 'Umbenennen',
+        mutate: () => fs.renameEntry(relPath, newName)
+      });
     }
   });
 }
@@ -2198,7 +2217,9 @@ const NOTE_TEMPLATES = [
 function showTemplatePickerModal() {
   return new Promise((resolve) => {
     closeManagedDialogs('.prompt-overlay', { restoreFocus: false });
-    let customTemplates = Array.isArray(state.project?.config?.customTemplates) ? state.project.config.customTemplates : [];
+    let customTemplates = Array.isArray(state.project?.config?.customTemplates)
+      ? state.project.config.customTemplates.map(template => ({ ...template }))
+      : [];
     const overlay = document.createElement('div');
     overlay.className = 'prompt-overlay';
     overlay.innerHTML = `
@@ -2247,7 +2268,6 @@ function showTemplatePickerModal() {
           if (!newLabel || newLabel === tmpl.label) return;
           tmpl.label = newLabel;
           await fs.setProjectSetting('customTemplates', customTemplates);
-          if (state.project?.config) state.project.config.customTemplates = customTemplates;
           renderCustomArea();
         });
       });
@@ -2262,7 +2282,6 @@ function showTemplatePickerModal() {
           })) return;
           customTemplates = customTemplates.filter(t => t.key !== btn.dataset.deleteKey);
           await fs.setProjectSetting('customTemplates', customTemplates);
-          if (state.project?.config) state.project.config.customTemplates = customTemplates;
           renderCustomArea();
         });
       });
@@ -2294,7 +2313,6 @@ async function saveNoteAsTemplate() {
   const key = 'custom-' + Date.now().toString(36);
   customTemplates.push({ key, label: name, body, custom: true });
   await fs.setProjectSetting('customTemplates', customTemplates);
-  if (state.project?.config) state.project.config.customTemplates = customTemplates;
 }
 
 els.btnAddNote.addEventListener('click', async () => {
@@ -2320,7 +2338,7 @@ els.btnAddNote.addEventListener('click', async () => {
   try {
     const created = await fs.createNote(targetRelPath, title, template.body);
     await refreshAll();
-    location.hash = '#note/' + encodeURIComponent(created.relPath);
+    void navigateTo('#note/' + encodeURIComponent(created.relPath));
   } catch (err) {
     await showMessageDialog({ title: 'Notiz konnte nicht angelegt werden', message: err.message });
     console.error('[Archiv Wiki] fs.createNote fehlgeschlagen für Ziel', targetRelPath, err);
@@ -2558,7 +2576,8 @@ async function openSearchResult(result, query) {
   closeSearchDropdown();
   els.navSearch.value = '';
   els.navSearch.parentElement.classList.remove('has-value');
-  location.hash = '#note/' + encodeURIComponent(result.relPath);
+  const navigated = await navigateTo('#note/' + encodeURIComponent(result.relPath));
+  if (!navigated) return;
   await waitForNoteOpen(result.relPath);
   jumpToMatchInEditor(query);
 }
@@ -2656,12 +2675,9 @@ function focusCurrentWritingArea() {
 
 // Fokus-Modus (editorgebundene Konzentrationsansicht, siehe CSS
 // body.focus-mode-Regeln in layout.css): Sidebar/Kopfzeile/Werkzeugleiste/
-// Statuszeile bleiben jetzt vollständig sichtbar UND bedienbar, treten nur
-// optisch zurück (Deckkraft reduziert) statt komplett zu verschwinden — man
-// verliert dadurch nicht mehr die Orientierung in der App. Ein/Aus-Zustand
-// bewusst NICHT gespeichert (jeder Programmstart beginnt wieder normal), die
-// INTENSITÄT dagegen schon (Stil-Vorliebe, kein Sitzungs-Zustand, siehe
-// Einstellungen → Darstellung → Fokus-Modus).
+// Statuszeile bleiben vollständig sichtbar und bedienbar, damit die
+// Orientierung in der App erhalten bleibt. Der Ein/Aus-Zustand wird bewusst
+// nicht gespeichert; jeder Programmstart beginnt wieder normal.
 function toggleFocusMode({ focusWorkArea = false } = {}) {
   const activating = !document.body.classList.contains('focus-mode');
 
@@ -2673,7 +2689,7 @@ function toggleFocusMode({ focusWorkArea = false } = {}) {
     applyViewMode();
   }
 
-  setFocusMode(activating, state.project?.config?.focusModeIntensity);
+  setFocusMode(activating);
   if (focusWorkArea) focusCurrentWritingArea();
 }
 
@@ -2758,7 +2774,6 @@ function cycleViewMode() {
   state.viewMode = order[(order.indexOf(state.viewMode) + 1) % order.length];
   applyViewMode();
   fs.setProjectSetting('viewMode', state.viewMode).catch(() => {});
-  if (state.project?.config) state.project.config.viewMode = state.viewMode;
 }
 
 function jumpToAdjacentNote(dir) {
@@ -2766,7 +2781,7 @@ function jumpToAdjacentNote(dir) {
   const idx = notes.findIndex(n => n.relPath === getOpenRelPath());
   if (idx === -1) return;
   const next = notes[(idx + dir + notes.length) % notes.length];
-  location.hash = '#note/' + encodeURIComponent(next.relPath);
+  void navigateTo('#note/' + encodeURIComponent(next.relPath));
 }
 
 let currentOnSaved = () => {};
@@ -2775,9 +2790,185 @@ let currentOnSaveError = () => {};
 // ---------------------------------------------------------------------------
 // Routing
 // ---------------------------------------------------------------------------
-window.addEventListener('hashchange', render);
+let renderedHash = normalizeRouteHash(location.hash);
+let pendingNavigationRequest = null;
+let navigationProcess = null;
+let entryPathMutationPromise = null;
+
+function entryMutationAffectsOpenNote(sourceRelPath, openRelPath) {
+  return Boolean(openRelPath && (
+    openRelPath === sourceRelPath
+    || openRelPath.startsWith(sourceRelPath + '/')
+  ));
+}
+
+function relocatedOpenNotePath(openRelPath, sourceRelPath, mutatedRelPath) {
+  return mutatedRelPath + openRelPath.slice(sourceRelPath.length);
+}
+
+async function performEntryPathMutation({ sourceRelPath, actionLabel, mutate, afterMutation }) {
+  const openRelPath = getOpenRelPath();
+  const affectsOpenNote = entryMutationAffectsOpenNote(sourceRelPath, openRelPath);
+  let editorLocked = false;
+
+  if (affectsOpenNote) {
+    const saved = await saveUntilClean(currentOnSaved, currentOnSaveError);
+    if (!saved || getOpenRelPath() !== openRelPath) return null;
+    // Erst NACH der vollständig sauberen M-02-Save-Kette sperren. Eingaben,
+    // die während des vorbereitenden Saves erfolgen, werden damit weiterhin
+    // von saveUntilClean() erfasst; während der eigentlichen kurzen Mutation
+    // kann dagegen kein neuer Editorstand mehr auf dem alten Pfad entstehen.
+    els.contentScroll.inert = true;
+    editorLocked = true;
+  }
+
+  try {
+    let result;
+    try {
+      result = await mutate();
+    } catch (error) {
+      await showMessageDialog({
+        title: `${actionLabel} fehlgeschlagen`,
+        message: error?.message || 'Die Dateioperation konnte nicht abgeschlossen werden.'
+      });
+      return null;
+    }
+
+    if (!result?.relPath) return null;
+
+    if (affectsOpenNote) {
+      const nextOpenRelPath = relocatedOpenNotePath(openRelPath, sourceRelPath, result.relPath);
+      if (!retargetOpenNote(openRelPath, nextOpenRelPath)) {
+        throw new Error('Die offene Notiz konnte nach der Dateioperation nicht auf ihren neuen Pfad umgestellt werden.');
+      }
+      // Dieselbe logische Notiz erhält nur eine neue Identität. replaceState
+      // verhindert, dass der inzwischen ungültige alte Pfad im Zurück-Verlauf
+      // verbleibt. Erst nach erfolgreicher Mutation wird die Route verändert.
+      const targetHash = normalizeRouteHash('#note/' + encodeURIComponent(nextOpenRelPath));
+      history.replaceState(history.state, '', targetHash);
+      renderedHash = targetHash;
+    }
+
+    if (afterMutation) {
+      try {
+        await afterMutation(result);
+      } catch (error) {
+        await showMessageDialog({
+          title: 'Reihenfolge konnte nicht gespeichert werden',
+          message: error?.message || 'Der Eintrag wurde verschoben, seine neue Reihenfolge aber nicht gespeichert.'
+        });
+      }
+    }
+
+    await refreshAll();
+    if (affectsOpenNote) await render();
+    return result;
+  } finally {
+    if (editorLocked) els.contentScroll.inert = false;
+  }
+}
+
+function mutateEntryPath(options) {
+  if (entryPathMutationPromise) {
+    showQuickFeedback('Eine Dateioperation läuft bereits.');
+    return Promise.resolve(null);
+  }
+
+  const operation = performEntryPathMutation(options);
+  entryPathMutationPromise = operation;
+  return operation.finally(() => {
+    if (entryPathMutationPromise === operation) entryPathMutationPromise = null;
+  });
+}
+
+async function canLeaveCurrentRoute() {
+  if (entryPathMutationPromise) await entryPathMutationPromise;
+  const renderedSlug = slugFromHash(renderedHash);
+  if (renderedSlug.startsWith('incoming-draft/')) {
+    const incomingId = renderedSlug.slice('incoming-draft/'.length);
+    const draft = state.incomingNoteDraft;
+    if (draft?.incomingId === incomingId && draft.hasUnsavedChanges) {
+      const discard = await showConfirmDialog({
+        title: 'Bearbeiteten Eingangsentwurf verlassen?',
+        message: 'Die Änderungen an diesem noch nicht gespeicherten Entwurf werden verworfen.',
+        confirmLabel: 'Entwurf verwerfen',
+        cancelLabel: 'Hier bleiben',
+        danger: true
+      });
+      if (!discard) return false;
+    }
+    if (draft?.incomingId === incomingId) {
+      closeEditor();
+      state.incomingNoteDraft = null;
+    }
+    return true;
+  }
+
+  if (!getOpenRelPath() || !isDirty()) return true;
+  return saveUntilClean(currentOnSaved, currentOnSaveError);
+}
+
+async function commitNavigation({ targetHash, replace }) {
+  if (replace) history.replaceState(history.state, '', targetHash);
+  else history.pushState(history.state, '', targetHash);
+  await render();
+}
+
+// Dateioperationen, die den Pfad der offenen Notiz bereits verändert oder
+// entfernt haben, gehören zum separaten M-04-Lifecycle. Ihre bestehende
+// Folgeroute darf deshalb nicht nachträglich einen Save auf den alten Pfad
+// anstoßen; sie nutzt nur denselben zentralen Route-Commit ohne Leave-Prüfung.
+function navigateAfterEntryMutation(hash, { replace = false } = {}) {
+  return commitNavigation({ targetHash: normalizeRouteHash(hash), replace });
+}
+
+async function processPendingNavigation() {
+  while (pendingNavigationRequest) {
+    let request = pendingNavigationRequest;
+    pendingNavigationRequest = null;
+
+    if (!await canLeaveCurrentRoute()) {
+      pendingNavigationRequest = null;
+      return;
+    }
+
+    // Während Save oder Entwurfsdialog gilt der zuletzt angeforderte Zielort.
+    if (pendingNavigationRequest) {
+      request = pendingNavigationRequest;
+      pendingNavigationRequest = null;
+    }
+    if (request.targetHash !== renderedHash) await commitNavigation(request);
+  }
+}
+
+function navigateTo(hash, { replace = false } = {}) {
+  const targetHash = normalizeRouteHash(hash);
+  if (targetHash === renderedHash && !navigationProcess) return Promise.resolve(true);
+
+  pendingNavigationRequest = { targetHash, replace };
+  if (!navigationProcess) {
+    navigationProcess = processPendingNavigation().finally(() => {
+      navigationProcess = null;
+    });
+  }
+  return navigationProcess.then(() => renderedHash === targetHash);
+}
+
+// Zurück/Vor oder eine direkte Hash-Zuweisung ändern die URL bereits vor dem
+// Ereignis. Die noch sichtbare Route wird deshalb ohne neues Ereignis sofort
+// wieder eingesetzt; erst der zentrale Leave-Vertrag übernimmt das Ziel.
+function handleExternalRouteChange() {
+  const targetHash = normalizeRouteHash(location.hash);
+  if (targetHash === renderedHash) return;
+  history.replaceState(history.state, '', renderedHash);
+  void navigateTo(targetHash, { replace: true });
+}
+
+window.addEventListener('popstate', handleExternalRouteChange);
+window.addEventListener('hashchange', handleExternalRouteChange);
 
 async function render() {
+  renderedHash = normalizeRouteHash(location.hash);
   // Scrollposition der bisher offenen Notiz merken (Nutzer-Feature) —
   // GANZ AM ANFANG, bevor irgendein neuer Inhalt aufgebaut wird.
   // getOpenRelPath() zeigt hier noch den alten Wert, da er erst später
@@ -2796,7 +2987,6 @@ async function render() {
         preview: previewScrollEl ? previewScrollEl.scrollTop : 0
       };
       fs.setProjectSetting('noteScrollPositions', positions).catch(() => {});
-      if (state.project?.config) state.project.config.noteScrollPositions = positions;
     }
   }
 
@@ -2806,10 +2996,10 @@ async function render() {
 
   // Der Fokus-Modus ist bewusst editorgebunden. Sobald eine Route ohne offene
   // Notiz aufgerufen wird, beendet ausschließlich die zentrale Funktion den
-  // Modus und stellt Body, Intensitäts-Dataset sowie sichtbare Schalter wieder
-  // auf den normalen Zustand zurück.
+  // Modus und stellt Body sowie sichtbare Schalter wieder auf den normalen
+  // Zustand zurück.
   if (!slug.startsWith('note/')) {
-    setFocusMode(false, state.project?.config?.focusModeIntensity);
+    setFocusMode(false);
   }
 
   if (slug === 'home') return await renderHome();
@@ -3048,7 +3238,7 @@ function buildDashboardRow(note, excerpt, dateLabel, isRecent) {
     <span class="dr-tag">${escapeHtml(tagLabel)}</span>
     <span class="dr-date">${escapeHtml(dateLabel)}</span>
   `;
-  row.addEventListener('click', () => { location.hash = '#note/' + encodeURIComponent(note.relPath); });
+  row.addEventListener('click', () => { void navigateTo('#note/' + encodeURIComponent(note.relPath)); });
   return row;
 }
 
@@ -3205,7 +3395,6 @@ async function getDashboardAppVersion() {
 async function persistDashboardTipState(patch) {
   for (const [key, value] of Object.entries(patch)) {
     await fs.setProjectSetting(key, value);
-    if (state.project?.config) state.project.config[key] = value;
   }
 }
 
@@ -3549,8 +3738,8 @@ async function renderHome() {
   document.getElementById('statChipWeek')?.addEventListener('click', () => {
     document.getElementById('recentSection')?.scrollIntoView({ behavior: 'smooth' });
   });
-  document.getElementById('statChipTopics')?.addEventListener('click', () => { location.hash = '#stats'; });
-  document.getElementById('statChipTags')?.addEventListener('click', () => { location.hash = '#tags'; });
+  document.getElementById('statChipTopics')?.addEventListener('click', () => { void navigateTo('#stats'); });
+  document.getElementById('statChipTags')?.addEventListener('click', () => { void navigateTo('#tags'); });
 
   bindDashboardTipButton({
     noteCount: notes.length,
@@ -3566,7 +3755,6 @@ async function renderHome() {
   async function toggleDashboardLock() {
     const newLocked = !dashboardLocked;
     await fs.setProjectSetting('dashboardLocked', newLocked);
-    if (state.project?.config) state.project.config.dashboardLocked = newLocked;
     await renderHome();
     showQuickFeedback(newLocked ? 'Dashboard gesperrt' : 'Dashboard entsperrt');
   }
@@ -3640,7 +3828,7 @@ async function renderHome() {
       chip.type = 'button';
       chip.className = 'pinned-chip';
       chip.innerHTML = `<span class="pinned-chip-icon">${renderIconHtml(note.icon, '★')}</span><span class="pinned-chip-title">${escapeHtml(title)}</span>`;
-      chip.addEventListener('click', () => { location.hash = '#note/' + encodeURIComponent(note.relPath); });
+      chip.addEventListener('click', () => { void navigateTo('#note/' + encodeURIComponent(note.relPath)); });
       strip.appendChild(chip);
     });
     }
@@ -3712,13 +3900,6 @@ async function resetDashboardToDefaults() {
   await fs.setProjectSetting('dashboardAllCount', 10);
   await fs.setProjectSetting('dashboardPinnedCount', 5);
   await fs.setProjectSetting('dashboardTipsIconEnabled', true);
-  if (state.project?.config) {
-    state.project.config.dashboardSections = DEFAULT_DASHBOARD_SECTIONS.map(def => ({ ...def }));
-    state.project.config.dashboardRecentCount = 4;
-    state.project.config.dashboardAllCount = 10;
-    state.project.config.dashboardPinnedCount = 5;
-    state.project.config.dashboardTipsIconEnabled = true;
-  }
   closeManagedDialogs('.dashboard-settings-overlay', { restoreFocus: false });
   await renderHome();
   showQuickFeedback('Dashboard zurückgesetzt');
@@ -3726,7 +3907,7 @@ async function resetDashboardToDefaults() {
 
 function showDashboardSettings(sections, sizes) {
   closeManagedDialogs('.dashboard-settings-overlay', { restoreFocus: false });
-  const list = [...sections];
+  const list = sections.map(section => ({ ...section }));
   let locked = sizes.locked === true;
   const overlay = document.createElement('div');
   overlay.className = 'dashboard-settings-overlay';
@@ -3768,7 +3949,6 @@ function showDashboardSettings(sections, sizes) {
   overlay.querySelector('#dsLocked').addEventListener('change', async (e) => {
     locked = e.target.checked;
     await fs.setProjectSetting('dashboardLocked', locked);
-    if (state.project?.config) state.project.config.dashboardLocked = locked;
     await renderHome();
     showQuickFeedback(locked ? 'Dashboard gesperrt' : 'Dashboard entsperrt');
     renderRows(); // Pfeile sofort sperren/entsperren, ohne den Dialog neu zu öffnen
@@ -3804,7 +3984,6 @@ function showDashboardSettings(sections, sizes) {
   }
   async function persist() {
     await fs.setProjectSetting('dashboardSections', list);
-    if (state.project?.config) state.project.config.dashboardSections = list;
     await renderHome();
   }
   function renderSizeRow(containerId, settingKey, current, options = DASHBOARD_SIZE_OPTIONS) {
@@ -3815,7 +3994,6 @@ function showDashboardSettings(sections, sizes) {
     el.querySelectorAll('button').forEach(btn => btn.addEventListener('click', async () => {
       const n = Number(btn.dataset.size);
       await fs.setProjectSetting(settingKey, n);
-      if (state.project?.config) state.project.config[settingKey] = n;
       el.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
       await renderHome();
     }));
@@ -3829,7 +4007,6 @@ function showDashboardSettings(sections, sizes) {
   // Reihenfolge überhaupt Sinn ergäbe, nur ein Ein/Aus.
   overlay.querySelector('#dsTipsIcon').addEventListener('change', async (e) => {
     await fs.setProjectSetting('dashboardTipsIconEnabled', e.target.checked);
-    if (state.project?.config) state.project.config.dashboardTipsIconEnabled = e.target.checked;
     await renderHome();
   });
 }
@@ -3869,7 +4046,7 @@ async function renderIncomingLinks(relPath, currentTitle) {
       ${linkingNotes.map(n => `<a href="#" class="incoming-link-item" data-relpath="${escapeHtml(n.relPath)}">${escapeHtml(n.title)}</a>`).join('')}
     </div>`;
   container.querySelectorAll('.incoming-link-item').forEach(a => {
-    a.addEventListener('click', (e) => { e.preventDefault(); location.hash = '#note/' + encodeURIComponent(a.dataset.relpath); });
+    a.addEventListener('click', (e) => { e.preventDefault(); void navigateTo('#note/' + encodeURIComponent(a.dataset.relpath)); });
   });
 }
 
@@ -3937,17 +4114,15 @@ document.addEventListener('mouseup', () => {
   s.resizer.classList.remove('dragging');
   document.body.style.cursor = '';
   // Split-Breite dauerhaft speichern (Nutzer-Feature) — dasselbe Muster wie
-  // bei Sidebar-Breite/Sync-Scroll: projektbezogen speichern, lokale Config
-  // sofort mitführen, damit spätere wireSplitResizer()-Aufrufe in dieser
-  // Sitzung den aktuellen Wert sehen, ohne neu von der Festplatte zu lesen.
+  // bei Sidebar-Breite/Sync-Scroll: projektbezogen speichern. Die zentrale
+  // Config-Antwort übernimmt den bestätigten Zustand anschließend im Renderer.
   const finalWidth = Math.round(s.editorPane.getBoundingClientRect().width);
   fs.setProjectSetting('splitEditorWidth', finalWidth).catch(() => {});
-  if (state.project?.config) state.project.config.splitEditorWidth = finalWidth;
 });
 
 async function renderNote(relPath) {
   const node = fs.findNode(state.tree, relPath);
-  if (!node) { location.hash = '#home'; return; }
+  if (!node) { void navigateAfterEntryMutation('#home', { replace: true }); return; }
 
   setActiveNav(relPath);
   const title = node.frontmatter?.title || node.name;
@@ -4052,12 +4227,9 @@ async function renderNote(relPath) {
 
   // Die Werkzeugleiste wird bei jedem Notizwechsel neu aufgebaut. Der neue
   // Fokus-Button übernimmt deshalb unmittelbar den bestehenden Body-Zustand.
-  // Beim Wechsel zwischen Notizen bleibt der Modus samt Intensität aktiv,
-  // ohne dafür eine zweite Statusvariable einzuführen.
-  setFocusMode(
-    document.body.classList.contains('focus-mode'),
-    document.body.dataset.focusIntensity || state.project?.config?.focusModeIntensity
-  );
+  // Beim Wechsel zwischen Notizen bleibt der Modus aktiv, ohne dafür eine
+  // zweite Statusvariable einzuführen.
+  setFocusMode(document.body.classList.contains('focus-mode'));
 
   applyViewMode();
   document.getElementById('viewToggle').addEventListener('click', (e) => {
@@ -4066,7 +4238,6 @@ async function renderNote(relPath) {
     state.viewMode = btn.dataset.mode;
     applyViewMode();
     fs.setProjectSetting('viewMode', state.viewMode).catch(() => {});
-    if (state.project?.config) state.project.config.viewMode = state.viewMode;
   });
 
   // Sync-Scroll: Standard an, außer der Nutzer hat es zuvor bewusst
@@ -4080,7 +4251,6 @@ async function renderNote(relPath) {
     setSyncScrollEnabled(syncScrollOn);
     btnSyncScroll.classList.toggle('active', syncScrollOn);
     fs.setProjectSetting('syncScrollEnabled', syncScrollOn).catch(() => {});
-    if (state.project?.config) state.project.config.syncScrollEnabled = syncScrollOn;
   });
 
   document.getElementById('btnFocusMode').addEventListener('click', () => toggleFocusMode({ focusWorkArea: true }));
@@ -4090,7 +4260,6 @@ async function renderNote(relPath) {
   fontSizeSelect.value = String(storedFontSize);
   fontSizeSelect.addEventListener('change', async () => {
     const px = applyEditorFontSize(Number(fontSizeSelect.value));
-    if (state.project?.config) state.project.config.editorFontSize = px;
     try { await fs.setProjectSetting('editorFontSize', px); }
     catch (err) { console.error('[Archiv Wiki] Editor-Schriftgröße konnte nicht gespeichert werden:', err); }
   });
@@ -4159,7 +4328,7 @@ async function renderNote(relPath) {
       danger: true
     })) return;
     closeEditor();
-    location.hash = '#home';
+    void navigateAfterEntryMutation('#home');
     await fs.deleteEntry(relPath);
     await refreshAll();
   });
@@ -4236,11 +4405,20 @@ async function renderNote(relPath) {
         const result = await window.archivAPI.exportApi.saveMarkdown(getEditorContent(), safeTitle + '.md');
         if (result?.saved) await showMessageDialog({ title: 'Export abgeschlossen', message: `Markdown-Datei exportiert nach:\n${result.filePath}` });
       } else if (choice === 'html') {
+        const noteIndex = fs.flattenNotes(state.tree).map(note => ({
+          title: note.frontmatter.title || note.name,
+          relPath: note.relPath
+        }));
+        const sanitizedBodyHtml = renderMarkdownForExport(getEditorContent(), {
+          noteIndex,
+          projectPath: state.project?.path || null
+        });
         const html = buildStandaloneNoteHtml({
           title: titleInput.value.trim() || 'Notiz',
           tags: tagsInput.value.split(',').map(t => t.trim()).filter(Boolean),
           category: categoryBadge.textContent,
-          bodyHtml: document.getElementById('previewContainer').innerHTML
+          sanitizedBodyHtml,
+          katexCss: getLoadedKatexCss()
         });
         const result = await window.archivAPI.exportApi.saveHtml(html, safeTitle + '.html');
         if (result?.saved) await showMessageDialog({ title: 'Export abgeschlossen', message: `HTML exportiert nach:\n${result.filePath}` });
@@ -4277,10 +4455,13 @@ async function renderNote(relPath) {
     const options = collectSubCategories(state.tree).filter(c => c.relPath !== currentCategoryRelPath);
     if (options.length === 0) return;
     showCategoryMoveMenu(categoryBadge, options, async (targetRelPath) => {
-      const moved = await fs.moveEntry(relPath, targetRelPath);
-      await refreshAll();
+      const moved = await mutateEntryPath({
+        sourceRelPath: relPath,
+        actionLabel: 'Verschieben',
+        mutate: () => fs.moveEntry(relPath, targetRelPath)
+      });
+      if (!moved) return;
       showMoveUndoToast(relPath, moved);
-      location.hash = '#note/' + encodeURIComponent(moved.relPath);
     });
   };
   categoryBadge.addEventListener('click', openCategoryMoveMenu);
@@ -4339,7 +4520,9 @@ async function renderNote(relPath) {
   // Datenträger). Bleibt stehen, bis der NÄCHSTE Speicherversuch (automatisch
   // oder Strg+S) erfolgreich ist — onSaved() setzt has-error dann korrekt zurück.
   function onSaveError(err) {
-    dirtyLabel.textContent = '⚠ Speichern fehlgeschlagen';
+    dirtyLabel.textContent = err?.code === 'NOTE_CONFLICT'
+      ? '⚠ Außerhalb geändert – nicht gespeichert'
+      : '⚠ Speichern fehlgeschlagen';
     dirtyLabel.classList.add('has-error');
     dirtyLabel.title = err?.message || 'Der Fehler konnte nicht genauer bestimmt werden.';
   }
@@ -4357,7 +4540,9 @@ async function renderNote(relPath) {
       relPath: n.relPath
     })),
     onChange: (dirty, text) => {
-      dirtyLabel.textContent = dirty ? '● ungespeichert' : '✓ gespeichert';
+      if (!dirtyLabel.classList.contains('has-error')) {
+        dirtyLabel.textContent = dirty ? '● ungespeichert' : '✓ gespeichert';
+      }
       dirtyLabel.classList.toggle('is-dirty', dirty);
       if (typeof text === 'string') updateCounts(text);
     },
@@ -4438,7 +4623,7 @@ async function renderNote(relPath) {
     if (!target) return;
     e.preventDefault();
     if (target.dataset.wikilinkTarget) {
-      location.hash = '#note/' + encodeURIComponent(target.dataset.wikilinkTarget);
+      void navigateTo('#note/' + encodeURIComponent(target.dataset.wikilinkTarget));
     } else if (target.dataset.wikilinkCreate) {
       const name = target.dataset.wikilinkCreate;
       const currentSubCategory = relPath.split('/').slice(0, -1).join('/');
@@ -4449,7 +4634,7 @@ async function renderNote(relPath) {
       })) return;
       const created = await fs.createNote(currentSubCategory, name);
       await refreshAll();
-      location.hash = '#note/' + encodeURIComponent(created.relPath);
+      void navigateTo('#note/' + encodeURIComponent(created.relPath));
     }
   });
 
@@ -4493,7 +4678,7 @@ async function renderNote(relPath) {
       `;
       document.getElementById('backlinkTarget').addEventListener('click', (e) => {
         e.preventDefault();
-        location.hash = '#note/' + encodeURIComponent(targetRelPath);
+        void navigateTo('#note/' + encodeURIComponent(targetRelPath));
       });
     } else {
       // Ziel wurde gelöscht/verschoben, ohne dass die Verknüpfung mitgepflegt wurde.
@@ -4531,9 +4716,11 @@ async function renderNote(relPath) {
   titleInput.addEventListener('blur', async () => {
     const newTitle = titleInput.value.trim();
     if (!newTitle || newTitle === title) return;
-    const renamed = await fs.renameEntry(relPath, newTitle);
-    await refreshAll();
-    location.hash = '#note/' + encodeURIComponent(renamed.relPath);
+    await mutateEntryPath({
+      sourceRelPath: relPath,
+      actionLabel: 'Umbenennen',
+      mutate: () => fs.renameEntry(relPath, newTitle)
+    });
   });
 
   let committedTagsValue = (frontmatter?.tags || []).join(', ');
@@ -5364,7 +5551,6 @@ function showIconPicker(anchorEl, onSelect) {
   });
 
   async function persistFavAndRecent() {
-    if (state.project?.config) { state.project.config.iconFavorites = favorites; state.project.config.iconRecent = recent; }
     try {
       await fs.setProjectSetting('iconFavorites', favorites);
       await fs.setProjectSetting('iconRecent', recent);
@@ -5623,7 +5809,8 @@ async function prepareIncomingNoteDraft(entry) {
     title: incomingDisplayTitle(entry),
     content,
     source: incomingSourceMetadata(entry),
-    image
+    image,
+    hasUnsavedChanges: false
   };
   return state.incomingNoteDraft;
 }
@@ -5682,6 +5869,7 @@ async function prepareIncomingAppendDraft(entry, targetRelPath) {
     title: targetNote.frontmatter?.title || targetRelPath.split(/[\\/]/).pop().replace(/\.md$/i, ''),
     content,
     source: incomingSourceMetadata(entry),
+    hasUnsavedChanges: false,
     image: {
       marker,
       fileName: preview.fileName,
@@ -5862,7 +6050,7 @@ async function renderIncomingEntry(id) {
       } else {
         return;
       }
-      location.hash = '#incoming-draft/' + encodeURIComponent(entry.id);
+      void navigateTo('#incoming-draft/' + encodeURIComponent(entry.id));
     } catch (error) {
       await showMessageDialog({
         title: 'Notiz-Entwurf konnte nicht vorbereitet werden',
@@ -5957,7 +6145,10 @@ function renderIncomingDraftImagePreview(previewContainer, draft) {
   const dataUrl = draft?.image?.dataUrl;
   if (!previewContainer || !marker || !dataUrl) return;
   previewContainer.querySelectorAll('img').forEach((image) => {
-    if (image.getAttribute('src') === marker) image.src = dataUrl;
+    if (image.dataset.incomingImageMarker === marker) {
+      image.src = dataUrl;
+      delete image.dataset.incomingImageMarker;
+    }
   });
 }
 
@@ -6068,7 +6259,7 @@ async function saveIncomingNoteDraft() {
       console.error('[Archiv Wiki] Ansicht konnte nach der Eingang-Verarbeitung nicht vollständig aktualisiert werden', error);
     }
 
-    location.hash = '#note/' + encodeURIComponent(savedNote.relPath);
+    void navigateTo('#note/' + encodeURIComponent(savedNote.relPath));
 
     if (incomingCleanupError) {
       setTimeout(() => {
@@ -6203,6 +6394,7 @@ async function renderIncomingNoteDraft(id) {
   if (!isAppendDraft) {
     titleInput?.addEventListener('input', () => {
       draft.title = titleInput.value;
+      draft.hasUnsavedChanges = true;
       status.textContent = '● nicht gespeichert';
       setBreadcrumb(`Eingang / ${titleInput.value.trim() || 'Neue Notiz'}`);
     });
@@ -6213,9 +6405,7 @@ async function renderIncomingNoteDraft(id) {
   });
 
   document.getElementById('btnCancelIncomingDraft')?.addEventListener('click', () => {
-    closeEditor();
-    state.incomingNoteDraft = null;
-    location.hash = '#incoming/' + encodeURIComponent(id);
+    void navigateTo('#incoming/' + encodeURIComponent(id));
   });
 
   document.getElementById('viewToggle')?.addEventListener('click', (event) => {
@@ -6250,6 +6440,7 @@ async function renderIncomingNoteDraft(id) {
     })),
     onChange: (_dirty, text) => {
       draft.content = text;
+      draft.hasUnsavedChanges = true;
       status.textContent = '● nicht gespeichert';
       updateDraftCounts(text);
     },
@@ -6293,17 +6484,100 @@ async function renderIncoming() {
     if (!section) return;
 
     const safeEntries = Array.isArray(entries) ? entries : [];
+    const selectableEntryIds = safeEntries
+      .map(entry => typeof entry?.id === 'string' ? entry.id : '')
+      .filter(Boolean);
+    const selectedEntryIds = new Set();
+    let deleteInProgress = false;
     section.innerHTML = `
-      <div class="dashboard-section-header">Eingänge · ${safeEntries.length}</div>
+      <div class="dashboard-section-header">
+        <span>Eingänge · ${safeEntries.length}</span>
+        <div class="incoming-bulk-actions" aria-label="Eingangsauswahl">
+          <span class="incoming-selection-status" id="incomingSelectionStatus" role="status" aria-live="polite">0 ausgewählt</span>
+          <button type="button" class="btn" id="btnSelectAllIncoming">Alle auswählen</button>
+          <button type="button" class="btn" id="btnClearIncomingSelection">Auswahl aufheben</button>
+          <button type="button" class="btn danger" id="btnDeleteSelectedIncoming">Löschen</button>
+        </div>
+      </div>
       <div class="dashboard-list" id="incomingList"></div>`;
 
     const list = section.querySelector('#incomingList');
+    const selectionStatus = section.querySelector('#incomingSelectionStatus');
+    const selectAllButton = section.querySelector('#btnSelectAllIncoming');
+    const clearSelectionButton = section.querySelector('#btnClearIncomingSelection');
+    const deleteSelectedButton = section.querySelector('#btnDeleteSelectedIncoming');
+
+    function updateIncomingSelectionControls() {
+      const selectedCount = selectedEntryIds.size;
+      selectionStatus.textContent = `${selectedCount} ausgewählt`;
+      selectAllButton.disabled = deleteInProgress
+        || selectableEntryIds.length === 0
+        || selectedCount === selectableEntryIds.length;
+      clearSelectionButton.disabled = deleteInProgress || selectedCount === 0;
+      deleteSelectedButton.disabled = deleteInProgress || selectedCount === 0;
+      deleteSelectedButton.textContent = selectedCount > 0 ? `Löschen (${selectedCount})` : 'Löschen';
+
+      list.querySelectorAll('.incoming-select-checkbox').forEach((checkbox) => {
+        checkbox.disabled = deleteInProgress;
+        checkbox.checked = selectedEntryIds.has(checkbox.dataset.incomingId);
+        checkbox.closest('.incoming-row')?.classList.toggle('is-selected', checkbox.checked);
+      });
+    }
+
+    function setAllIncomingSelected(selected) {
+      selectedEntryIds.clear();
+      if (selected) selectableEntryIds.forEach(id => selectedEntryIds.add(id));
+      updateIncomingSelectionControls();
+    }
+
+    selectAllButton.addEventListener('click', () => setAllIncomingSelected(true));
+    clearSelectionButton.addEventListener('click', () => setAllIncomingSelected(false));
+    deleteSelectedButton.addEventListener('click', async () => {
+      const idsToDelete = selectableEntryIds.filter(id => selectedEntryIds.has(id));
+      if (idsToDelete.length === 0 || deleteInProgress) return;
+
+      const singular = idsToDelete.length === 1;
+      if (!await showConfirmDialog({
+        title: singular ? 'Eingang löschen?' : 'Eingänge löschen?',
+        message: singular
+          ? 'Der ausgewählte Eingangseintrag wird gelöscht.'
+          : 'Die ausgewählten Eingangseinträge werden gelöscht.',
+        confirmLabel: 'Löschen',
+        danger: true
+      })) return;
+
+      deleteInProgress = true;
+      updateIncomingSelectionControls();
+
+      const failures = [];
+      for (const id of idsToDelete) {
+        try {
+          const result = await window.archivAPI.incoming.delete(id);
+          if (!result?.deleted) throw new Error('Der Eingangseintrag wurde nicht gefunden.');
+        } catch (error) {
+          failures.push(error);
+          console.error(`Eingang konnte nicht gelöscht werden (${id})`, error);
+        }
+      }
+
+      if (currentSlug() === 'incoming') await renderIncoming();
+      if (failures.length > 0) {
+        await showMessageDialog({
+          title: 'Nicht alle Eingänge gelöscht',
+          message: failures.length === 1
+            ? 'Ein ausgewählter Eingangseintrag konnte nicht gelöscht werden.'
+            : `${failures.length} ausgewählte Eingangseinträge konnten nicht gelöscht werden.`
+        });
+      }
+    });
+
     if (safeEntries.length === 0) {
       list.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-title">Noch keine Eingänge.</div>
           <div class="empty-state-body">Gesammelte Inhalte erscheinen hier, bevor sie später weiterverarbeitet werden.</div>
         </div>`;
+      updateIncomingSelectionControls();
       return;
     }
 
@@ -6315,26 +6589,30 @@ async function renderIncoming() {
       const createdDate = formatAbsoluteDate(entry?.createdAt || entry?.updatedAt) || 'Zeitpunkt nicht verfügbar';
 
       row.className = 'dashboard-row incoming-row';
-      row.tabIndex = 0;
-      row.setAttribute('role', 'link');
-      row.setAttribute('aria-label', `Eingang öffnen: ${typeLabel}, ${title}`);
       row.innerHTML = `
-        <span class="dr-icon" aria-hidden="true"><img class="lib-icon" src="${escapeHtml(incomingListIconSrc(entry))}" alt=""></span>
-        <span class="dr-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
-        <span class="dr-excerpt" title="${escapeHtml(sourceInfo)}">${escapeHtml(sourceInfo)}</span>
-        <span class="dr-tag">${escapeHtml(typeLabel)}</span>
-        <span class="dr-date">${escapeHtml(createdDate)}</span>`;
-      const openIncoming = () => {
-        location.hash = '#incoming/' + encodeURIComponent(entry.id);
-      };
-      row.addEventListener('click', openIncoming);
-      row.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        openIncoming();
+        <label class="incoming-row-select">
+          <input type="checkbox" class="incoming-select-checkbox" data-incoming-id="${escapeHtml(entry.id)}" aria-label="${escapeHtml(title)} auswählen">
+        </label>
+        <button type="button" class="incoming-row-open" aria-label="Eingang öffnen: ${escapeHtml(typeLabel)}, ${escapeHtml(title)}">
+          <span class="dr-icon" aria-hidden="true"><img class="lib-icon" src="${escapeHtml(incomingListIconSrc(entry))}" alt=""></span>
+          <span class="dr-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
+          <span class="dr-excerpt" title="${escapeHtml(sourceInfo)}">${escapeHtml(sourceInfo)}</span>
+          <span class="dr-tag">${escapeHtml(typeLabel)}</span>
+          <span class="dr-date">${escapeHtml(createdDate)}</span>
+        </button>`;
+      const checkbox = row.querySelector('.incoming-select-checkbox');
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) selectedEntryIds.add(entry.id);
+        else selectedEntryIds.delete(entry.id);
+        updateIncomingSelectionControls();
       });
+      const openIncoming = () => {
+        void navigateTo('#incoming/' + encodeURIComponent(entry.id));
+      };
+      row.querySelector('.incoming-row-open').addEventListener('click', openIncoming);
       list.appendChild(row);
     }
+    updateIncomingSelectionControls();
   } catch (error) {
     if (currentSlug() !== 'incoming') return;
     const section = els.contentScroll.querySelector('.incoming-view .dashboard-section');
@@ -6423,7 +6701,7 @@ async function renderKnowledgeCare() {
         <span class="dr-date">Öffnen</span>`;
 
       const openSourceNote = () => {
-        location.hash = '#note/' + encodeURIComponent(issue.sourceRelPath);
+        void navigateTo('#note/' + encodeURIComponent(issue.sourceRelPath));
       };
       row.addEventListener('click', openSourceNote);
       row.addEventListener('keydown', event => {
@@ -6461,7 +6739,7 @@ async function renderKnowledgeCare() {
           <span class="dr-date">Öffnen</span>`;
 
         const openNote = () => {
-          location.hash = '#note/' + encodeURIComponent(issue.relPath);
+          void navigateTo('#note/' + encodeURIComponent(issue.relPath));
         };
         row.addEventListener('click', openNote);
         row.addEventListener('keydown', event => {
@@ -6500,7 +6778,7 @@ async function renderKnowledgeCare() {
           <span class="dr-date">Öffnen</span>`;
 
         const openNote = () => {
-          location.hash = '#note/' + encodeURIComponent(issue.relPath);
+          void navigateTo('#note/' + encodeURIComponent(issue.relPath));
         };
         row.addEventListener('click', openNote);
         row.addEventListener('keydown', event => {
@@ -6585,7 +6863,7 @@ async function renderTagsOverview(activeTag) {
   `;
 
   els.contentScroll.querySelectorAll('.tag-chip').forEach(chip => {
-    chip.addEventListener('click', () => { location.hash = '#tags/' + encodeURIComponent(chip.dataset.tag); });
+    chip.addEventListener('click', () => { void navigateTo('#tags/' + encodeURIComponent(chip.dataset.tag)); });
   });
 
   if (activeTag) {

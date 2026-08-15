@@ -57,10 +57,13 @@ async function ensureContentScript(tabId) {
   if (!Number.isInteger(tabId)) throw new Error('Die aktuelle Browser-Seite ist nicht verfügbar.');
   // activeTab + scripting hält den Seitenzugriff auf den ausdrücklich
   // ausgelösten Clip beschränkt; es gibt keine dauerhafte Host-Berechtigung.
+  // webclip-contract.js zuerst, damit content-script.js dieselbe geteilte
+  // MAX_EARLY_TEXT_BYTES-Grenze verwendet (Sicherheitsfund WC-SP-005/M18),
+  // statt einer eigenen, unabhängigen Kopie dieser Zahl.
   try {
     await browserApi.scripting.executeScript({
       target: { tabId },
-      files: ['content-script.js']
+      files: ['webclip-contract.js', 'content-script.js']
     });
   } catch (error) {
     console.warn('[Archiv-Wiki Web Clipper] Seitenzugriff fehlgeschlagen:', error?.message || error);

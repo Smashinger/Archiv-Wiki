@@ -13,6 +13,7 @@ Archiv-Wiki speichert dein Wissen lokal in einem eigenen Projektordner. Es benö
 - **Schreiben und Lesen in einer Ansicht:** Markdown-Editor, Split-Ansicht und gerenderte Vorschau sind direkt integriert.
 - **Schnell wiederfinden:** Die Volltextsuche durchsucht Titel, Inhalte, Tags und Kategorien.
 - **Daten absichern:** Lokale Backups, Papierkorb und Exporte schützen vor versehentlichem Verlust.
+- **Webinhalte sammeln:** Der Web Clipper übergibt URLs, markierten Text, sichtbaren Seitentext und gezielt ausgewählte Bilder lokal an den Eingang.
 - **Optional synchronisieren:** WebDAV kann für den Abgleich mit einem eigenen Cloud-Speicher verwendet werden.
 
 ## Dashboard
@@ -35,6 +36,15 @@ Statt Informationen über einzelne Textdateien, Haftnotizen, Browser-Lesezeichen
 
 Der Editor bietet Quelltext, Vorschau oder eine frei einstellbare Split-Ansicht. Werkzeugleiste, Kontextmenü und direkte Markdown-Syntax unterstützen unterschiedliche Arbeitsweisen.
 
+### Wissen übersichtlich organisieren
+
+<p align="center">
+  <img src="docs/screenshots/kategorie.png" alt="Hauptkategorie in Archiv-Wiki" width="48%">
+  <img src="docs/screenshots/unterkategorie.png" alt="Unterkategorie in Archiv-Wiki" width="48%">
+</p>
+
+Haupt- und Unterkategorien bilden eine klare Baumstruktur für Notizen. Eigene Icons und die sichtbare Hierarchie erleichtern die Orientierung auch in umfangreicheren Wikis.
+
 ### Inhalte schnell wiederfinden
 
 <p align="center">
@@ -47,7 +57,7 @@ Die Suche zeigt Titel, Textausschnitte, Tags und Kategoriepfade. Treffer werden 
 
 ![Einstellungsfenster von Archiv-Wiki](docs/screenshots/einstellungen.png)
 
-Allgemeine Optionen, Darstellung, Editor, Backup, Updates und Sicherheit sind in einem gemeinsamen Einstellungsfenster zusammengefasst.
+Allgemein, Darstellung, Editor, Backup, Updates, Web Clipper und Sicherheit sind in einem gemeinsamen Einstellungsfenster zusammengefasst.
 
 ### Lokale Backups
 
@@ -57,9 +67,9 @@ Backups können automatisch nach einem gewählten Zeitplan oder jederzeit manuel
 
 ### Fokus-Modus
 
-![Fokus-Modus von Archiv-Wiki](docs/screenshots/fokus-modus.png)
+![Fokus-Modus von Archiv-Wiki](docs/screenshots/focus-modus.png)
 
-Der Fokus-Modus dimmt die umgebende Oberfläche in vier wählbaren Stufen. Editor und Vorschau bleiben im Mittelpunkt, während Navigation und Werkzeuge weiterhin erreichbar sind.
+Der Fokus-Modus ist bei geöffneter Notiz verfügbar. Er blendet die Sidebar vollständig aus, vergrößert den Arbeitsbereich und wechselt vorübergehend zur Editoransicht, ohne diese Auswahl projektweit zu speichern. Kopfbereich, Werkzeugleiste und Statusbereich bleiben sichtbar und bedienbar; ein zurückhaltender neutraler Schatten hebt den Arbeitsbereich räumlich hervor.
 
 ## Funktionen
 
@@ -81,12 +91,15 @@ Der Fokus-Modus dimmt die umgebende Oberfläche in vier wählbaren Stufen. Edito
 - angepinnte und zuletzt bearbeitete Notizen im Dashboard
 - kuratierte Icons für Kategorien und Notizen
 - Papierkorb mit Wiederherstellung vor dem endgültigen Löschen
+- eigener Eingang für noch nicht verarbeitete Texte, Dateien, Bilder und Web-Clips, einschließlich Mehrfachauswahl und gemeinsamem Löschen
+- gesammelte Inhalte lassen sich später gezielt zu normalen Notizen verarbeiten
 
 ### Suchen und Navigieren
 
 - Volltextsuche über Titel, Inhalt, Tags und Kategorien
 - verständliche Treffergründe und hervorgehobene Fundstellen
 - Suche innerhalb einer geöffneten Notiz
+- Wissenspflege zum Auffinden defekter Wikilinks, von Notizen ohne Tags und von leeren Notizen mit direktem Sprung zur betroffenen Notiz
 - Kontextmenüs sowie umfassende Tastaturbedienung
 - zentrale Übersicht der verfügbaren Tastenkürzel
 
@@ -101,8 +114,9 @@ Der Fokus-Modus dimmt die umgebende Oberfläche in vier wählbaren Stufen. Edito
 
 ### Desktop-Komfort
 
-- zentrale Einstellungen für Darstellung, Editor, Backup und Updates
-- anpassbare Akzentfarbe, Sidebar-Dichte und Editor-Schriftgröße
+- zentrale Einstellungen in den Bereichen Allgemein, Darstellung, Editor, Backup, Updates, Web Clipper und Sicherheit
+- anpassbare Akzentfarbe, Sidebar-Größe und Editor-Schriftgröße
+- lokaler Web Clipper für URLs, markierten Text, sichtbaren Seitentext und ausgewählte Bilder
 - System-Tray mit wählbarem Verhalten beim Schließen
 - integrierte Update-Prüfung mit Downloadfortschritt und Neustart
 - optionale WebDAV-Synchronisierung mit einem eigenen Server oder Nextcloud
@@ -133,11 +147,31 @@ chmod +x Archiv-Wiki-*.AppImage
 
 Beim ersten Start führt ein Einrichtungsassistent durch Projektordner, Wiki-Name und grundlegende Optionen. WebDAV ist optional; Archiv-Wiki kann vollständig lokal verwendet werden.
 
+![Einrichtungsassistent mit optionaler Cloud-Synchronisierung](docs/screenshots/cloud.png)
+
+### Web Clipper in Firefox
+
+Der Archiv-Wiki Web Clipper ist offiziell über [Mozilla Add-ons](https://addons.mozilla.org/de/firefox/addon/archiv-wiki-web-clipper/) verfügbar. Archiv-Wiki muss geöffnet sein, damit Firefox gesammelte Inhalte lokal an den Eingang übergeben kann.
+
+### Web Clipper in Brave (Flatpak)
+
+Die mitgelieferte, signierte Browser-Erweiterung lässt sich unter **Einstellungen → Web Clipper** mit **„Brave / Chromium“** benutzerbezogen für Brave als Linux-Flatpak vorbereiten. Dafür sind weder Entwicklermodus noch Administrator- oder Root-Rechte erforderlich. Danach muss Brave vollständig geschlossen und neu gestartet werden.
+
+Eine bewusste Entfernung der Erweiterung in Brave wird respektiert und nicht automatisch rückgängig gemacht.
+
 ## Dokumentation
 
 Weiterführende Anleitungen zur Einrichtung und Bedienung befinden sich im [GitHub-Wiki](../../wiki).
 
 Änderungen und Downloads einzelner Versionen sind unter [Releases](../../releases) dokumentiert.
+
+## Entwicklung mit KI-Unterstützung
+
+Archiv-Wiki wurde von Anfang an mit umfangreicher Unterstützung durch KI-Werkzeuge und Coding-Assistenten entwickelt. Sie werden unter anderem für Code-Erstellung, Analyse, Fehlersuche, Dokumentation und Reviews eingesetzt. Planung, Funktionsumfang, Designentscheidungen, Tests und die Freigabe von Änderungen bleiben dabei menschlich gesteuert.
+
+Von einer KI erzeugte oder vorgeschlagene Änderungen gelten nicht allein deshalb als korrekt oder fertig. Die tatsächliche Anwendung und ihr Verhalten werden geprüft und getestet.
+
+Die KI-Unterstützung betrifft den Entwicklungsprozess; Archiv-Wiki selbst ist keine KI-Anwendung. Eigene Wiki-Daten bleiben grundsätzlich lokal, es gibt keine Telemetrie und kein Benutzerkonto. Optionale Dienste wie WebDAV werden nur auf Wunsch des Nutzers eingerichtet.
 
 ## Für Entwickler
 
