@@ -4101,12 +4101,41 @@ function wireSplitResizer() {
     editorPane.style.flex = `0 0 ${savedWidth}px`;
     previewPane.style.flex = '1 1 0';
   }
+  // Bugfix (B5, real getestet): eine gespeicherte/zuvor gezogene feste Breite
+  // wurde bisher ungeprüft übernommen. Bei einem breiten Fenster gezogen und
+  // anschließend das Fenster verkleinert (z. B. auf die konfigurierte
+  // Mindestgröße 960×600), wurde die Vorschau dadurch komplett aus dem
+  // sichtbaren Bereich gedrängt — statt sichtbar zu bleiben, entstand ein
+  // neuer horizontaler Scrollbalken. Dieselbe Klemmung wie im
+  // mousemove-Handler unten, hier zusätzlich direkt beim Anwenden angewendet.
+  clampSplitEditorWidth();
   resizer.addEventListener('mousedown', (e) => {
     e.preventDefault();
     splitResizerState.dragging = true;
     resizer.classList.add('dragging');
     document.body.style.cursor = 'col-resize';
   });
+}
+
+// Wird sowohl direkt nach dem Anwenden einer gespeicherten Breite (siehe
+// wireSplitResizer oben) als auch bei jeder Fenstergrößenänderung aufgerufen
+// (siehe resize-Listener unten) — dieselbe Klemmung wie beim aktiven Ziehen,
+// nur ohne aktiven Mausvorgang. Eine feste Breite bleibt dadurch auch nach
+// dem Verkleinern des Fensters innerhalb des tatsächlich verfügbaren Platzes,
+// ohne die normale 50/50-Aufteilung (kein "0 0 …"-Inline-Stil) anzufassen.
+function clampSplitEditorWidth() {
+  const s = splitResizerState;
+  if (!s.split || !s.editorPane || !s.resizer || s.dragging) return;
+  if (!s.editorPane.style.flex.startsWith('0 0')) return;
+  const minWidth = 120;
+  const rect = s.split.getBoundingClientRect();
+  if (!rect.width) return;
+  const maxWidth = rect.width - s.resizer.offsetWidth - minWidth;
+  const currentWidth = s.editorPane.getBoundingClientRect().width;
+  const clampedWidth = Math.max(minWidth, Math.min(currentWidth, maxWidth));
+  if (Math.abs(clampedWidth - currentWidth) > 0.5) {
+    s.editorPane.style.flex = `0 0 ${clampedWidth}px`;
+  }
 }
 
 // Nur EINMALIG beim Laden des Moduls registriert (siehe Kommentar oben) —
@@ -4122,6 +4151,10 @@ document.addEventListener('mousemove', (e) => {
   s.editorPane.style.flex = `0 0 ${editorWidth}px`;
   s.previewPane.style.flex = '1 1 0';
 });
+// Fenster verkleinert, ohne dass die Notiz neu geöffnet wird: dieselbe
+// Klemmung erneut anwenden, damit eine zuvor gezogene feste Breite nicht
+// die Vorschau aus dem sichtbaren Bereich drängt (siehe clampSplitEditorWidth).
+window.addEventListener('resize', clampSplitEditorWidth);
 document.addEventListener('mouseup', () => {
   const s = splitResizerState;
   if (!s.dragging) return;
@@ -5661,6 +5694,11 @@ function applyViewMode() {
           ? `0 0 ${savedWidth}px`
           : '1 1 0';
       previewPane.style.flex = '1 1 0';
+      // Bugfix (B5): dieselbe Klemmung wie in wireSplitResizer() — sonst kann
+      // ein Wechsel zurück zur Split-Ansicht (Editor/Split/Vorschau-Umschalter)
+      // dieselbe zu breite gespeicherte Editor-Breite erneut ungeklemmt
+      // anwenden, wenn das Fenster inzwischen kleiner geworden ist.
+      clampSplitEditorWidth();
     }
   }
 
