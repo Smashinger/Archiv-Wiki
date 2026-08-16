@@ -31,6 +31,7 @@ Drei Ansichtsmodi: reiner Editor, geteilte Ansicht, reine Vorschau. Ansichtsmodu
 - **Tab/Shift+Tab** rücken ein/aus.
 - **Schriftart bewusst durchgehend Monospace** im Editor — passt zur technischen, markdown-basierten Natur des Schreibens; die Vorschau nutzt bewusst eine andere, proportionale Schrift für den Fließtext (siehe `02_DESIGN_GUIDELINES.md`).
 - **Rechtschreibprüfung** über Electrons native Rechtschreib-Engine, sofort umschaltbar ohne Neustart, aktuell auf Deutsch festgelegt.
+- **Multi-Cursor** über die vorhandenen CodeMirror-Tastenkürzel `Strg/Cmd+D` (nächstes gleiches Vorkommen zur Auswahl hinzufügen) und `Strg/Cmd+Umschalt+L` (alle gleichen Vorkommen auswählen) — dafür sind `EditorState.allowMultipleSelections` und `drawSelection()` aktiv; ohne beide reduziert CodeMirror jede Mehrfachauswahl sofort wieder auf eine einzige Range.
 
 ## Navigation
 

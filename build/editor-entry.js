@@ -5,7 +5,7 @@
 // Bundler per <script type="module"> laden kann (siehe build/build.mjs).
 
 import { EditorState, RangeSetBuilder } from '@codemirror/state';
-import { EditorView, keymap, lineNumbers, highlightActiveLine, Decoration, ViewPlugin } from '@codemirror/view';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, Decoration, ViewPlugin, drawSelection } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage, markdownKeymap } from '@codemirror/lang-markdown';
 import { syntaxHighlighting, HighlightStyle, syntaxTree, indentUnit } from '@codemirror/language';
@@ -186,6 +186,16 @@ export function createMarkdownEditor({ parent, doc = '', tabSize = 2, readOnly =
       history(),
       saveKeymap,
       search({ top: true }),
+      // Multi-Cursor (Ctrl/Cmd+D, Ctrl/Cmd+Shift+L, aus searchKeymap unten):
+      // ohne allowMultipleSelections reduziert CodeMirror JEDE Selektion bei
+      // JEDER Transaktion sofort wieder auf eine einzige Range (siehe
+      // EditorState.create/apply in @codemirror/state) — die Shortcuts
+      // matchten zwar, blieben aber wirkungslos. drawSelection() zeichnet die
+      // dadurch entstehenden mehreren Cursor/Selektionen selbst, weil der
+      // native Browser (Chromium) ohnehin nur eine einzige Selection-Range
+      // gleichzeitig darstellen kann.
+      EditorState.allowMultipleSelections.of(true),
+      drawSelection(),
       EditorState.phrases.of({
         'Find': 'Suchen',
         'Replace': 'Ersetzen',

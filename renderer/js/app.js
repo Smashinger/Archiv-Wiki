@@ -2713,6 +2713,8 @@ const SHORTCUT_SECTIONS = [
       { keys: 'F3', desc: 'Nächster Suchtreffer in der offenen Notiz' },
       { keys: 'Umschalt + F3', desc: 'Vorheriger Suchtreffer in der offenen Notiz' },
       { keys: 'Enter (im Ersetzen-Feld)', desc: 'Aktuellen Treffer ersetzen' },
+      { keys: 'Strg/Cmd + D', desc: 'Nächstes gleiches Vorkommen zur Auswahl hinzufügen (Multi-Cursor)' },
+      { keys: 'Strg/Cmd + Umschalt + L', desc: 'Alle gleichen Vorkommen auswählen (Multi-Cursor)' },
       { keys: 'Strg/Cmd + Umschalt + F', desc: 'Fokus-Modus umschalten' },
     ]
   },
