@@ -760,7 +760,14 @@ function buildMenu() {
         { role: 'cut', label: 'Ausschneiden' },
         { role: 'copy', label: 'Kopieren' },
         { role: 'paste', label: 'Einfügen' },
-        { role: 'selectAll', label: 'Alles auswählen' }
+        { role: 'selectAll', label: 'Alles auswählen' },
+        { type: 'separator' },
+        {
+          label: 'Suchen und Ersetzen …',
+          click: () => {
+            mainWindow?.webContents.send('menu:open-find-replace');
+          }
+        }
       ]
     },
     {

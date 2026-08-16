@@ -12,7 +12,7 @@ import { showSettingsWindow } from './settings-window.js';
 import { animateIn, animateOut } from './motion.js';
 import { manageModalDialog, closeManagedDialogs, showMessageDialog, showConfirmDialog } from './dialog.js';
 import { initEllipsisTooltips } from './tooltip.js';
-import { openNoteInEditor, openIncomingInEditor, openNoteDraftInEditor, saveNow, saveUntilClean, isDirty, getOpenRelPath, retargetOpenNote, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, renderMarkdownForExport, setEditorContent, jumpToMatchInEditor, focusEditor, setSyncScrollEnabled, setAutoSaveSeconds } from './editor.js';
+import { openNoteInEditor, openIncomingInEditor, openNoteDraftInEditor, saveNow, saveUntilClean, isDirty, getOpenRelPath, retargetOpenNote, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, renderMarkdownForExport, setEditorContent, jumpToMatchInEditor, focusEditor, setSyncScrollEnabled, setAutoSaveSeconds, openDocumentSearch } from './editor.js';
 import { rebuildIndex, getSearchState, search as searchNotes, searchWithDetails } from './search.js';
 import { findBrokenWikiLinks, findNotesWithoutTags, findEmptyNotes } from './knowledge-audit.js';
 
@@ -911,6 +911,7 @@ window.archivAPI.onGoHome(() => { void navigateTo('#home'); });
 window.archivAPI.onCheckForUpdatesRequested(() => requestUpdateCheck());
 window.archivAPI.onOpenSettingsRequested(() => openSettingsWindow());
 window.archivAPI.onShowShortcutsRequested?.(() => showShortcutsCheatsheet());
+window.archivAPI.onOpenFindReplaceRequested?.(() => openDocumentSearch());
 
 // "Projektordner öffnen …" (Datei-Menü / Strg+O) — Wiki-Wechsel zu einem
 // bereits bestehenden Archiv-Wiki-Projekt. Nutzt denselben Ordnerdialog und
@@ -2708,8 +2709,10 @@ const SHORTCUT_SECTIONS = [
       { keys: 'Strg/Cmd + S', desc: 'Notiz speichern' },
       { keys: 'Strg/Cmd + B', desc: 'Ansicht wechseln (Editor/Split/Vorschau)' },
       { keys: 'Alt + ← / →', desc: 'Zur vorherigen/nächsten Notiz springen' },
+      { keys: 'Strg/Cmd + F', desc: 'Suchen und Ersetzen im Editor öffnen (Ersetzen-Feld direkt sichtbar)' },
       { keys: 'F3', desc: 'Nächster Suchtreffer in der offenen Notiz' },
       { keys: 'Umschalt + F3', desc: 'Vorheriger Suchtreffer in der offenen Notiz' },
+      { keys: 'Enter (im Ersetzen-Feld)', desc: 'Aktuellen Treffer ersetzen' },
       { keys: 'Strg/Cmd + Umschalt + F', desc: 'Fokus-Modus umschalten' },
     ]
   },

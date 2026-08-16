@@ -190,5 +190,8 @@ contextBridge.exposeInMainWorld('archivAPI', {
   },
   onShowShortcutsRequested: (callback) => {
     ipcRenderer.on('menu:show-shortcuts', () => callback());
+  },
+  onOpenFindReplaceRequested: (callback) => {
+    ipcRenderer.on('menu:open-find-replace', () => callback());
   }
 });
