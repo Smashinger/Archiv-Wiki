@@ -246,6 +246,11 @@ function uniqueDirPath(parentDir, baseName) {
 // DD.MM.YYYY/HH:MM-Format wie die bestehenden Datumsanzeigen im Renderer
 // (siehe formatAbsoluteDate/formatTime in app.js) — new Date() liefert dabei
 // die lokale Systemzeit des Rechners, auf dem der Hauptprozess läuft.
+// Bugfix (C3.1): replace() bekommt den Ersatzwert bewusst über eine
+// Funktion (() => value), nicht als String — ein String-Replacement wertet
+// Sequenzen wie $&, $`, $' oder $1 als Sondermuster aus, ein Titel mit
+// genau so einer Zeichenfolge wurde dadurch verfälscht. Der Rückgabewert
+// einer Ersetzungsfunktion wird dagegen immer wörtlich eingesetzt.
 function resolveTemplateVariables(text, title) {
   const now = new Date();
   const dd = String(now.getDate()).padStart(2, '0');
@@ -254,10 +259,10 @@ function resolveTemplateVariables(text, title) {
   const hh = String(now.getHours()).padStart(2, '0');
   const min = String(now.getMinutes()).padStart(2, '0');
   return text
-    .replace(/\{title\}/g, title)
-    .replace(/\{date\}/g, `${dd}.${mm}.${yyyy}`)
-    .replace(/\{time\}/g, `${hh}:${min}`)
-    .replace(/\{year\}/g, yyyy);
+    .replace(/\{title\}/g, () => title)
+    .replace(/\{date\}/g, () => `${dd}.${mm}.${yyyy}`)
+    .replace(/\{time\}/g, () => `${hh}:${min}`)
+    .replace(/\{year\}/g, () => yyyy);
 }
 
 // ---------------------------------------------------------------------------
