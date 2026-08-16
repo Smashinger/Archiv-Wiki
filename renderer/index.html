@@ -35,13 +35,43 @@
       <div class="sidebar-brand" id="sidebarBrand">
         <span id="sidebarBrandText"></span><span class="brand-cursor" aria-hidden="true"></span>
       </div>
-      <div class="search-wrap">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="navSearch" placeholder="Durchsuchen…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="searchDropdown" aria-autocomplete="list" aria-haspopup="listbox">
-        <button type="button" class="search-clear" id="searchClear" title="Suche leeren" aria-label="Suche leeren">✕</button>
-        <kbd>Ctrl K</kbd>
+      <!-- search-zone: gemeinsamer relativ positionierter Rahmen für Suchfeld,
+           Scope/Filter-Zeile UND das Ergebnis-Dropdown (Schritt B1) — nötig,
+           damit das Dropdown unterhalb ALLER drei Zeilen erscheint, statt die
+           neue Scope/Filter-Zeile beim Tippen zu verdecken (das Dropdown liegt
+           sonst genau darüber). -->
+      <div class="search-zone">
+        <div class="search-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="navSearch" placeholder="Durchsuchen…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="searchDropdown" aria-autocomplete="list" aria-haspopup="listbox">
+          <button type="button" class="search-clear" id="searchClear" title="Suche leeren" aria-label="Suche leeren">✕</button>
+          <kbd>Ctrl K</kbd>
+        </div>
+
+        <!-- Suchbereich + Filter (Schritt B1) — bewusst als schmale zweite Zeile
+             statt einer eigenen Suchseite: Scope schränkt EINE Suche gezielt auf
+             ein Feld ein (kein Query-Syntax wie "tag:linux"), Filter grenzt
+             unabhängig vom Suchtext nach Kategorie/Tags ein (funktioniert auch
+             bei leerem Suchfeld). -->
+        <div class="search-controls-row">
+          <select id="searchScope" class="search-scope-select" aria-label="Suchbereich" title="Suchbereich">
+            <option value="all">Alle</option>
+            <option value="title">Titel</option>
+            <option value="body">Inhalt</option>
+            <option value="tags">Tags</option>
+            <option value="categories">Kategorie</option>
+          </select>
+          <button type="button" id="searchFilterBtn" class="search-filter-btn" aria-haspopup="true" aria-expanded="false" title="Nach Kategorie/Tags filtern">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            <span>Filter</span>
+            <span class="search-filter-count" id="searchFilterCount" style="display:none;">0</span>
+          </button>
+          <div class="search-filter-panel" id="searchFilterPanel" style="display:none;"></div>
+        </div>
+
         <div class="search-dropdown" id="searchDropdown" role="listbox" aria-label="Suchergebnisse" style="display:none;"></div>
       </div>
+      <div class="active-filters-row" id="activeFiltersRow" style="display:none;"></div>
 
       <div class="action-row">
         <button type="button" class="action-btn" id="segAddMain" data-segment="main">+ Haupt</button>

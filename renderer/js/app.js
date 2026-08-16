@@ -13,7 +13,7 @@ import { animateIn, animateOut } from './motion.js';
 import { manageModalDialog, closeManagedDialogs, showMessageDialog, showConfirmDialog } from './dialog.js';
 import { initEllipsisTooltips } from './tooltip.js';
 import { openNoteInEditor, openIncomingInEditor, openNoteDraftInEditor, saveNow, saveUntilClean, isDirty, getOpenRelPath, retargetOpenNote, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, renderMarkdownForExport, setEditorContent, jumpToMatchInEditor, focusEditor, setSyncScrollEnabled, setAutoSaveSeconds, openDocumentSearch } from './editor.js';
-import { rebuildIndex, getSearchState, search as searchNotes, searchWithDetails } from './search.js';
+import { rebuildIndex, getSearchState, search as searchNotes, searchWithDetails, getFilterOptions, SEARCH_SCOPES } from './search.js';
 import { findBrokenWikiLinks, findNotesWithoutTags, findEmptyNotes } from './knowledge-audit.js';
 
 // ---------------------------------------------------------------------------
@@ -44,6 +44,11 @@ const els = {
   navSearch: document.getElementById('navSearch'),
   searchDropdown: document.getElementById('searchDropdown'),
   searchClear: document.getElementById('searchClear'),
+  searchScope: document.getElementById('searchScope'),
+  searchFilterBtn: document.getElementById('searchFilterBtn'),
+  searchFilterPanel: document.getElementById('searchFilterPanel'),
+  searchFilterCount: document.getElementById('searchFilterCount'),
+  activeFiltersRow: document.getElementById('activeFiltersRow'),
   navTree: document.getElementById('navTree'),
   homeLink: document.getElementById('homeLink'),
   incomingLink: document.getElementById('incomingLink'),
@@ -2404,6 +2409,47 @@ els.searchClear.addEventListener('click', () => {
 // durchsucht das GESAMTE Wiki, die Editor-Suche nur die gerade offene Notiz.
 let searchDropdownIndex = -1;
 let currentSearchResults = [];
+// 'results' (Treffer der aktuellen Suche/Filter) oder 'history' (zuletzt
+// gesuchte Begriffe) — steuert u. a., ob closeSearchDropdown() den Begriff
+// in den Verlauf schreibt (siehe closeSearchDropdown weiter unten).
+let currentDropdownMode = 'results';
+let filterPanelOpen = false;
+
+// Suchbereich (Schritt B1): 'all' | 'title' | 'body' | 'tags' | 'categories'.
+// Bewusst nur ein einfacher Auswahlwert, keine Query-Syntax.
+let searchScope = 'all';
+
+// Kategorie ist Einfachauswahl (eine Notiz liegt in genau einem Kategoriepfad),
+// Tags sind eine Liste (UND-verknüpft, siehe docMatchesFilters in search.js).
+let activeFilters = { category: '', tags: [] };
+
+function hasActiveFilters() {
+  return Boolean(activeFilters.category || activeFilters.tags.length);
+}
+
+// Suchverlauf (Schritt B1): lokal je Projekt gespeichert über
+// fs.setProjectSetting — dasselbe Muster wie sidebarWidth/dashboardSections/
+// splitEditorWidth, keine neue Speicherform. state.project.config wird nach
+// jedem setProjectSetting automatisch aktualisiert (siehe
+// applyPersistedProjectConfig oben), deshalb hier bewusst KEIN eigener
+// Zwischenstand — immer frisch aus state.project lesen, sonst könnte ein
+// Rennen mit dem asynchronen Schreiben einen veralteten Stand zeigen.
+const MAX_SEARCH_HISTORY = 10;
+
+function getSearchHistory() {
+  return Array.isArray(state.project?.config?.searchHistory) ? state.project.config.searchHistory : [];
+}
+
+function addSearchHistoryEntry(term) {
+  const trimmed = term.trim();
+  if (!trimmed) return;
+  const next = [trimmed, ...getSearchHistory().filter(t => t !== trimmed)].slice(0, MAX_SEARCH_HISTORY);
+  fs.setProjectSetting('searchHistory', next).catch(() => {});
+}
+
+function clearSearchHistory() {
+  fs.setProjectSetting('searchHistory', []).catch(() => {});
+}
 
 function normalizeHighlightText(value) {
   return String(value || '')
@@ -2483,8 +2529,10 @@ function setSearchDropdownExpanded(expanded) {
 }
 
 function renderSearchDropdown(query) {
+  if (filterPanelOpen) hideFilterPanelOnly();
   const searchState = getSearchState();
   currentSearchResults = [];
+  currentDropdownMode = 'results';
   searchDropdownIndex = -1;
   els.navSearch.removeAttribute('aria-activedescendant');
   els.searchDropdown.removeAttribute('aria-busy');
@@ -2495,10 +2543,13 @@ function renderSearchDropdown(query) {
   } else if (searchState === 'error') {
     els.searchDropdown.innerHTML = '<div class="search-dropdown-empty" role="status">Die Suche konnte nicht vorbereitet werden.</div>';
   } else {
-    const detailedResults = searchWithDetails(query);
+    const detailedResults = searchWithDetails(query, 30, { fields: SEARCH_SCOPES[searchScope], filters: activeFilters });
     currentSearchResults = detailedResults.results;
     if (currentSearchResults.length === 0) {
-      els.searchDropdown.innerHTML = `<div class="search-dropdown-empty" role="status">Keine Treffer für „${escapeHtml(query)}“</div>`;
+      const emptyLabel = query
+        ? `Keine Treffer für „${escapeHtml(query)}“`
+        : 'Keine Notizen entsprechen den aktiven Filtern';
+      els.searchDropdown.innerHTML = `<div class="search-dropdown-empty" role="status">${emptyLabel}</div>`;
     } else {
       const resultHtml = currentSearchResults.map((r, i) => `
         <button type="button" class="search-result" id="search-option-${i}" role="option" aria-selected="false" tabindex="-1" data-index="${i}">
@@ -2532,11 +2583,21 @@ function renderSearchDropdown(query) {
 
 function refreshSearchDropdownForCurrentQuery() {
   const query = els.navSearch.value.trim();
-  if (query) renderSearchDropdown(query);
+  if (query || (currentDropdownMode === 'results' && hasActiveFilters())) renderSearchDropdown(query);
 }
 
+// Suchverlauf: der zuletzt gezeigte Treffer-Begriff wird erst beim
+// SCHLIESSEN des Dropdowns gespeichert (Klick auf Treffer, Escape, Klick
+// außerhalb) — nicht bei jedem Tastenanschlag. So landet nur der Begriff im
+// Verlauf, den der Nutzer tatsächlich "fertig gesucht" hat, statt jeder
+// Zwischenstufe. Im 'history'-Modus (Verlauf wird gerade selbst angezeigt)
+// gibt es nichts Neues zu speichern.
 function closeSearchDropdown() {
   if (!searchDropdownOpen) return;
+  if (currentDropdownMode === 'results') {
+    const term = els.navSearch.value.trim();
+    if (term) addSearchHistoryEntry(term);
+  }
   searchDropdownOpen = false;
   setSearchDropdownExpanded(false);
   animateOut(els.searchDropdown, () => {
@@ -2544,6 +2605,161 @@ function closeSearchDropdown() {
     els.searchDropdown.innerHTML = '';
   });
   searchDropdownIndex = -1;
+}
+
+// Zeigt die letzten Suchbegriffe im selben Dropdown wie die Treffer — kein
+// zweites Dropdown, keine eigene Seite. Nur erreichbar, solange das Suchfeld
+// leer ist und kein Filter aktiv ist (siehe input-/focus-Listener unten).
+function renderHistoryDropdown() {
+  if (filterPanelOpen) hideFilterPanelOnly();
+  currentSearchResults = [];
+  currentDropdownMode = 'history';
+  searchDropdownIndex = -1;
+  els.navSearch.removeAttribute('aria-activedescendant');
+  els.searchDropdown.removeAttribute('aria-busy');
+
+  const history = getSearchHistory();
+  const itemsHtml = history.map((term, i) => `
+    <button type="button" class="search-history-item" data-history-index="${i}">
+      <svg class="search-history-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      <span>${escapeHtml(term)}</span>
+    </button>`).join('');
+  els.searchDropdown.innerHTML = `
+    <div class="search-history-head">Zuletzt gesucht</div>
+    ${itemsHtml}
+    <button type="button" class="search-history-clear" id="searchHistoryClear">Verlauf löschen</button>
+  `;
+  els.searchDropdown.style.display = 'block';
+  setSearchDropdownExpanded(true);
+  if (!searchDropdownOpen) {
+    searchDropdownOpen = true;
+    animateIn(els.searchDropdown);
+  } else {
+    els.searchDropdown.style.opacity = '1';
+    els.searchDropdown.style.transform = 'translateY(0)';
+  }
+}
+
+// --- Filter-Panel (Kategorie/Tags) — kompaktes Popover, kein neuer Filterbalken ---
+function buildFilterPanelHtml() {
+  const { categories, tags } = getFilterOptions();
+  const categoryOptionsHtml = categories.map(c => `
+    <option value="${escapeHtml(c)}"${activeFilters.category === c ? ' selected' : ''}>${escapeHtml(c)}</option>`).join('');
+  const tagsHtml = tags.map(t => `
+    <button type="button" class="tag-chip${activeFilters.tags.includes(t) ? ' active' : ''}" data-filter-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join('');
+  return `
+    <div class="search-filter-group">
+      <span class="search-filter-label">Kategorie</span>
+      <select class="search-filter-select" id="filterCategorySelect">
+        <option value="">Alle</option>
+        ${categoryOptionsHtml}
+      </select>
+    </div>
+    <div class="search-filter-group">
+      <span class="search-filter-label">Tags</span>
+      <div class="search-filter-tags">${tagsHtml || '<span class="search-dropdown-empty" style="padding:2px 0;">Keine Tags vorhanden</span>'}</div>
+    </div>
+    <button type="button" class="search-filter-reset" id="searchFilterReset">Filter zurücksetzen</button>
+  `;
+}
+
+// Spiegelt activeFilters in den Filter-Button (aktiv-Zustand + Zähler) und
+// die entfernbare Chip-Zeile darunter — beides bewusst unabhängig davon, ob
+// das Suchdropdown gerade offen ist, damit Filter auch ohne Tippen sichtbar/
+// bedienbar bleiben.
+function updateFilterUi() {
+  const count = (activeFilters.category ? 1 : 0) + activeFilters.tags.length;
+  els.searchFilterBtn.classList.toggle('active', count > 0);
+  els.searchFilterCount.style.display = count > 0 ? 'inline-flex' : 'none';
+  els.searchFilterCount.textContent = String(count);
+
+  const chips = [];
+  if (activeFilters.category) {
+    const category = activeFilters.category;
+    chips.push({ label: `Kategorie: ${category}`, onRemove: () => { activeFilters.category = ''; onFiltersChanged(); } });
+  }
+  activeFilters.tags.forEach(tag => {
+    chips.push({ label: `Tag: ${tag}`, onRemove: () => { activeFilters.tags = activeFilters.tags.filter(t => t !== tag); onFiltersChanged(); } });
+  });
+
+  if (chips.length === 0) {
+    els.activeFiltersRow.style.display = 'none';
+    els.activeFiltersRow.innerHTML = '';
+    return;
+  }
+  els.activeFiltersRow.style.display = 'flex';
+  els.activeFiltersRow.innerHTML = chips.map((c, i) => `
+    <button type="button" class="active-filter-chip" data-chip-index="${i}">${escapeHtml(c.label)} <span class="afc-x">✕</span></button>`).join('');
+  els.activeFiltersRow.querySelectorAll('.active-filter-chip').forEach((btn, i) => {
+    btn.addEventListener('click', () => chips[i].onRemove());
+  });
+}
+
+// Aktualisiert Filter-Button/Chips sofort. Das Ergebnis-Dropdown wird nur
+// nachgezogen, wenn das Filter-Panel gerade NICHT offen ist — beide liegen
+// an derselben Stelle unterhalb der Scope/Filter-Zeile, ein gleichzeitig
+// offenes Panel + Dropdown würde sich sonst überlappen. Bei offenem Panel
+// zieht stattdessen closeFilterPanel() das Ergebnis-Dropdown nach.
+function onFiltersChanged() {
+  updateFilterUi();
+  if (filterPanelOpen) return;
+  const q = els.navSearch.value.trim();
+  if (q || hasActiveFilters()) renderSearchDropdown(q);
+  else closeSearchDropdown();
+}
+
+// Blendet nur die Panel-Elemente aus, OHNE das Ergebnis-Dropdown
+// nachzuziehen — für den Fall, dass gerade woanders (z. B. renderSearchDropdown)
+// bereits ein neuer Zustand aufgebaut wird und ein zusätzlicher Aufruf hier
+// nur zu doppelter Arbeit/Rekursion führen würde.
+function hideFilterPanelOnly() {
+  els.searchFilterPanel.style.display = 'none';
+  els.searchFilterBtn.setAttribute('aria-expanded', 'false');
+  filterPanelOpen = false;
+}
+
+function closeFilterPanel() {
+  hideFilterPanelOnly();
+  const q = els.navSearch.value.trim();
+  if (q || hasActiveFilters()) renderSearchDropdown(q);
+  else closeSearchDropdown();
+}
+
+function openFilterPanel() {
+  // Panel und Ergebnis-Dropdown erscheinen an derselben Stelle unterhalb der
+  // Scope/Filter-Zeile — ein offenes Dropdown wird deshalb vorher regulär
+  // geschlossen (inkl. Verlaufs-Eintrag, falls zutreffend).
+  if (searchDropdownOpen) closeSearchDropdown();
+  els.searchFilterPanel.innerHTML = buildFilterPanelHtml();
+  els.searchFilterPanel.style.display = 'block';
+  els.searchFilterBtn.setAttribute('aria-expanded', 'true');
+  filterPanelOpen = true;
+
+  els.searchFilterPanel.querySelector('#filterCategorySelect').addEventListener('change', (e) => {
+    activeFilters.category = e.target.value;
+    onFiltersChanged();
+  });
+  els.searchFilterPanel.querySelectorAll('[data-filter-tag]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // Bewusst NUR die eigene active-Klasse umschalten statt das Panel per
+      // openFilterPanel() neu zu zeichnen: ein innerHTML-Ersatz MITTEN im
+      // eigenen Click-Handler hängt den gerade geklickten Button noch
+      // während der Bubbling-Phase aus — der document-weite Außerhalb-Klick-
+      // Listener (siehe unten) sieht dadurch fälschlich "Ziel nicht mehr im
+      // Panel enthalten" und schließt das Panel sofort wieder.
+      const tag = btn.dataset.filterTag;
+      activeFilters.tags = activeFilters.tags.includes(tag)
+        ? activeFilters.tags.filter(t => t !== tag)
+        : [...activeFilters.tags, tag];
+      btn.classList.toggle('active', activeFilters.tags.includes(tag));
+      onFiltersChanged();
+    });
+  });
+  els.searchFilterPanel.querySelector('#searchFilterReset').addEventListener('click', () => {
+    activeFilters = { category: '', tags: [] };
+    onFiltersChanged();
+    closeFilterPanel();
+  });
 }
 
 function updateSearchDropdownActive({ keepVisible = false } = {}) {
@@ -2586,8 +2802,33 @@ async function openSearchResult(result, query) {
 els.navSearch.addEventListener('input', () => {
   const q = els.navSearch.value.trim();
   els.navSearch.parentElement.classList.toggle('has-value', els.navSearch.value.length > 0);
-  if (!q) { closeSearchDropdown(); return; }
+  if (!q) {
+    // Leeres Suchfeld: Filter gehen vor (zeigen weiterhin die gefilterten
+    // Notizen), sonst — falls vorhanden — der Suchverlauf, sonst zu.
+    if (hasActiveFilters()) renderSearchDropdown('');
+    else if (getSearchHistory().length) renderHistoryDropdown();
+    else closeSearchDropdown();
+    return;
+  }
   renderSearchDropdown(q);
+});
+
+// Fokussieren eines leeren, filterlosen Suchfelds zeigt den Verlauf —
+// unauffällig (nichts sichtbar, bis das Feld aktiv genutzt wird), aber
+// auffindbar (kein Klick auf einen separaten Button nötig).
+els.navSearch.addEventListener('focus', () => {
+  const q = els.navSearch.value.trim();
+  if (!q && !hasActiveFilters() && !searchDropdownOpen && getSearchHistory().length) renderHistoryDropdown();
+});
+
+els.searchScope.addEventListener('change', () => {
+  searchScope = els.searchScope.value;
+  const q = els.navSearch.value.trim();
+  if (q) renderSearchDropdown(q);
+});
+
+els.searchFilterBtn.addEventListener('click', () => {
+  if (filterPanelOpen) closeFilterPanel(); else openFilterPanel();
 });
 
 els.navSearch.addEventListener('keydown', (e) => {
@@ -2622,10 +2863,32 @@ els.navSearch.addEventListener('keydown', (e) => {
 // regulären Click-Pfad, während Pfeiltasten + Enter den internen Auswahlindex
 // und aria-activedescendant gemeinsam steuern.
 els.searchDropdown.addEventListener('mousedown', (e) => {
-  if (e.target.closest('.search-result')) e.preventDefault();
+  if (e.target.closest('.search-result, .search-history-item, .search-history-clear')) e.preventDefault();
 });
 
 els.searchDropdown.addEventListener('click', (e) => {
+  // stopPropagation: history-Klick und Treffer-Klick ersetzen teils sofort
+  // das innerHTML des Dropdowns (neue Ergebnisse statt Verlauf). Bubbelt der
+  // Klick danach bis zum document-weiten Außerhalb-Klick-Listener durch,
+  // hängt dessen e.target (der bereits entfernte alte Button) nicht mehr im
+  // Dropdown — der Listener hielte den gerade erst geöffneten Zustand
+  // fälschlich für "außerhalb geklickt" und würde ihn sofort wieder schließen.
+  e.stopPropagation();
+  const historyItem = e.target.closest('.search-history-item');
+  if (historyItem) {
+    const term = getSearchHistory()[Number(historyItem.dataset.historyIndex)];
+    if (term) {
+      els.navSearch.value = term;
+      els.navSearch.parentElement.classList.add('has-value');
+      renderSearchDropdown(term);
+    }
+    return;
+  }
+  if (e.target.closest('#searchHistoryClear')) {
+    clearSearchHistory();
+    closeSearchDropdown();
+    return;
+  }
   const btn = e.target.closest('.search-result');
   if (!btn) return;
   const result = currentSearchResults[Number(btn.dataset.index)];
@@ -2633,7 +2896,14 @@ els.searchDropdown.addEventListener('click', (e) => {
 });
 
 document.addEventListener('click', (e) => {
-  if (!els.navSearch.parentElement.contains(e.target) && !els.searchDropdown.contains(e.target)) closeSearchDropdown();
+  // Der Filter-Button verwaltet Panel/Dropdown bereits selbst über seinen
+  // eigenen Klick-Handler (siehe els.searchFilterBtn oben) — ein Klick DARAUF
+  // zählt hier deshalb nicht als "außerhalb", sonst würde das gerade durch
+  // closeFilterPanel() geöffnete Ergebnis-Dropdown im selben Klick-Bubble
+  // sofort wieder geschlossen.
+  const clickedFilterBtn = els.searchFilterBtn.contains(e.target);
+  if (!clickedFilterBtn && !els.navSearch.parentElement.contains(e.target) && !els.searchDropdown.contains(e.target)) closeSearchDropdown();
+  if (filterPanelOpen && !clickedFilterBtn && !els.searchFilterPanel.contains(e.target)) closeFilterPanel();
 });
 
 document.addEventListener('keydown', (e) => {

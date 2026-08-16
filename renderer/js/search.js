@@ -49,9 +49,54 @@ export function getSearchState() {
   return searchState;
 }
 
-export function search(query) {
+// Suchbereich (Schritt B1): mappt die Auswahl in der Kopf-Suche direkt auf
+// die vier bereits vorhandenen FlexSearch-Felder (siehe vendor/search-bundle.js)
+// — kein eigener Query-Syntax, kein zweiter Suchmechanismus.
+export const SEARCH_SCOPES = {
+  all: ['title', 'body', 'tags', 'categories'],
+  title: ['title'],
+  body: ['body'],
+  tags: ['tags'],
+  categories: ['categories']
+};
+
+export function search(query, fields) {
   if (searchState !== 'ready') return [];
-  return index.search(query);
+  return index.search(query, undefined, fields);
+}
+
+// Prüft, ob ein Dokument zu den aktiven Kategorie-/Tag-Filtern passt.
+// Kategorie ist Einfachauswahl (Notizen liegen ohnehin in genau einem
+// Kategoriepfad), Tags sind UND-verknüpft (eine Notiz kann mehrere Tags
+// gleichzeitig tragen, alle ausgewählten müssen vorhanden sein).
+function docMatchesFilters(doc, filters) {
+  if (!doc) return false;
+  if (filters.category) {
+    const categoryPath = doc.categoryPath || [doc.mainCategory, doc.subCategory].filter(Boolean).join(' / ');
+    if (categoryPath !== filters.category) return false;
+  }
+  if (filters.tags && filters.tags.length) {
+    const docTags = Array.isArray(doc.tags) ? doc.tags : [];
+    if (!filters.tags.every(tag => docTags.includes(tag))) return false;
+  }
+  return true;
+}
+
+// Liefert alle im Wiki tatsächlich vergebenen Kategoriepfade und Tags, für
+// die Filter-Auswahl — direkt aus den bereits geladenen Suchdokumenten
+// abgeleitet, kein zusätzlicher Abruf/keine zweite Datenquelle nötig.
+export function getFilterOptions() {
+  const categories = new Set();
+  const tags = new Set();
+  for (const doc of docsByRelPath.values()) {
+    const categoryPath = doc.categoryPath || [doc.mainCategory, doc.subCategory].filter(Boolean).join(' / ');
+    if (categoryPath) categories.add(categoryPath);
+    (Array.isArray(doc.tags) ? doc.tags : []).forEach(tag => { if (tag) tags.add(tag); });
+  }
+  return {
+    categories: [...categories].sort((a, b) => a.localeCompare(b, 'de')),
+    tags: [...tags].sort((a, b) => a.localeCompare(b, 'de'))
+  };
 }
 
 // Entfernt Markdown-Syntax grob (für lesbare Ausschnitte) — bewusst simpel,
@@ -118,15 +163,35 @@ function hasDisplayMatch(text, query) {
 // Editor-Bundle). SNIPPET_RADIUS_CHARS ist bewusst einfach gehalten.
 const SNIPPET_RADIUS_CHARS = 60;
 
-export function searchWithDetails(query, limit = 30) {
+export function searchWithDetails(query, limit = 30, options = {}) {
   if (searchState !== 'ready') return { results: [], hasMore: false };
+
+  const q = String(query || '').trim();
+  const fields = options.fields;
+  const filters = options.filters || null;
+  const hasActiveFilters = Boolean(filters && (filters.category || (filters.tags && filters.tags.length)));
+
+  if (!q && !hasActiveFilters) return { results: [], hasMore: false };
+
+  // FlexSearch liefert bei leerem Suchtext grundsätzlich nichts (siehe
+  // search-entry.js) — damit Filter auch OHNE Suchtext funktionieren (z. B.
+  // leere Suche + Tag "Fedora" → alle Notizen mit diesem Tag), wird in diesem
+  // Fall direkt über die bereits geladenen Dokumente iteriert statt über den
+  // Suchindex. Kein zweiter Suchmechanismus — nur ein alternativer Einstieg
+  // in dieselben Dokumente, wenn FlexSearch selbst nicht greifen kann.
+  const candidateRelPaths = q
+    ? index.search(q, docsByRelPath.size, fields)
+    : [...docsByRelPath.keys()];
+
+  const filteredRelPaths = hasActiveFilters
+    ? candidateRelPaths.filter(relPath => docMatchesFilters(docsByRelPath.get(relPath), filters))
+    : candidateRelPaths;
 
   // Ein zusätzlicher Treffer genügt, um transparent anzuzeigen, dass die
   // sichtbare Liste begrenzt ist. Es entsteht weder Paginierung noch ein
   // zweiter Suchweg.
-  const relPaths = index.search(query, limit + 1);
-  const hasMore = relPaths.length > limit;
-  const visibleRelPaths = relPaths.slice(0, limit);
+  const hasMore = filteredRelPaths.length > limit;
+  const visibleRelPaths = filteredRelPaths.slice(0, limit);
 
   const results = visibleRelPaths.map(relPath => {
     const doc = docsByRelPath.get(relPath);

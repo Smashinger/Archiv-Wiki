@@ -2318,10 +2318,15 @@ function createSearchIndex() {
       }
     },
     // Gibt die relPaths aller Treffer zurück, ohne Duplikate, ohne Reihenfolge-Garantie.
-    search(query, limit = 50) {
+    // fields (Schritt B1 — Suchbereich): optionale Teilmenge der oben indexierten
+    // Felder, um die Suche gezielt auf z. B. nur "title" einzuschränken. FlexSearch
+    // unterstützt das bereits nativ über die index-Option — ohne fields wird wie
+    // bisher über alle vier Felder gesucht.
+    search(query, limit = 50, fields) {
       const q = String(query || "").trim();
       if (!q) return [];
-      const raw = index.search(q, { index: ["title", "body", "tags", "categories"], merge: true, limit });
+      const searchFields = Array.isArray(fields) && fields.length ? fields : ["title", "body", "tags", "categories"];
+      const raw = index.search(q, { index: searchFields, merge: true, limit });
       return raw.map((r) => r.id);
     }
   };

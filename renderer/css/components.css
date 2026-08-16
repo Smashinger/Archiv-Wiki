@@ -24,7 +24,8 @@
   50%, 100%{ opacity: 0; }
 }
 
-.search-wrap{ position:relative; width:100%; margin: 2px 0 14px; }
+.search-zone{ position:relative; width:100%; margin: 0 0 14px; }
+.search-wrap{ position:relative; width:100%; margin: 2px 0 0; }
 .search-wrap input{
   box-sizing:border-box; height:40px; width:100%;
   background: rgba(255,255,255,0.03); border: 1px solid var(--border-soft); color: var(--text-main);
@@ -104,6 +105,78 @@
   font-feature-settings: "liga" 0, "calt" 0;
 }
 .search-results-limit{ padding:9px 12px; border-top:1px solid var(--border-soft); color:var(--text-faint); font-family:var(--mono); font-size:9.5px; line-height:1.4; text-align:center; }
+
+/* --- Suchverlauf (Schritt B1): ersetzt die Treffer-Liste im selben Dropdown,
+   solange das Suchfeld leer ist und kein Filter aktiv ist — kein zweites
+   Dropdown, keine eigene Seite. --- */
+.search-history-head{ padding:9px 12px 4px; font-family: var(--mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; color: var(--text-faint); }
+.search-history-item{
+  display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:transparent; border:none;
+  border-bottom:1px solid var(--border-soft); padding:8px 12px; cursor:pointer; color: var(--text-main);
+  font-family: var(--mono); font-size:12px;
+}
+.search-history-item:hover{ background: var(--bg-elev); }
+.search-history-icon{ width:12px; height:12px; flex-shrink:0; stroke: var(--text-faint); }
+.search-history-clear{
+  display:block; width:100%; text-align:center; padding:9px; background:transparent; border:none;
+  color: var(--text-faint); font-family: var(--mono); font-size:10.5px; cursor:pointer;
+}
+.search-history-clear:hover{ color: var(--accent-color); }
+
+/* --- Suchbereich (Scope) + Filter (Schritt B1) — schmale zweite Zeile unter
+   dem Suchfeld, bewusst kompakt gehalten (kein neuer Filterbalken). --- */
+.search-controls-row{ position:relative; display:flex; gap:6px; margin: 0 0 10px; }
+.search-scope-select{
+  flex:1; min-width:0; box-sizing:border-box; height:28px;
+  background: var(--bg-elev); border:1px solid var(--border-soft); color: var(--text-muted);
+  font-family: var(--mono); font-size:10.5px; border-radius: var(--radius-sm); padding:0 4px; cursor:pointer;
+}
+.search-scope-select:hover, .search-scope-select:focus-visible{ color: var(--text-main); border-color: var(--accent-dim); }
+.search-filter-btn{
+  flex-shrink:0; display:flex; align-items:center; gap:4px; box-sizing:border-box; height:28px;
+  background: var(--bg-elev); border:1px solid var(--border-soft); color: var(--text-muted);
+  font-family: var(--mono); font-size:10.5px; border-radius: var(--radius-sm); padding:0 8px; cursor:pointer;
+}
+.search-filter-btn svg{ width:11px; height:11px; }
+.search-filter-btn:hover{ color: var(--text-main); border-color: var(--accent-dim); }
+.search-filter-btn.active{ color: var(--accent-color); border-color: var(--accent-dim); }
+.search-filter-count{
+  display:inline-flex; align-items:center; justify-content:center; min-width:14px; height:14px;
+  background: var(--accent-color); color:#fff; font-size:9px; border-radius:7px; padding:0 4px;
+}
+.search-filter-panel{
+  /* Volle Breite der search-zone statt fester Pixelbreite — bei der in
+     Schritt B5 festgelegten Mindest-Sidebarbreite (220px) würde ein fest
+     230px breites Panel sonst über den Fensterrand hinausragen. */
+  position:absolute; top: calc(100% + 4px); left:0; right:0; z-index:31;
+  background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgba(0,0,0,.45); padding:12px; max-height:320px; overflow-y:auto;
+}
+.search-filter-group{ margin-bottom:10px; }
+.search-filter-group:last-of-type{ margin-bottom:0; }
+.search-filter-label{ display:block; font-family: var(--mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; color: var(--text-faint); margin-bottom:5px; }
+.search-filter-select{
+  width:100%; box-sizing:border-box; height:30px; background: var(--bg-elev); border:1px solid var(--border-soft);
+  color: var(--text-main); font-family: var(--mono); font-size:11px; border-radius: var(--radius-sm); padding:0 6px;
+}
+.search-filter-tags{ display:flex; flex-wrap:wrap; gap:5px; }
+.search-filter-tags .tag-chip{ padding:4px 10px; font-size:11px; }
+.search-filter-reset{
+  display:block; width:100%; text-align:center; margin-top:10px; padding:6px; background:transparent;
+  border:1px solid var(--border-soft); color: var(--text-faint); font-family: var(--mono); font-size:10.5px;
+  border-radius: var(--radius-sm); cursor:pointer;
+}
+.search-filter-reset:hover{ color: var(--text-main); border-color: var(--accent-dim); }
+
+/* --- Aktive Filter als entfernbare Chips — gleiche Optik wie .tag-chip,
+   damit kein zweites visuelles Vokabular für "anklickbare Auswahl" entsteht. --- */
+.active-filters-row{ display:flex; flex-wrap:wrap; gap:5px; margin: -4px 0 10px; }
+.active-filter-chip{
+  display:inline-flex; align-items:center; gap:4px; background: var(--accent-soft); color: var(--accent-color);
+  font-family: var(--mono); font-size:10px; border-radius: var(--radius-sm); border:none; padding:3px 5px 3px 8px; cursor:pointer;
+}
+.active-filter-chip:hover{ filter:brightness(1.15); }
+.active-filter-chip .afc-x{ font-size:11px; opacity:.8; }
 
 /* --- Action-Row: drei gleich große Buttons nebeneinander. "+ Notiz" bleibt
    akzentfarben (Haupt-Aktion), "+ Haupt"/"+ Unter" gleichen sich dezent an
