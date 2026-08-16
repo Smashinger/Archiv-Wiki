@@ -329,6 +329,7 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
           <div class="close-dialog-options" id="stCloseBehaviorOptions">
             ${closeOptions.map(o => `<label class="close-dialog-option"><input type="radio" name="stCloseBehavior" value="${o.value}" ${closeBehavior === o.value ? 'checked' : ''}> ${escapeAttr(o.label)}</label>`).join('')}
           </div>
+          <p class="settings-hint">Legt fest, was der Schließen-Knopf des Fensters (X) tut. Im Tray bleibt Archiv-Wiki im Hintergrund aktiv und ist über das Tray-Symbol wieder erreichbar.</p>
         </div>
       </section>
 
@@ -920,19 +921,22 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
         <input type="checkbox" id="stUpdateCheckOnStart" ${updateSettings.checkOnStart ? 'checked' : ''}>
         <span>Beim Start automatisch nach Updates suchen</span>
       </label>
+      <p class="settings-hint">Prüft beim Start, ob eine neue Version verfügbar ist. Dabei wird noch nichts heruntergeladen.</p>
       <label class="settings-checkbox-row">
         <input type="checkbox" id="stUpdateAutoDownload" ${updateSettings.autoDownload ? 'checked' : ''}>
         <span>Verfügbare Updates automatisch herunterladen</span>
       </label>
+      <p class="settings-hint">Lädt ein verfügbares Update im Hintergrund herunter. Installiert wird es erst nach deiner Bestätigung.</p>
       <label class="settings-checkbox-row">
         <input type="checkbox" id="stUpdateConfirmDownload" ${updateSettings.confirmBeforeDownload ? 'checked' : ''}>
         <span>Vor jedem Download nachfragen</span>
       </label>
+      <p class="settings-hint">Fragt vor dem Herunterladen nach – hat Vorrang vor automatischem Herunterladen.</p>
       <label class="settings-checkbox-row">
         <input type="checkbox" checked disabled>
         <span>Vor dem Neustart immer nachfragen</span>
       </label>
-      <p class="settings-hint">Ist „Vor jedem Download nachfragen“ aktiviert, beginnt der Download erst nach deiner Bestätigung – auch wenn automatisches Herunterladen eingeschaltet ist. Archiv-Wiki installiert ein Update nie selbstständig und startet nie ohne Rückfrage neu.</p>
+      <p class="settings-hint">Immer aktiv: Archiv-Wiki startet nie von selbst neu, um ein Update zu installieren.</p>
     </div>
     </section>
   `;
@@ -1110,6 +1114,7 @@ async function renderWebClipperSection(el, config, updateSetting, context, lifec
 
     <section class="settings-group" aria-labelledby="stWebClipperModeGroup">
       <h4 id="stWebClipperModeGroup">Sammelmodus</h4>
+      <p class="settings-hint settings-group-description">Der Sammelmodus legt fest, was ein Clip enthält: markierten Text, nur den Link, die ganze Seite oder Bilder.</p>
       <label class="settings-field">
         <span>Standard-Sammelmodus</span>
         <select id="stWebClipperDefaultMode">
