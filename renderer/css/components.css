@@ -243,6 +243,11 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
    "Am häufigsten genutzt: ...", abwechselnd — ersetzt keine bestehende Zeile,
    ergänzt sie nur knapp, daher bewusst kleiner als .home-sub gehalten. */
 .home-context-line{ color: var(--text-faint); font-size:12.5px; margin: 0 0 2px; }
+/* "Weiterarbeiten" (B4, Nutzer-Feature): dieselbe Zeile ist jetzt zusätzlich
+   klickbar — Button-Reset auf das Aussehen von .home-context-line, gleiches
+   Hover-Prinzip wie .dashboard-show-more (Akzentfarbe statt eigenem Stil). */
+.home-continue-btn{ display:block; background:none; border:none; padding:0; font:inherit; text-align:left; cursor:pointer; transition: color .15s ease; }
+.home-continue-btn:hover, .home-continue-btn:focus-visible{ color: var(--accent-color); }
 .home-sub{ color: var(--text-muted); font-size: 14px; margin: 0 0 14px; }
 .dashboard-gear-btn{
   flex-shrink:0; width:30px; height:30px; border-radius:50%; border:1px solid var(--border);

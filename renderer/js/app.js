@@ -3601,10 +3601,15 @@ async function renderHome() {
     ? `Du hast diese Woche ${editedThisWeek} Seite${editedThisWeek === 1 ? '' : 'n'} bearbeitet.`
     : `${notes.length} Notiz${notes.length === 1 ? '' : 'en'} insgesamt.`;
 
-  // Stabile Kontextzeile: immer die zuletzt bearbeitete Notiz anzeigen.
-  // Die Aktivitätsinformation bleibt unverändert in der bestehenden Unterzeile.
-  const contextLine = recentNotes[0]
-    ? `Zuletzt bearbeitet: ${escapeHtml(recentNotes[0].frontmatter?.title || recentNotes[0].name)}`
+  // "Weiterarbeiten" (B4, Nutzer-Feature): nutzt bewusst dieselbe Datenquelle
+  // wie "Zuletzt bearbeitet" (sortedByModified/recentNotes) — kein eigenes
+  // "zuletzt geöffnet"-Tracking, keine neuen Metadaten. Die bisher rein
+  // informative Kontextzeile wird dadurch zusätzlich zu einem Klick-Ziel für
+  // den direkten Wiedereinstieg. Ohne Notizen (recentNotes[0] fehlt) bleibt
+  // die Zeile leer statt eines kaputten/deaktivierten Knopfes.
+  const lastEditedNote = recentNotes[0] || null;
+  const contextLine = lastEditedNote
+    ? `▶ Weiterarbeiten: ${escapeHtml(lastEditedNote.frontmatter?.title || lastEditedNote.name)}`
     : '';
 
 
@@ -3719,7 +3724,7 @@ async function renderHome() {
       <div class="home-header-row">
         <div>
           <h1 class="home-heading">${greetingFor(state.project?.config?.wikiName)}</h1>
-          ${contextLine ? `<p class="home-context-line">${contextLine}</p>` : ''}
+          ${contextLine ? `<button type="button" class="home-context-line home-continue-btn" id="btnContinueWorking" title="Zuletzt bearbeitete Notiz wieder öffnen">${contextLine}</button>` : ''}
           <p class="home-sub">${subLine}</p>
         </div>
         <div class="dashboard-header-actions">
@@ -3745,6 +3750,11 @@ async function renderHome() {
   });
   document.getElementById('statChipTopics')?.addEventListener('click', () => { void navigateTo('#stats'); });
   document.getElementById('statChipTags')?.addEventListener('click', () => { void navigateTo('#tags'); });
+  // "Weiterarbeiten": identischer Navigationsweg wie jede andere Dashboard-
+  // Notizzeile (buildDashboardRow) und der Angepinnt-Streifen weiter unten.
+  document.getElementById('btnContinueWorking')?.addEventListener('click', () => {
+    if (lastEditedNote) void navigateTo('#note/' + encodeURIComponent(lastEditedNote.relPath));
+  });
 
   bindDashboardTipButton({
     noteCount: notes.length,
