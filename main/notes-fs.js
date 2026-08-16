@@ -237,6 +237,29 @@ function uniqueDirPath(parentDir, baseName) {
   return candidate;
 }
 
+// Template-Variablen (eingebaute und benutzerdefinierte Vorlagen laufen
+// beide über createNote unten, also genügt diese eine Stelle). Jede Variable
+// wird einzeln per festem Suchbegriff ersetzt (kein generischer
+// "{beliebigesWort}"-Parser) — dadurch bleiben unbekannte Platzhalter wie
+// {foo} unangetastet, auch bei mehrfachem oder gemischtem Vorkommen. Datum/
+// Zeit manuell (statt toLocaleDateString) zusammengesetzt, im selben
+// DD.MM.YYYY/HH:MM-Format wie die bestehenden Datumsanzeigen im Renderer
+// (siehe formatAbsoluteDate/formatTime in app.js) — new Date() liefert dabei
+// die lokale Systemzeit des Rechners, auf dem der Hauptprozess läuft.
+function resolveTemplateVariables(text, title) {
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(now.getFullYear());
+  const hh = String(now.getHours()).padStart(2, '0');
+  const min = String(now.getMinutes()).padStart(2, '0');
+  return text
+    .replace(/\{title\}/g, title)
+    .replace(/\{date\}/g, `${dd}.${mm}.${yyyy}`)
+    .replace(/\{time\}/g, `${hh}:${min}`)
+    .replace(/\{year\}/g, yyyy);
+}
+
 // ---------------------------------------------------------------------------
 // Notizen — dürfen ausschließlich in einer Unterkategorie (Tiefe 2) liegen
 // (strikte 3-Ebenen-Regel: Hauptkategorie → Unterkategorie → Notiz).
@@ -274,13 +297,14 @@ function createNote(projectPath, subCategoryRelPath, title, templateBody, option
     created: now,
     modified: now
   };
-  // Reguläre Vorlagen ersetzen weiterhin {title}. Ein explizit als literalBody
-  // markierter Inhalt (z. B. ein bearbeiteter Eingang-Entwurf) wird dagegen
-  // unverändert als Inhalt behandelt und nicht als Vorlage interpretiert.
+  // Reguläre Vorlagen ersetzen weiterhin {title}, zusätzlich {date}/{time}/
+  // {year}. Ein explizit als literalBody markierter Inhalt (z. B. ein
+  // bearbeiteter Eingang-Entwurf) wird dagegen unverändert als Inhalt
+  // behandelt und nicht als Vorlage interpretiert.
   const body = creationOptions.literalBody
     ? String(templateBody ?? '')
     : templateBody
-      ? templateBody.replace(/\{title\}/g, displayTitle)
+      ? resolveTemplateVariables(templateBody, displayTitle)
       : `# ${displayTitle}\n\n`;
   writeNoteRaw(filePath, frontmatter, body);
 
