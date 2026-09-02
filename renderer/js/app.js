@@ -466,14 +466,19 @@ function applySearchZonePlacement(design) {
 // denselben Elternknoten in derselben Reihenfolge ändert nichts.
 function applyTopbarActionsPlacement(design) {
   const actionsSlot = els.titlebarActionsSlot;
+  const helpSlot = document.getElementById('titlebarHelpSlot');
   if (!actionsSlot) return;
   [
     document.getElementById('btnBackupWarning'),
     els.btnTrash,
     els.btnSelectionMode,
-    els.btnBugReport,
-    els.btnAbout,
   ].filter(Boolean).forEach(el => actionsSlot.appendChild(el));
+  if (helpSlot) {
+    [
+      els.btnBugReport,
+      els.btnAbout,
+    ].filter(Boolean).forEach(el => helpSlot.appendChild(el));
+  }
 }
 
 // Design2 blendet .topbar komplett aus (siehe design2.css), worin

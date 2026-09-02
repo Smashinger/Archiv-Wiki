@@ -9,3 +9,9 @@ release/
 .wiki-config.json
 extension/distribution/chromium/*.pem
 extension/distribution/chromium/*.key
+.Codex-test-home/
+.Codex-test-wiki/
+.claude-test-home/
+.claude-test-wiki/
+.claude/
+.agents/
