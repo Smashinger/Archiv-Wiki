@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xbel version="1.0" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks" xmlns:mime="http://www.freedesktop.org/standards/shared-mime-info">
+  <bookmark href="file:///home/smashii/Downloads/33" added="2026-08-23T17:37:18.366386Z" modified="2026-08-25T21:26:03.199647Z" visited="2026-08-23T17:37:18.366386Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="inode/directory"/>
+        <bookmark:applications>
+          <bookmark:application name="electron" exec="'electron %u'" modified="2026-08-25T21:26:03.199645Z" count="2"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+  <bookmark href="https://addons.mozilla.org/de/firefox/addon/archiv-wiki-web-clipper/" added="2026-09-02T03:02:26.019000Z" modified="2026-09-02T03:02:26.019000Z" visited="2026-09-02T03:02:26.019000Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="application/octet-stream"/>
+        <bookmark:applications>
+          <bookmark:application name="org.mozilla.firefox" exec="firefox %u" modified="2026-09-02T03:02:26.019000Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
+</xbel>

@@ -1,0 +1,842 @@
+/* renderer/css/layout.css — Schritt 5
+   Grundgerüst der echten Oberfläche: feste Sidebar links, Topbar oben im
+   Hauptbereich (Breadcrumb + Menü), scrollbarer Inhaltsbereich darunter.
+   Auf schmalen Fenstern klappt die Sidebar per Burger-Button ein.
+*/
+
+/* --- Eigene Titelleiste (Custom Window Chrome) ---
+   Ersetzt die native KDE/KWin-Fensterdekoration und die native Electron-
+   Menüzeile (main.js: frame:false) durch einen einzigen, in die restliche
+   Anwendung integrierten oberen Fensterbereich. Bewusst KEINE zweite,
+   aufgesetzte Leiste: derselbe Fenster-Grundhintergrund (--bg-color), keine
+   eigene Schattenebene, nur ein hauchdünner --border-soft-Abschluss statt
+   einer harten Trennkante — soll wie der natürliche obere Abschluss des
+   Gesamtfensters wirken, aus einem Guss mit Sidebar und Hauptbereich. */
+.app-titlebar{
+  position: relative;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0;
+  height: var(--titlebar-h);
+  min-height: var(--titlebar-h);
+  padding: 0 8px 0 6px;
+  background: var(--bg-color);
+  border-bottom: 1px solid var(--border-soft);
+  -webkit-app-region: drag;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Classic Brand/Menu/Spacer/Controls — sichtbar in Classic, verborgen in Design2 */
+.app-titlebar-brand{
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-width: 0;
+  margin-right: 10px;
+  color: var(--text-muted);
+}
+.app-titlebar-icon{ width: 15px; height: 15px; flex-shrink: 0; display: block; }
+.app-titlebar-brand span{
+  font-family: var(--font-brand);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.app-titlebar-menu{
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+.app-titlebar-menu-item{
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 4px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s ease, color .15s ease;
+}
+.app-titlebar-menu-item:hover{ color: var(--text-main); background: var(--overlay-medium); }
+.app-titlebar-spacer{
+  flex: 1;
+  min-width: 12px;
+  -webkit-app-region: drag;
+}
+.app-titlebar-controls{
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+/* Design2 — dreigeteilte Komposition, nur unter [data-ui-design="design2"] sichtbar */
+[data-ui-design="design2"] .app-titlebar{
+  justify-content: space-between;
+  height: 38px;
+  min-height: 38px;
+  padding: 0 8px 0 6px;
+  background: var(--c-shell, var(--d2-chrome, var(--bg-color)));
+  border-bottom: none;
+  box-shadow: none;
+  gap: 0;
+}
+/* Gemeinsame Geometrie Zone 1 + Zone 3 — Classic und Design2 identisch */
+.app-titlebar-zone1,
+.app-titlebar-zone3{
+  display:flex; align-items:center; gap:1px; flex-shrink:0;
+  -webkit-app-region: no-drag;
+}
+.app-titlebar-zone1 .app-titlebar-btn,
+.app-titlebar-zone3 .app-titlebar-btn{ width:27px; height:27px; border-radius:4px; }
+.app-titlebar-zone1 .app-titlebar-btn svg,
+.app-titlebar-zone3 .app-titlebar-btn svg{ width:15px; height:15px; stroke-width:1.5; }
+.app-titlebar-divider{
+  width:1px; height:18px; background: var(--border-soft); flex-shrink:0; margin:0 12px;
+}
+[data-ui-design="design2"] .app-titlebar-divider{
+  background: var(--c-line2, var(--d2-line-strong, var(--border)));
+}
+.app-titlebar-appname{
+  font-family: 'Barlow Condensed', var(--sans); font-size:12px; font-weight:500;
+  letter-spacing:.16em; text-transform:uppercase; color: var(--text-muted);
+  white-space:nowrap;
+}
+[data-ui-design="design2"] .app-titlebar-appname{
+  color: var(--c-dim, var(--d2-dim));
+}
+[data-ui-design="design2"] .app-titlebar-zone2{
+  flex:1; display:flex; justify-content:center; align-items:center;
+  padding:0 24px; min-width:0;
+  /* drag statt no-drag — siehe die ausführliche Begründung bei der globalen
+     .app-titlebar-zone2-Regel weiter unten. Die Fensterbewegung darf nicht
+     davon abhängen, welches Design gerade aktiv ist. */
+  -webkit-app-region: drag;
+}
+[data-ui-design="design2"] .app-titlebar-zone2 .d2-titlebar-search-slot{ width:520px; max-width:100%; }
+[data-ui-design="design2"] .app-titlebar-zone2 .d2-titlebar-search-slot .search-wrap input{
+  width:520px; max-width:100%; height:26px; border-radius:5px;
+  background: var(--c-s2, var(--d2-surface-2)); border:1px solid transparent;
+  padding:0 50px 0 34px; font-family: var(--font-body, var(--sans)); font-size:12.5px;
+}
+[data-ui-design="design2"] .app-titlebar-zone2 .d2-titlebar-search-slot .search-wrap input::placeholder{ color: var(--c-faint, var(--d2-faint)); }
+[data-ui-design="design2"] .app-titlebar-zone2 .d2-titlebar-search-slot .search-wrap svg{ width:13px; height:13px; stroke-width:1.5; }
+[data-ui-design="design2"] .app-titlebar-zone2 .d2-titlebar-search-slot .search-wrap kbd{
+  font-family: var(--font-mono, var(--mono)); font-size:10px; letter-spacing:.04em;
+  color: var(--c-faint, var(--d2-faint)); background:transparent; border:none;
+  margin-left:auto;
+}
+[data-ui-design="design2"] .app-titlebar-zone3{
+  display:flex; align-items:center; gap:1px; flex-shrink:0;
+  -webkit-app-region: no-drag;
+}
+[data-ui-design="design2"] .app-titlebar-sync{
+  display:flex; align-items:center; gap:7px; padding:0 4px; flex-shrink:0;
+}
+[data-ui-design="design2"] .app-titlebar-sync-dot{
+  width:6px; height:6px; border-radius:50%; background: var(--c-blue, var(--d2-system)); flex-shrink:0;
+}
+[data-ui-design="design2"] .app-titlebar-sync-dot.is-amber{ background: var(--c-amber, #D9A05B); }
+[data-ui-design="design2"] .app-titlebar-sync-dot.is-faint{ background: var(--c-faint, var(--d2-faint)); }
+[data-ui-design="design2"] .app-titlebar-sync-dot.is-pulse{ animation: titlebar-sync-pulse 1.6s ease-in-out infinite; }
+@keyframes titlebar-sync-pulse{ 0%,100%{opacity:1} 50%{opacity:.4} }
+[data-ui-design="design2"] .app-titlebar-sync-text{
+  font-family: var(--font-mono, var(--mono)); font-size:10px; letter-spacing:.06em;
+  text-transform:uppercase; color: var(--c-muted, var(--d2-muted)); white-space:nowrap;
+}
+[data-ui-design="design2"] .app-titlebar-zone3 .app-titlebar-btn{ width:27px; height:27px; border-radius:4px; }
+[data-ui-design="design2"] .app-titlebar-zone3 .app-titlebar-btn svg{ width:15px; height:15px; stroke-width:1.5; }
+#titlebarSettingsBtn{
+  background: transparent; border: none;
+  color: var(--text-muted);
+}
+#titlebarSettingsBtn:hover{ background: var(--overlay-medium); color: var(--text-main); }
+#titlebarSettingsBtn svg{ width:14px; height:14px; }
+#titlebarSettingsBtn{ width:27px; height:27px; }
+[data-ui-design="design2"] #titlebarSettingsBtn{
+  color: var(--c-muted, var(--d2-muted));
+}
+[data-ui-design="design2"] #titlebarSettingsBtn:hover{ background: var(--c-s3, var(--d2-surface-3)); color: var(--c-text, var(--d2-text)); }
+.app-titlebar-btn svg.icon-moon{ display:none; }
+:root[data-theme="light"] .app-titlebar-btn svg.icon-sun{ display:none; }
+:root[data-theme="light"] .app-titlebar-btn svg.icon-moon{ display:block; }
+body.theme-light .app-titlebar-btn svg.icon-sun{ display:none; }
+body.theme-light .app-titlebar-btn svg.icon-moon{ display:block; }
+/* ---------------------------------------------------------------------------
+   GLOBALE TOPBAR — Geometrie für JEDES Oberflächen-Design
+   ---------------------------------------------------------------------------
+   Produktentscheidung: Die bisherige Design2-Topbar ist ab jetzt die
+   verbindliche Topbar für Classic, Design2 und alle künftigen Designs. Die
+   drei Zonen verwenden überall DIESELBE Geometrie; nur die Farben wechseln je
+   Design. Die Regeln hier tragen deshalb bewusst eine Klasse WENIGER als ihre
+   Design2-Gegenstücke ([data-ui-design="design2"] …) — dadurch gewinnen die
+   bestätigten Design2-Farbrollen unverändert weiter, während Classic dieselbe
+   Struktur mit seinen eigenen Classic-Tokens erhält. Künftige Designs
+   überschreiben nach demselben Muster nur ihre Farbrollen. */
+.app-titlebar-zone1{ display:flex; }
+.app-titlebar-zone3{ display:flex; }
+#titlebarSidebarBtn{ display:flex; }
+#titlebarSidebarBtn + .app-titlebar-divider{ display:block; }
+#titlebarSyncStatus{ display:flex; }
+/* Zone 2 — Suche in der Fenstermitte (global, siehe .d2-titlebar-search-slot
+   weiter unten).
+   -webkit-app-region: drag ist hier entscheidend für die Fensterbewegung.
+   Die Titelleiste ersetzt die native Fensterdekoration (main.js: frame:false),
+   das Verschieben des Fensters hängt deshalb allein daran, dass es in der
+   Leiste noch echte "drag"-Flächen gibt. Zone 2 trägt flex:1 und füllt damit
+   die gesamte Mitte — stünde sie auf "no-drag", bliebe zwischen den beiden
+   ohnehin "no-drag" gesetzten Zonen 1 und 3 KEINE ziehbare Fläche mehr übrig
+   und das Fenster ließe sich gar nicht mehr bewegen. Nur die Suchzone selbst
+   nimmt sich weiter "no-drag" (siehe unten), die freien Flächen links und
+   rechts davon bleiben Ziehfläche. */
+.app-titlebar-zone2{
+  flex:1; display:flex; justify-content:center; align-items:center;
+  padding:0 24px; min-width:0;
+  -webkit-app-region: drag;
+}
+/* Zone 3 — WebDAV-Status: Geometrie global, Farben aus den Classic-Tokens;
+   design2.css/oben stehende Design2-Regeln überschreiben nur die Farben. */
+.app-titlebar-sync{
+  display:flex; align-items:center; gap:7px; padding:0 4px; flex-shrink:0;
+}
+.app-titlebar-sync-dot{
+  width:6px; height:6px; border-radius:50%; background: var(--accent-color); flex-shrink:0;
+}
+.app-titlebar-sync-dot.is-amber{ background: var(--amber); }
+.app-titlebar-sync-dot.is-faint{ background: var(--text-faint); }
+.app-titlebar-sync-dot.is-pulse{ animation: titlebar-sync-pulse 1.6s ease-in-out infinite; }
+.app-titlebar-sync-text{
+  font-family: var(--mono); font-size:10px; letter-spacing:.06em;
+  text-transform:uppercase; color: var(--text-muted); white-space:nowrap;
+}
+/* Der Status ist zugleich der Zugang zu seinen Einstellungen und deshalb ein
+   echtes <button> (siehe index.html). Er soll aber weiterhin wie eine
+   Statusanzeige aussehen, nicht wie ein Knopf — deshalb Button-Reset plus ein
+   zurückhaltender Hover/Fokus als einziger Hinweis auf die Klickbarkeit. */
+.app-titlebar-sync{
+  border:none; background:transparent; cursor:pointer;
+  height:27px; border-radius:4px;
+  -webkit-app-region: no-drag;
+  transition: background .15s ease;
+}
+.app-titlebar-sync:hover{ background: var(--overlay-medium); }
+.app-titlebar-sync:focus-visible{ outline:2px solid var(--accent-dim); outline-offset:-2px; }
+[data-ui-design="design2"] .app-titlebar-sync:hover{ background: var(--c-s3, var(--d2-surface-3)); }
+[data-ui-design="design2"] .app-titlebar-sync:focus-visible{ outline:2px solid var(--c-blue, var(--d2-system)); outline-offset:-2px; }
+
+/* Globale Aktionsgruppe in Zone 3 (#titlebarActionsSlot) — nimmt die
+   bestehenden .icon-btn-Knoten aus der Classic-.topbar auf (siehe
+   applyTopbarActionsPlacement() in app.js). Sie bringen ihre Classic-
+   Kachel-Optik (Rahmen, 15px, .topbar-Größe) mit; hier werden sie auf
+   dasselbe Maß und dieselbe Zurückhaltung gebracht wie die übrigen
+   Titelleisten-Knöpfe (.app-titlebar-btn: 27×27, Radius 4, rahmenlos), damit
+   Zone 3 eine einzige, ruhige Reihe bleibt. Geometrie global, Farben je
+   Design über die jeweils vorhandenen Rollen. */
+.app-titlebar-actions{
+  display:flex; align-items:center; gap:1px; flex-shrink:0;
+  -webkit-app-region: no-drag;
+}
+.app-titlebar-actions .icon-btn{
+  width:27px; height:27px; padding:0; flex-shrink:0;
+  background:transparent; border:none; border-radius:4px;
+  color: var(--text-muted); font-size:13px;
+  transition: background .15s ease, color .15s ease;
+}
+.app-titlebar-actions .icon-btn:hover{
+  background: var(--overlay-medium); color: var(--text-main); border-color:transparent;
+}
+.app-titlebar-actions .icon-btn:focus-visible{ outline:2px solid var(--accent-dim); outline-offset:-2px; }
+.app-titlebar-actions .icon-btn.active{ background: var(--overlay-medium); color: var(--accent-color); border-color:transparent; }
+/* 15px und stroke-width 1.5 — exakt dieselben Werte wie die übrigen
+   Titelleisten-Symbole (siehe .app-titlebar-zone3 .app-titlebar-btn svg oben).
+   Die Symbole sind seit der globalen Topbar Inline-SVG (siehe index.html),
+   erben dadurch "currentColor" aus dem Knopf und brauchen weder die
+   .lib-icon-Filterfärbung noch eine eigene Größenregel je Zustand. */
+.app-titlebar-actions .icon-btn svg{ width:15px; height:15px; display:block; }
+/* Ausnahme: Die Backup-Warnung ist eine Warnung und behält ihre Signalfarbe
+   (components.css: .backup-warning-btn{ color: var(--red) }). Ohne diese
+   Zeile würde die obige, spezifischere Regel sie auf --text-muted ziehen und
+   der einzige Hinweis auf fehlgeschlagene Backups wäre farblich entwertet.
+   Erst seit dem Wechsel auf Inline-SVG wirkt diese Farbe überhaupt auf das
+   Symbol — vorher lag ein <img> darin, das "color" gar nicht auswerten kann. */
+.app-titlebar-actions .backup-warning-btn,
+.app-titlebar-actions .backup-warning-btn:hover{ color: var(--red); }
+[data-ui-design="design2"] .app-titlebar-actions .backup-warning-btn,
+[data-ui-design="design2"] .app-titlebar-actions .backup-warning-btn:hover{ color: var(--red); }
+/* Die Papierkorb-Zahl ist absolut am Knopf verankert und muss im engeren
+   27px-Raster etwas hereinrücken, sonst ragt sie in den Nachbarknopf. */
+.app-titlebar-actions .trash-count{ top:-1px; right:-1px; }
+[data-ui-design="design2"] .app-titlebar-actions .icon-btn{ color: var(--c-muted, var(--d2-muted)); }
+[data-ui-design="design2"] .app-titlebar-actions .icon-btn:hover{
+  background: var(--c-s3, var(--d2-surface-3)); color: var(--c-text, var(--d2-text));
+}
+[data-ui-design="design2"] .app-titlebar-actions .icon-btn:focus-visible{
+  outline:2px solid var(--c-blue, var(--d2-system)); outline-offset:-2px;
+}
+[data-ui-design="design2"] .app-titlebar-actions .icon-btn.active{
+  background: var(--c-s3, var(--d2-surface-3)); color: var(--accent-color);
+}
+/* Einheitliche Knopf-Zustände — Classic Basis (ungescopet), Design2 Override darunter */
+.app-titlebar-btn{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+  -webkit-app-region: no-drag;
+}
+.app-titlebar-btn:hover{ background: var(--overlay-medium); color: var(--text-main); }
+.app-titlebar-btn:focus-visible{ outline:2px solid var(--accent-dim); outline-offset:-2px; }
+.app-titlebar-btn:disabled{ color: var(--text-faint); opacity:.45; pointer-events:none; }
+.app-titlebar-btn.is-active{ background: var(--overlay-medium); color: var(--text-main); }
+.app-titlebar-btn-close:hover{ background: var(--red); color: #ffffff; }
+[data-ui-design="design2"] .app-titlebar-btn{ color: var(--c-muted, var(--d2-muted)); }
+[data-ui-design="design2"] .app-titlebar-btn:hover{ background: var(--c-s3, var(--d2-surface-3)); color: var(--c-text, var(--d2-text)); }
+[data-ui-design="design2"] .app-titlebar-btn:focus-visible{ outline:2px solid var(--c-blue, var(--d2-system)); outline-offset:-2px; }
+[data-ui-design="design2"] .app-titlebar-btn:disabled{ color: var(--c-faint, var(--d2-faint)); }
+[data-ui-design="design2"] .app-titlebar-btn.is-active{ background: var(--c-s3, var(--d2-surface-3)); color: var(--c-dim, var(--d2-dim)); }
+[data-ui-design="design2"] .app-titlebar-btn-close:hover{ background: var(--c-s3, var(--d2-surface-3)); color: var(--c-rose, #CF8A94); }
+[data-ui-design="design2"] .app-titlebar-btn-close:hover svg{ stroke: var(--c-rose, #CF8A94); }
+
+/* Design2-only Kommandoleisten-Elemente (Phase 5E) — in Classic per Default
+   unsichtbar; design2.css schaltet sie unter [data-ui-design="design2"]
+   wieder sichtbar (höhere Selektor-Spezifität, kein !important nötig). */
+.d2-titlebar-menu-btn,
+.d2-titlebar-more-btn,
+.d2-titlebar-newnote,
+.app-titlebar-spacer{ display:none !important; }
+/* ---------------------------------------------------------------------------
+   GLOBALE TOPBAR-SUCHE — eine einzige .search-zone in jedem Design
+   ---------------------------------------------------------------------------
+   Es gibt weiterhin nur EINEN Suchknoten: applySearchZonePlacement() in app.js
+   verschiebt die bestehende ".search-zone" (Suchfeld, Scope-/Filter-Zeile,
+   aktive Filter-Chips, Ergebnis-Dropdown) unabhängig vom aktiven Design in
+   "#d2TitlebarSearchSlot". Der Slot-Name bleibt aus Stabilitätsgründen
+   erhalten, obwohl er jetzt global verwendet wird.
+
+   Alles hier ist reine Struktur/Geometrie — die bisher unter Design2
+   bestätigte Suchdarstellung (520 × 26px, Radius 5px, 34px links / 50px
+   rechts, Lupe 13px, Textgröße 12,5px, Ctrl K in 10px Mono ohne Kästchen) —
+   plus die Classic-Farbrollen als Basis. Jede Regel trägt bewusst eine Klasse
+   WENIGER als ihr Design2-Gegenstück in design2.css bzw. weiter oben in
+   dieser Datei ([data-ui-design="design2"] .d2-titlebar-search-slot …),
+   damit die bestätigten Design2-Farben unverändert gewinnen.
+
+   Scope-/Filter-Zeile, Filter-Panel, aktive Filter und Ergebnisliste
+   erscheinen in JEDEM Design als Overlay UNTERHALB der Topbar (position:
+   absolute bzw. — für die beiden per syncSearchOverlayPosition() nach <body>
+   portalierten Knoten — position:fixed aus app.js). Dadurch kann die
+   Filterzeile die Topbar-Höhe niemals vergrößern. */
+.d2-titlebar-search-slot{
+  position:relative; display:flex; justify-content:center;
+  flex:1; min-width:0;
+}
+/* Fensterbewegung: Der Slot trägt flex:1 und füllt Zone 2 vollständig aus —
+   er muss deshalb selbst Ziehfläche bleiben, sonst wäre die Mitte der
+   Titelleiste trotz der drag-Zone darüber wieder komplett blockiert. Nur die
+   eigentliche .search-zone (max. 520px, mittig) nimmt sich "no-drag", damit
+   Suchfeld, Scope-Pillen und Filter normal bedienbar bleiben. Die freien
+   Flächen links und rechts der Suche sind damit Ziehfläche.
+   Höhere Spezifität (0,3,0) ist nötig, weil design2.css später geladen wird
+   und dort "[data-ui-design=design2] .d2-titlebar-search-slot" (0,2,0) noch
+   "no-drag" setzt — diese Datei bleibt bewusst unangetastet. */
+.app-titlebar .app-titlebar-zone2,
+.app-titlebar .app-titlebar-zone2 .d2-titlebar-search-slot{ -webkit-app-region: drag; }
+.d2-titlebar-search-slot .search-zone{
+  width:100%; max-width:520px; margin:0;
+  -webkit-app-region: no-drag;
+}
+/* Zusätzliche Ziehflächen in den ansonsten "no-drag" gesetzten Zonen 1 und 3:
+   Der Anwendungsname und die beiden Trennlinien sind reine Dekoration ohne
+   eigene Bedienfunktion und eignen sich deshalb als Angriffspunkt zum
+   Verschieben — dasselbe Verhalten wie bei einer nativen Titelzeile. */
+.app-titlebar-appname,
+.app-titlebar-divider{ -webkit-app-region: drag; }
+
+/* ---------------------------------------------------------------------------
+   GLOBALE TOPBAR IM SPERRBILDSCHIRM (body.app-locked, gesetzt von
+   setAppChromeInert() in app.js)
+   ---------------------------------------------------------------------------
+   Bei aktiver Sperre gibt es nichts zu bedienen außer dem Fenster selbst.
+   Sichtbar bleiben deshalb ausschließlich Minimieren, Wiederherstellen und
+   Schließen; alles andere — Anwendungsmenü, Sidebar-Umschalter, Anwendungs-
+   name, Suche, WebDAV-Status, Aktionsgruppe, Theme, Einstellungen und sämtliche
+   Trennlinien — verschwindet.
+
+   Rein visuell, KEIN Ersatz für die Zugriffssperre: die betroffenen Elemente
+   werden unabhängig davon weiterhin inert gesetzt (siehe
+   APP_LOCK_TITLEBAR_INERT_SELECTORS in app.js). display:none allein wäre keine
+   Sicherheitsmaßnahme — beides greift bewusst nebeneinander.
+
+   Die Leiste gibt außerdem ihre eigene Fläche und ihren unteren Abschluss auf.
+   Der Sperrbildschirm (.lock-screen, position:fixed; inset:0) liegt ohnehin
+   über die volle Fensterhöhe darunter, scheint durch die transparente Leiste
+   hindurch und ergibt so eine einzige geschlossene Fläche statt einer normalen
+   Anwendung mit vorgesetztem Sperrbildschirm. Das gilt in jedem Design: unter
+   Design2 hat die Leiste sonst ihren eigenen, dunkleren Chrome-Ton und würde
+   sich sichtbar vom Sperrbildschirm absetzen. */
+body.app-locked .app-titlebar{
+  background: transparent;
+  border-bottom: none;
+  box-shadow: none;
+  /* Zone 1 und 2 sind ausgeblendet — ohne diese Zeile schöbe
+     "justify-content: space-between" die verbliebene Zone 3 nach LINKS,
+     weil sie dann das einzige sichtbare Kind ist. */
+  justify-content: flex-end;
+}
+body.app-locked .app-titlebar-zone1,
+body.app-locked .app-titlebar-zone2,
+body.app-locked .app-titlebar-divider,
+body.app-locked #titlebarSyncStatus,
+body.app-locked #titlebarActionsSlot,
+body.app-locked #titlebarThemeBtn,
+body.app-locked #titlebarSettingsBtn{ display:none; }
+.d2-titlebar-search-slot .search-wrap{ margin:0; }
+/* 520px Zielbreite, aber max-width:100% — Archiv-Wiki-Fenster sind frei in
+   der Breite; bei 960px schrumpft das Feld dadurch automatisch mit, statt die
+   Fensterknöpfe zu verdrängen. */
+.d2-titlebar-search-slot .search-wrap input{
+  width:520px; max-width:100%; height:26px; border-radius:5px;
+  padding:0 50px 0 34px; font-size:12.5px;
+  background: var(--overlay-weak); border:1px solid var(--border-soft); color: var(--text-main);
+}
+.d2-titlebar-search-slot .search-wrap input::placeholder{ color: var(--text-faint); }
+.d2-titlebar-search-slot .search-wrap input:focus,
+.d2-titlebar-search-slot .search-wrap input:focus-visible{
+  outline:none; border-color: var(--accent-dim);
+}
+/* Lupe 13px bei left:12px (components.css) → exakt 9px Abstand zum Text bei
+   34px linkem Innenabstand. */
+.d2-titlebar-search-slot .search-wrap svg{
+  width:13px; height:13px; stroke-width:1.5; stroke: var(--text-faint);
+}
+.d2-titlebar-search-slot .search-wrap:focus-within svg{ stroke: var(--accent-color); }
+/* Ctrl K: 10px Mono, ohne Kästchen. */
+.d2-titlebar-search-slot .search-wrap kbd{
+  font-family: var(--mono); font-size:10px; letter-spacing:.04em;
+  color: var(--text-faint); background:transparent;
+  border:none; border-radius:0; padding:0;
+}
+/* Suchbereich: dieselbe eine Werteliste (#searchScope) — global als kompakte
+   Pillen bedient, wie bisher unter Design2 bestätigt. Das echte <select>
+   bleibt als gemeinsame Wertequelle im DOM, nur unsichtbar. */
+.d2-titlebar-search-slot .search-scope-select{ display:none; }
+.d2-titlebar-search-slot .d2-search-scope-pills{
+  display:flex; flex:1; min-width:0; gap:2px;
+}
+.d2-titlebar-search-slot .d2-search-scope-pills button{
+  flex:1 1 auto; min-width:0; height:20px; padding:0 6px;
+  background: var(--bg-elev); border:0; border-radius: var(--radius-sm);
+  color: var(--text-muted); font-family: var(--mono); font-size:11.5px; font-weight:500;
+  white-space:nowrap; cursor:pointer;
+}
+.d2-titlebar-search-slot .d2-search-scope-pills button:hover{
+  background: var(--overlay-medium); color: var(--text-main);
+}
+.d2-titlebar-search-slot .d2-search-scope-pills button.active{
+  background: var(--accent-soft); color: var(--accent-color);
+}
+.d2-titlebar-search-slot .d2-search-scope-pills button:focus-visible{
+  outline:2px solid var(--accent-dim); outline-offset:-2px;
+}
+.d2-titlebar-search-slot .search-filter-btn{
+  height:20px; padding:0 6px; gap:3px;
+  font-family: var(--mono); font-size:11.5px; font-weight:500;
+  background: var(--bg-elev); border:0; color: var(--text-muted);
+  border-radius: var(--radius-sm);
+}
+.d2-titlebar-search-slot .search-filter-btn svg{ width:10px; height:10px; }
+.d2-titlebar-search-slot .search-filter-btn:hover{
+  background: var(--overlay-medium); color: var(--text-main);
+}
+.d2-titlebar-search-slot .search-filter-btn.active{
+  background: var(--accent-soft); color: var(--accent-color);
+}
+.d2-titlebar-search-slot .search-filter-btn:focus-visible{
+  outline:2px solid var(--accent-dim); outline-offset:0;
+}
+/* Scope-/Filter-Zeile als schwebende Karte unterhalb der Topbar. Sichtbar
+   über zwei bereits bestehende Zustände: :focus-within der Suchzone und das
+   von app.js gepflegte aria-expanded des Filter-Knopfes (nötig, weil das
+   Filter-Panel selbst nach <body> portaliert wird und der Fokus die Suchzone
+   dabei real verlässt). Kein neuer JS-Zustand, keine zweite Filterlogik. */
+.d2-titlebar-search-slot .search-controls-row{ display:none; }
+.d2-titlebar-search-slot .search-zone:focus-within .search-controls-row,
+.d2-titlebar-search-slot .search-zone:has(.search-filter-btn[aria-expanded="true"]) .search-controls-row{
+  display:flex;
+  position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:50;
+  height:30px; box-sizing:border-box;
+  background: var(--bg-elev-2); border:1px solid var(--border);
+  border-radius: var(--radius-md); padding:4px; gap:2px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.45);
+  margin:0;
+}
+/* Die Chip-Zeile wird von updateFilterUi() bereits per inline style.display
+   gesteuert; ihre Kartenoptik gilt deshalb unconditional, sobald sie
+   überhaupt sichtbar ist. Bei offenem Filter-Panel weicht sie wie bisher, um
+   nicht mit dem Panel um denselben Ankerbereich zu konkurrieren. */
+.d2-titlebar-search-slot .active-filters-row{
+  position:absolute; top:calc(100% + 4px + 30px + 4px); left:0; right:0; z-index:50;
+  background: var(--bg-elev-2); border:1px solid var(--border);
+  border-radius: var(--radius-md); padding:4px 6px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.45);
+  margin:0;
+}
+.d2-titlebar-search-slot .search-zone:has(.search-filter-btn[aria-expanded="true"]) .active-filters-row{
+  display:none !important;
+}
+/* Beide Overlays werden von syncSearchOverlayPosition() nach <body>
+   portaliert und liegen dann NICHT mehr in .search-zone. Ihr z-index muss
+   deshalb global über Sidebar (40)/Topbar (20) liegen, aber unter jedem
+   Dialog/Kontextmenü (60–75, siehe components.css). ID-Selektoren, weil die
+   Classic-Basiswerte (30/31) in components.css nach dieser Datei geladen
+   werden. */
+#searchDropdown, #searchFilterPanel{ z-index:45; }
+#d2TitlebarAddNote, #d2TitlebarMoreBtn{ display:none !important; }
+[data-ui-design="design2"] #btnSync{ display:none !important; }
+[data-ui-design="design2"] .app-titlebar .app-titlebar-btn#titlebarThemeBtn + .app-titlebar-btn#titlebarThemeBtn{ display:none; }
+[data-ui-design="design2"] .app-titlebar > .app-titlebar-btn{ display:none !important; }
+[data-ui-design="design2"] .app-titlebar > #burgerBtn{ display:none !important; }
+
+/* #burgerBtn trägt zwei rein visuelle Glyphen im selben, einen Knopf (siehe
+   index.html) — Classic behält das bisherige Hamburger-Unicode-Zeichen
+   (".burger-classic-glyph", kein eigenes Hide nötig, da es das einzige
+   sichtbare Element bleibt) und blendet die Design2-Sidebar-Panel-Glyphe
+   hier per Default aus; design2.css kehrt es um (siehe dort). */
+.burger-d2-icon{ display:none; }
+
+/* Der globale Status-Host ist ausschließlich für Design2 bestimmt. Sämtliche
+   sichtbaren Regeln und Layoutauswirkungen liegen deshalb in design2.css
+   unter der zentralen Root-Markierung; Classic bleibt hier bei display:none. */
+.global-statusbar{ display:none; }
+
+/* ---------------------------------------------------------------------------
+   Durchgehende Trennlinien im Fensterrahmen entfernen
+   ---------------------------------------------------------------------------
+   Zusammen mit dem entfallenen "border-right" der Sidebar (siehe oben) sind
+   das die beiden Linien, die sich sonst ununterbrochen durch das ganze
+   Fenster ziehen:
+     1) der obere Abschluss der Statusleiste (waagerecht über die volle
+        Fensterbreite),
+     2) ".global-statusbar::before" — eine 1px-Linie bei "left: var(--sidebar-w)",
+        also die senkrechte Verlängerung der Sidebar-Kante durch die
+        Statusleiste hindurch.
+   Die Statusleiste bleibt durch ihre eigene Fläche (--d2-chrome) klar vom
+   Inhalt abgesetzt; die Linien sind dafür nicht nötig.
+   Höhere Spezifität, weil design2.css später geladen wird — die Datei selbst
+   bleibt unangetastet. */
+body[data-ui-design="design2"] .global-statusbar{ border-top: 0; }
+body[data-ui-design="design2"] .global-statusbar::before{ display: none; }
+
+/* Statusleiste von der Sidebar-Breite entkoppeln.
+   Der linke Block stand auf "flex:0 1 calc(var(--sidebar-w) - 44px)" mit
+   "width" desselben Werts und "overflow:hidden" — er war damit exakt so breit
+   wie die Sidebar und schnitt seinen Text dort ab (real: bei 220px Sidebar
+   endete "zuletzt bearbeitet…" nach 176px), obwohl rechts daneben die halbe
+   Fensterbreite frei blieb. Sinn hatte diese Kopplung nur, solange die
+   senkrechte ::before-Linie die Leiste optisch an der Sidebar-Kante teilte;
+   ohne diese Linie verschenkt sie nur noch Platz.
+
+   Der linke Block richtet sich jetzt nach seinem Inhalt und schrumpft erst,
+   wenn der Platz wirklich knapp wird. Das ist keine neue Regel, sondern exakt
+   das Verhalten, das design2.css für Fokusmodus und eingeklappte Sidebar
+   ohnehin schon vorsieht ("flex:0 1 auto; width:auto; margin-right:28px") —
+   hier auf alle Zustände ausgeweitet. Die Leiste ist damit unabhängig von der
+   Sidebar-Breite. */
+body[data-ui-design="design2"] .global-statusbar-left{
+  flex: 0 1 auto; width: auto; margin-right: 28px;
+}
+
+/* Update-Status im Sidebar-Fuß: Unter Design2 steht derselbe Wert bereits in
+   der Statusleiste unten rechts (applyCentralUpdateStatus() befüllt beide
+   Anzeigen aus derselben Quelle) — die Sidebar-Zeile ist dort reine
+   Dopplung und entfällt. Classic behält sie unverändert: dort ist die
+   Statusleiste ausgeblendet (siehe oben), die Sidebar-Zeile ist die einzige
+   dauerhafte Update-Anzeige UND der einzige Klickweg zum Öffnen der
+   Release-Seite bzw. zum Installieren (#updateStatusTop, siehe app.js).
+   Die Knoten bleiben in beiden Designs im DOM und werden weiter befüllt —
+   keine Fallunterscheidung in der Update-Logik nötig. */
+body[data-ui-design="design2"] .sidebar .sidebar-foot-row{ display: none; }
+
+/* min-height berücksichtigt die eigene Titelleiste (.app-titlebar,
+   Custom Window Chrome) oberhalb von .shell — ohne diesen Abzug würde die
+   Seite insgesamt um genau --titlebar-h zu hoch werden (Body-Scrollbar). */
+.shell{ display: flex; min-height: calc(100vh - var(--titlebar-h)); }
+
+.sidebar{
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  background: var(--bg-elev);
+  /* Bewusst KEIN border-right: Die Sidebar grenzt sich allein über ihre
+     eigene Fläche (--bg-elev bzw. --d2-chrome) vom Hauptbereich ab, ohne
+     durchgehende Trennlinie über die volle Fensterhöhe.
+     Die Größenänderung ist davon unberührt: #sidebarResizeHandle ist ein
+     eigenes, 6px breites Element am rechten Rand (siehe unten) und hing nie
+     an diesem Rahmen. */
+  padding: var(--density-sidebar-pad);
+  position: fixed;
+  /* top statt 0: die fest positionierte Sidebar ist relativ zum Viewport
+     verankert, nicht zu .shell — muss deshalb explizit unterhalb der
+     Titelleiste beginnen. */
+  top: var(--titlebar-h); left: 0; bottom: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  transition: transform .18s ease;
+}
+/* Sidebar-Breite frei einstellbar (Nutzer-Feature): dünner, unauffälliger
+   Ziehbereich am rechten Rand — bewusst schmal und transparent im Ruhezustand
+   (nur der Mauszeiger verrät, dass hier gezogen werden kann), erst bei
+   Hover/aktivem Ziehen dezent mit der Akzentfarbe sichtbar. */
+.sidebar-resize-handle{
+  position: absolute; top: 0; bottom: 0; right: -3px; width: 6px;
+  cursor: col-resize; z-index: 41; background: transparent;
+}
+.sidebar-resize-handle:hover, .sidebar-resize-handle.resizing{ background: var(--accent-dim); opacity: .4; }
+/* Während des aktiven Ziehens: keine Übergangsanimation, sonst hinkt die
+   Sidebar-Kante spürbar der Maus hinterher statt ihr direkt zu folgen. */
+body.sidebar-resizing .sidebar, body.sidebar-resizing .main-area{ transition: none; }
+/* Moderne, schmale Scrollleisten — konsistent in der gesamten Anwendung
+   (vorher nur in der Sidebar), angelehnt an Obsidian/VS Code/Discord: kein
+   auffälliger heller Spur-Hintergrund, halbtransparenter, dezent gerundeter
+   Balken, der beim Hover etwas deutlicher wird. */
+*::-webkit-scrollbar{ width: 8px; height: 8px; }
+*::-webkit-scrollbar-track{ background: transparent; }
+*::-webkit-scrollbar-thumb{ background: var(--scrollbar-thumb); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover{ background: var(--scrollbar-thumb-hover); background-clip: padding-box; }
+*::-webkit-scrollbar-corner{ background: transparent; }
+
+.sidebar-scroll{ flex: 1; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+
+.main-area{
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - var(--titlebar-h)); /* siehe .shell oben */
+  transition: margin-left .18s ease;
+}
+
+/* ---------------------------------------------------------------------------
+   Inhalts-Topbar (.topbar) — in ALLEN Designs entfernt
+   ---------------------------------------------------------------------------
+   Nach dem Umzug von Sidebar-Umschalter, Sync, Papierkorb, Mehrfachauswahl,
+   "Fehler melden", "Über" und Einstellungen in die globale Topbar blieben in
+   dieser 46px hohen Zeile nur noch der Breadcrumb und die Datumsanzeige übrig.
+
+   Der Breadcrumb wiederholte dabei in JEDER Ansicht etwas, das ohnehin schon
+   sichtbar ist: die Listenansichten tragen eine <h1> mit identischem Text
+   ("Archiv", "Tags", "Eingang", "Statistik", "Papierkorb", "Wissenspflege"),
+   die Tag-Ansicht hebt den aktiven Tag-Chip hervor, das Dashboard ist in der
+   Sidebar markiert, und bei einer offenen Notiz stehen Titel (Titelfeld) und
+   Kategorie (#noteCategoryBadge) bereits in der Dokumentkopfzeile — beim
+   Eingang-Detail zusätzlich die Herkunft als eigenes Meta-Label. Die Zeile
+   kostete damit 46px plus Trennlinie, ohne eine einzige Information
+   beizutragen.
+
+   Die Datumsanzeige (#topbarNoteDates) verliert nichts: sie wandert per
+   applyNoteDatesPlacement() in die vorhandene ".note-document-meta"-Zeile der
+   Notiz — unter Design2 war das ohnehin schon so, Classic zieht jetzt nach.
+
+   ".topbar" selbst bleibt als Element im DOM, ebenso #breadcrumb und
+   setBreadcrumb(): der Breadcrumb wird weiterhin an über 20 Stellen befüllt,
+   nur eben nicht mehr angezeigt. So bleibt diese Entscheidung eine reine
+   Sichtbarkeitsfrage und erzwingt kein Refactoring quer durch app.js.
+   Der zweite Selektor schlägt gezielt die "display:flex"-Regel aus
+   design2.css (0,2,0) — diese Datei bleibt unangetastet. */
+.topbar,
+body[data-ui-design="design2"] .topbar{ display: none; }
+/* design2.css setzt "--topbar-h: 46px" auf [data-ui-design="design2"] (0,1,0)
+   erneut. Ohne diesen spezifischeren Gegenwert (0,1,1) zöge die Design2-
+   Editor-Split-Rechnung weiterhin 46px für eine Zeile ab, die es nicht
+   mehr gibt — sichtbar als zu kurzer Editorbereich. */
+body[data-ui-design="design2"]{ --topbar-h: 0px; }
+.topbar{
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  align-items: center;
+  gap: 12px;
+  height: var(--topbar-h);
+  padding: 0 22px;
+  background: var(--bg-color);
+  border-bottom: 1px solid var(--border-soft);
+}
+[data-ui-design="design2"] .topbar{
+  background: var(--c-shell, var(--d2-chrome));
+  border-bottom: 1px solid var(--c-line, var(--d2-line));
+}
+.topbar .burger{
+  display: flex;
+  width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--bg-elev-2); color: var(--text-main); align-items: center; justify-content: center;
+  cursor: pointer; flex-shrink: 0;
+}
+.breadcrumb{
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text-faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.breadcrumb .crumb-current{ color: var(--text-muted); }
+.breadcrumb .crumb-sep{ margin: 0 6px; color: var(--border); }
+.topbar .spacer{ flex: 1; }
+.icon-btn{
+  width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--bg-elev-2); color: var(--text-muted); display: flex; align-items: center;
+  justify-content: center; cursor: pointer; font-size: 15px; flex-shrink: 0;
+}
+.icon-btn:hover{ color: var(--accent-color); border-color: var(--accent-dim); }
+/* D2 / Block 1: allgemeiner aktiv-Zustand für Topbar-Icon-Buttons (bisher
+   gab es nur die note-toolbar-spezifische Variante) — genutzt vom
+   Mehrfachauswahl-Umschalter. */
+.icon-btn.active{ color: var(--accent-color); border-color: var(--accent-dim); background: var(--bg-elev); }
+.topbar-icon-divider{ width:1px; height:20px; background: var(--border); flex-shrink:0; margin: 0 2px; }
+/* Classic-Duplikate: Sidebar-Umschalter, Sync und Einstellungen sitzen seit
+   der globalen Topbar dauerhaft dort und waren in der Classic-.topbar
+   dadurch ein zweites Mal sichtbar. Bewusst NUR visuell ausgeblendet, NICHT
+   aus dem DOM entfernt — die drei Topbar-Pendants lösen jeweils genau diesen
+   Knoten per Klick-Weiterleitung aus (siehe app.js):
+     #titlebarSidebarBtn   → #burgerBtn
+     #titlebarSyncStatus   → #btnSync
+     #titlebarSettingsBtn  → #btnSettings
+   Knoten, Handler, Sidebar-, Sync- und Einstellungslogik bleiben unverändert
+   erhalten. display:none statt visibility:hidden, damit kein leerer Abstand
+   zurückbleibt (.topbar nutzt flex gap, der nur zwischen sichtbaren Elementen
+   entsteht) — das gilt insbesondere für die Trennlinie.
+   Ausschließlich innerhalb .topbar gescopet, damit ausschließlich diese
+   Duplikate betroffen sind. In .topbar bleiben damit sichtbar: Breadcrumb und
+   Datumsanzeige. */
+.topbar #burgerBtn,
+.topbar #btnSync,
+.topbar #btnSettings,
+.topbar .topbar-icon-divider{ display:none; }
+
+/* Dashboard-Sperre: Der Schloss-Knopf entfällt in JEDEM Design. Die Funktion
+   selbst bleibt vollständig erhalten und ist weiterhin über das Regler-Symbol
+   daneben (#dashboardGearBtn → "Dashboard anpassen") als Kontrollkästchen
+   "Dashboard sperren" (#dsLocked) erreichbar; sie schreibt denselben
+   config.dashboardLocked-Wert über dieselbe toggleDashboardLock()-Logik.
+   Der Knoten bleibt im DOM, weil renderHome()/renderHomeDesign2() ihn
+   weiterhin erzeugen und beschriften — nur unsichtbar, kein Umbau der
+   Dashboard-Renderer. Entfällt dadurch: der Rechtsklick auf das Schloss
+   ("Dashboard-Aktionen"-Kontextmenü). */
+#dashboardLockBtn{ display:none; }
+.trash-btn{ position: relative; }
+.trash-count{
+  position: absolute; top: -5px; right: -5px; min-width: 15px; height: 15px;
+  padding: 0 3px; border-radius: 999px; background: var(--bg-elev); border: 1px solid var(--border);
+  color: var(--text-faint); font-family: var(--mono); font-size: 9px; line-height: 13px; text-align: center;
+}
+
+.content-scroll{
+  flex: 1;
+  padding: 32px 40px 80px;
+  width: 100%;
+}
+
+.overlay{ display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 35; }
+.overlay.show{ display: block; }
+
+@media (max-width: 900px){
+  .sidebar{ transform: translateX(-100%); box-shadow: 0 0 40px rgba(0,0,0,.5); }
+  .sidebar.open{ transform: translateX(0); }
+  .main-area{ margin-left: 0; }
+  .content-scroll{ padding: 24px 18px 70px; }
+}
+
+/* Sidebar ein-/ausklappen (Nutzer-Feature, Desktop): bewusst nur AUSSERHALB
+   des schmalen Fensters oben — dort gilt weiterhin die bestehende,
+   unveränderte Overlay-Logik (Sidebar schiebt sich ÜBER den Inhalt). Hier
+   dagegen gibt die Sidebar den Platz wirklich frei, der Editor rückt
+   tatsächlich nach. Eine einzige Klasse auf <body> steuert beides zusammen,
+   damit Sidebar und Hauptbereich synchron bleiben. */
+@media (min-width: 901px){
+  body.sidebar-collapsed .sidebar{ transform: translateX(-100%); }
+  body.sidebar-collapsed .main-area{ margin-left: 0; }
+}
+
+/* --- Fokus-Modus: reduzierte Schreibansicht ---
+   Die Sidebar wird sauber ausgeblendet und der Hauptbereich nutzt die frei
+   gewordene Breite. Header, Titel/Metadaten, Speichern, Toolbar und
+   Statusleiste bleiben sichtbar und unverändert. Kein echter Fullscreen und
+   keine Änderung der Fenstergröße. Der Ein/Aus-Zustand wird bewusst nicht
+   über Programmstarts gespeichert. */
+body.focus-mode .sidebar{
+  transform: translateX(-100%);
+}
+body.focus-mode .sidebar-resize-handle{
+  pointer-events: none;
+}
+body.focus-mode .main-area{
+  margin-left: 0;
+}
+
+/* Nur der eigentliche Schreibbereich wird dezent hervorgehoben. */
+body.focus-mode .note-split{
+  background: var(--bg-elev);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 28px rgba(0,0,0,.20);
+  transition: box-shadow 150ms ease;
+}
+
+/* Im Fokusmodus wird ausschließlich der Schreibbereich gezeigt. Die normale
+   Split-Breite bleibt als Inline-/Projektzustand unangetastet und greift nach
+   dem Verlassen des Fokusmodus automatisch wieder. */
+body.focus-mode .note-split.mode-editor .preview-pane{
+  display: none !important;
+}
+body.focus-mode .note-split.mode-editor .split-resizer{
+  display: none !important;
+}
+body.focus-mode .note-split.mode-editor .editor-pane{
+  display: block !important;
+  flex: 1 1 0 !important;
+  width: auto !important;
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce){
+  body.focus-mode .sidebar,
+  body.focus-mode .main-area,
+  body.focus-mode .note-split{
+    transition: none;
+  }
+}
+
+/* Editor-zentriertes Standardlayout: Die Notizansicht nutzt die gesamte
+   verbleibende Fensterhöhe als Arbeitsfläche. Allgemeine Dashboard-/Listen-
+   Seiten behalten ihre bisherigen großzügigen Seitenabstände. */
+/* Sobald eine echte Notiz geöffnet ist, enthält #contentScroll direkt den
+   #noteSplit. Nur in diesem Zustand wird der Inhaltsbereich auf die
+   verbleibende Fensterhöhe begrenzt: kein äußeres Seitenscrollen, die
+   Statusleiste bleibt unten stehen und gescrollt wird in Editor/Vorschau. */
+.content-scroll:has(> #noteSplit){
+  display:flex;
+  flex-direction:column;
+  flex:0 0 calc(100vh - var(--topbar-h) - var(--titlebar-h));
+  height:calc(100vh - var(--topbar-h) - var(--titlebar-h));
+  min-height:0;
+  overflow:hidden;
+  padding:12px 24px 0;
+}
+
+@media (max-width:900px){
+  .content-scroll:has(> #noteSplit){ padding:10px 14px 0; }
+}

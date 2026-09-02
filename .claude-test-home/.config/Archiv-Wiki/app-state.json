@@ -1,0 +1,24 @@
+{
+  "lastProjectPath": "/home/smashii/Dokumente/Archiv Wiki/archiv-wiki/.claude-test-wiki",
+  "lastUpdateCheckAt": "2026-09-02T19:47:57.007Z",
+  "mainWindowMaximized": true,
+  "backupStatusByProject": {
+    "/home/smashii/Dokumente/Archiv Wiki/archiv-wiki/.claude-test-wiki": {
+      "consecutiveFailures": 65,
+      "lastSuccessAt": "2026-08-29T21:11:03.797Z",
+      "lastSuccessFileName": "backup-2026-08-29.zip",
+      "lastSuccessFileSize": 7914,
+      "lastSuccessFileMtimeMs": 1788037863897.438,
+      "lastSuccessFileCtimeMs": 1788037863920.438,
+      "lastSuccessFileIno": 5365801,
+      "lastErrorAt": "2026-09-02T19:47:54.009Z",
+      "lastErrorMessage": "Der konfigurierte Backup-Ordner existiert nicht mehr und wurde nicht automatisch neu angelegt.",
+      "lastErrorCode": "BACKUP_PATH_UNAVAILABLE",
+      "lastErrorUserMessage": "Der konfigurierte Backup-Ordner ist nicht verfügbar. Bitte prüfe das Laufwerk oder wähle den Ordner erneut aus.",
+      "lastCleanupErrorAt": null,
+      "lastCleanupErrorMessage": null,
+      "lastCleanupErrorCode": null,
+      "lastCleanupErrorUserMessage": null
+    }
+  }
+}

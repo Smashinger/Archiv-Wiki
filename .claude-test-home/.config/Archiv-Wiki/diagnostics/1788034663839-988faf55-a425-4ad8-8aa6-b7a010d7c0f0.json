@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "1788034663839-988faf55-a425-4ad8-8aa6-b7a010d7c0f0",
+  "createdAt": "2026-08-29T20:17:43.839Z",
+  "origin": "automatic",
+  "source": "renderer",
+  "kind": "unhandled-rejection",
+  "title": "Unbehandelter Renderer-Fehler",
+  "notifiedAt": "2026-08-29T20:19:05.148Z",
+  "environment": {
+    "appVersion": "2.1.1",
+    "operatingSystem": "Fedora Linux 44 (KDE Plasma Desktop Edition) · Kernel 7.1.10-200.fc44.x86_64",
+    "arch": "x64",
+    "installType": "Entwicklungsstart",
+    "electron": "28.3.3"
+  },
+  "error": {
+    "message": "tb.localeCompare is not a function",
+    "stack": "TypeError: tb.localeCompare is not a function\n    at <APP>/renderer/js/dashboard-data.js:89:15\n    at Array.sort (<anonymous>)\n    at buildDashboardViewModel (<APP>/renderer/js/dashboard-data.js:86:45)\n    at setGlobalStatusRoute (<APP>/renderer/js/app.js:229:21)\n    at render (<APP>/renderer/js/app.js:4217:3)\n    at refreshAll (<APP>/renderer/js/app.js:2220:3)\n    at async init (<APP>/renderer/js/app.js:10015:3)",
+    "details": {
+      "filename": null,
+      "line": null,
+      "column": null
+    }
+  }
+}

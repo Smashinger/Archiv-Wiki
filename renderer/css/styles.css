@@ -1,0 +1,379 @@
+/* renderer/css/styles.css
+   Basis: Farb-/Font-Variablen (1:1 aus dem Original-Wiki übernommen), Reset,
+   Grund-Body-Styles sowie die Vorschau-/Editor-Panes aus Schritt 4.
+   Layout (Sidebar/Topbar/Shell) steht in layout.css, wiederverwendbare
+   UI-Bausteine (Nav, Karten, Suche, Stats) in components.css.
+*/
+
+/* Oswald SemiBold — NUR für das Sidebar-Branding ("Wiki von …"), nicht für
+   die restliche App (siehe --font-brand unten, separat von --mono/--sans).
+   Lokal gebündelt (nicht von Google Fonts geladen) — die CSP der App
+   erlaubt font-src nur 'self', ein externes CDN würde lautlos blockiert.
+   Nur latin + latin-ext eingebunden (deckt auch deutsche Umlaute/ß ab),
+   die übrigen Sprachvarianten des Fonts wurden bewusst weggelassen. */
+@font-face{
+  font-family: 'Oswald';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../assets/fonts/oswald-latin-ext-600-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1E00-1E9F,U+2020,U+20A0-20AB;
+}
+@font-face{
+  font-family: 'Oswald';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../assets/fonts/oswald-latin-600-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+:root{
+  --font-brand: 'Oswald', var(--mono);
+  /* Sidebar-Dichte (3 wählbare Stufen, siehe renderer/js/theme.js
+     SIDEBAR_DENSITY_PRESETS) — "Standard" hier ist bewusst schon die neu
+     verdichtete Basis aus der allgemeinen Platznutzungs-Optimierung, NICHT
+     der ursprüngliche, großzügigere Zustand (der ist jetzt "Groß"). */
+  --density-sidebar-pad: 16px 12px 10px;
+  --density-nav-font: 12.5px;
+  --density-nav-pad: 5px 8px;
+  --density-nav-gap: 8px;
+  --density-group-font: 11.5px;
+  --density-group-pad: 6px 8px 5px;
+  --density-group-gap: 7px;
+  --density-icon-size: 12px;
+  --editor-font-size: 13px;
+  --bg-color: #121519;
+  --bg-elev: #171b21;
+  --bg-elev-2: #2b2b2b;
+  --border: #333333;
+  --border-soft: #262626;
+  --text-main: #e0e0e0;
+  --text-muted: #a0a0a0;
+  --text-faint: #6e6e6e;
+  --accent-color: #c17d45; /* Standard/Fallback (Archiv Orange) — wird beim Start ggf. von der gewählten Palette überschrieben, siehe renderer/js/theme.js */
+  --accent-dim: #9c6537;
+  --accent-soft: rgba(193,125,69,0.08);
+  --cyan: #5ec8c0;
+  --blue: #5b9dd9;
+  --red: #e2585a;
+  --purple: #a78bfa;
+  --green: #6ec97b;
+  --amber: #e2a53a;
+  --yellow: #e2c93a;
+  /* Dezente Oberflächen-Overlays (Hell/Dunkel-Modus, siehe renderer/js/theme.js
+     applyThemeMode): im Dunkel-Theme ein Hauch Weiß zum Aufhellen einer
+     dunklen Fläche (Eingabefeld-Hintergrund, Zeilen-Hover), im Hell-Theme
+     spiegelverkehrt ein Hauch Schwarz zum Abdunkeln. Ersetzt die vorher an
+     drei Stellen verstreuten festen rgba(255,255,255,…)-Werte. */
+  --overlay-weak: rgba(255,255,255,.03);
+  --overlay-medium: rgba(255,255,255,.06);
+  --scrollbar-thumb: rgba(255,255,255,.12);
+  --scrollbar-thumb-hover: rgba(255,255,255,.22);
+  /* Frosted-Glass-Topbar (backdrop-filter: blur), siehe layout.css .topbar —
+     war vorher ein fester, nur zum Dunkel-Theme passender rgba-Wert. */
+  --topbar-bg: rgba(10,13,18,.88);
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --sans: 'Inter', system-ui, sans-serif;
+  --sidebar-w: 292px;
+  /* Die frühere Inhalts-Topbar (.topbar, Breadcrumb-Zeile) ist in allen
+     Designs entfernt — siehe layout.css. Der Wert bleibt als Variable
+     bestehen, weil die Editor-Split-Höhen ihn abziehen
+     (calc(100vh - var(--topbar-h) - var(--titlebar-h) …) in layout.css und
+     design2.css); auf 0px gesetzt stimmen diese Rechnungen automatisch
+     weiter, ohne dass eine zweite Höhenkonstante gepflegt werden müsste. */
+  --topbar-h: 0px;
+  /* Globale Topbar (Custom Window Chrome), siehe layout.css. 38px statt der
+     früheren 34px: Die bisherige Design2-Topbar ist die verbindliche globale
+     Topbar für ALLE Oberflächen-Designs — dieselbe Geometrie überall, nur die
+     Farben wechseln je Design. .shell/.sidebar/.main-area beziehen ihren
+     oberen Versatz bereits über diese eine Variable und passen sich dadurch
+     automatisch mit an. */
+  --titlebar-h: 38px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 6px; /* Nutzer-Anpassung: war 8px — große Panels/Dialoge wirken dadurch etwas kantiger. Zentral über diese eine Variable, keine Einzelkomponente überschrieben. */
+}
+
+/* ---------------------------------------------------------------------
+   Hell/Dunkel-Modus (Nutzer-Feature, Einstellungen → Darstellung → Modus):
+   body.theme-light überschreibt ausschließlich die neutralen Oberflächen-
+   und Textfarben sowie die sieben thematischen Funktionsfarben — nie die
+   Akzentfarbe selbst (die bleibt geräteübergreifend exakt der vom Nutzer
+   gewählte Wert, siehe renderer/js/theme.js applyAccentPalette). Fehlt die
+   Klasse, bleibt es beim bisherigen, unveränderten Dunkel-Theme — bestehende
+   Wikis ohne gespeicherten themeMode sehen sich also nach diesem Update
+   optisch nicht verändert.
+
+   Die sieben thematischen Farben (cyan/blue/red/purple/green/amber/yellow)
+   sind im Dunkel-Theme bewusst hell/pastellig, um vor dem fast schwarzen
+   Hintergrund zu leuchten — auf hellem Grund wäre exakt derselbe Farbwert
+   zu kontrastarm (z. B. Gelb auf Weiß). Die Hell-Varianten unten sind
+   dieselben Farbtöne, rechnerisch abgedunkelt auf einen WCAG-AA-Kontrast
+   von mindestens 4.5:1 gegen die helle Grundfläche (--bg-color) — geprüft
+   für jede der sieben Farben einzeln, nicht nur überschlagen. */
+body.theme-light{
+  --bg-color: #f5f4f2;
+  --bg-elev: #ffffff;
+  --bg-elev-2: #eae7e2;
+  --border: #d9d5cf;
+  /* War zunächst #e7e4df — dessen Kontrastverhältnis (1.27) war rechnerisch
+     sogar leicht höher als das des Dunkel-Themes an derselben Stelle (1.14),
+     rein visuell aber auf realen Bildschirmen kaum wahrnehmbar (Nutzer-
+     Rückmeldung: Zeilen in "Zuletzt bearbeitet" nicht mehr unterscheidbar).
+     Sehr helle, wenig gesättigte Grautöne nahe Weiß wirken bei gleichem
+     rechnerischem Kontrast deutlich unauffälliger als entsprechend dunkle
+     Grautöne nahe Schwarz — der reine WCAG-Wert allein reichte hier nicht. */
+  --border-soft: #dad5cd;
+  --text-main: #201e1b;
+  --text-muted: #6b665f;
+  --text-faint: #888175;
+  --cyan: #237a74;
+  --blue: #2171b9;
+  --red: #d91a1c;
+  --purple: #764cf4;
+  --green: #297e35;
+  --amber: #95640e;
+  --yellow: #7f6d0c;
+  --overlay-weak: rgba(0,0,0,.035);
+  --overlay-medium: rgba(0,0,0,.06);
+  --scrollbar-thumb: rgba(0,0,0,.15);
+  --scrollbar-thumb-hover: rgba(0,0,0,.28);
+  --topbar-bg: rgba(255,255,255,.82);
+}
+
+*{ box-sizing: border-box; }
+html{ scroll-behavior: smooth; }
+body{
+  margin: 0;
+  background: var(--bg-color);
+  color: var(--text-main);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+h1{ font-size: 2.5rem; line-height:1.2; margin: 0 0 .5em; font-weight:700; }
+h2{ font-size: 2rem; line-height:1.25; margin: 1em 0 .5em; font-weight:700; }
+h3{ font-size: 1.5rem; line-height:1.3; margin: 1em 0 .5em; font-weight:700; }
+::selection{ background: var(--accent-soft); color: var(--accent-color); }
+a{ color: var(--accent-color); text-decoration: none; }
+a:hover{ text-decoration: underline; }
+:focus-visible{ outline: 2px solid var(--cyan); outline-offset: 2px; border-radius: var(--radius-sm); }
+button{ font: inherit; }
+input{ font: inherit; }
+
+/* ---------------------------------------------------------------------
+   Editor- und Vorschau-Panes (Schritt 4, hier unverändert weiterverwendet)
+--------------------------------------------------------------------- */
+.editor-pane{
+  flex: 1; min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  /* CodeMirrors eigenes Suchpanel (.cm-panels) setzt fest z-index:300 ohne
+     eigenen Stacking Context darüber — ohne isolation würde es damit über
+     fixed-position App-Overlays wie das Einstellungsfenster hinausragen. */
+  isolation: isolate;
+}
+.editor-pane .cm-editor{ height: 100%; }
+.preview-pane{
+  flex: 1; min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px 22px;
+  overflow-y: auto;
+  background: var(--bg-elev);
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+/* Lesemodus mit fester Textbreite (Nutzer-Feature, opt-in über Einstellungen
+   → Darstellung). .preview-content ist die einzige horizontale
+   Positionierungsinstanz der Vorschau. Der Wrapper wird als Ganzes zentriert;
+   seine direkten Markdown-Blöcke werden niemals einzeln erneut zentriert.
+   Dadurch behalten Überschriften, Text, Bilder, Listen, Zitate, Callouts,
+   Formeln, Tabellen und Codeblöcke beim Ziehen des Splitters dieselbe linke
+   Startkante. */
+.preview-content{
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+body.reading-width .preview-content{
+  max-width: var(--read-width);
+  margin-left: auto;
+  margin-right: auto;
+}
+/* Der gemeinsame Inhaltscontainer legt sowohl die linke als auch die rechte
+   Dokumentkante fest. Direkte Markdown-Blöcke erhalten deshalb keine eigene
+   Breiten- oder Zentrierungslogik. Tabellen und Codeblöcke bleiben ebenfalls
+   innerhalb dieser Außenkante; nur ihr Inhalt darf intern horizontal scrollen. */
+body.reading-width .preview-content > table{
+  display: block;
+  overflow-x: auto;
+}
+/* Im Editor begrenzt die Lesebreite die gemeinsame CodeMirror-Scrollfläche.
+   Gutter, Text, Cursor- und Auswahlebenen bleiben damit ein zusammenhängender
+   Block. Eine zeilenweise Zentrierung würde dagegen nur den Text verschieben,
+   während die Zeilennummern am linken Rand stehen bleiben. Unterhalb der
+   gewählten Breite fällt der zusätzliche Außenabstand automatisch auf null. */
+body.reading-width .cm-scroller{
+  box-sizing: border-box;
+  padding-inline: max(0px, calc((100% - var(--read-width)) / 2));
+}
+body.reading-width .cm-content .cm-line.cm-line-nowrap{
+  white-space: pre;
+  overflow-x: auto;
+}
+.preview-pane h1, .preview-pane h2, .preview-pane h3{
+  font-family: var(--mono); color: var(--text-main); margin: 18px 0 10px;
+}
+.preview-pane h1{ font-size: 22px; margin-top: 0; }
+.preview-pane h2{ font-size: 18px; border-top: 1px solid var(--border-soft); padding-top: 14px; }
+.preview-pane h3{ font-size: 15px; color: var(--accent-color); }
+/* H4-H6 (Nutzer-Feature): schließt logisch an H3 an, bleibt aber immer bei
+   der Fließtext-Monospace-Familie statt auf Browser-Standard zurückzufallen.
+   Größe sinkt nie unter die 14px-Fließtextgröße — ab H5 übernehmen
+   Schriftstärke/Großschreibung die weitere Abstufung, statt die Schrift
+   noch kleiner (und damit unauffälliger als Fließtext) werden zu lassen. */
+.preview-pane h4{ font-family: var(--mono); color: var(--text-main); font-size: 15px; font-weight: 700; margin: 16px 0 8px; }
+.preview-pane h5{ font-family: var(--mono); color: var(--text-main); font-size: 14px; font-weight: 700; margin: 14px 0 8px; }
+.preview-pane h6{
+  font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .04em; margin: 14px 0 8px;
+}
+.preview-pane p{ margin: 0 0 12px; }
+.preview-pane a{ color: var(--cyan); }
+.preview-pane ul, .preview-pane ol{ margin: 0 0 12px; padding-left: 20px; }
+.preview-pane li:has(> input[type="checkbox"]:first-child){ list-style: none; margin-left: -20px; }
+.preview-pane li:has(> input[type="checkbox"]:checked){ text-decoration: line-through; opacity: .6; }
+.preview-pane li input[type="checkbox"]{
+  margin-right: 8px; accent-color: var(--accent-color); vertical-align: middle; cursor: pointer;
+}
+.preview-pane blockquote{
+  margin: 0 0 14px; padding: 4px 14px; border-left: 3px solid var(--border);
+  color: var(--text-faint); font-style: italic;
+}
+/* Horizontale Linie (Nutzer-Feature): flacher Strich statt Browser-
+   Standard (border-style: inset, ein veralteter 3D-Effekt) — nutzt
+   dieselbe, bereits überall in der Vorschau verwendete Randfarbe. */
+.preview-pane hr{ border: none; border-top: 1px solid var(--border); margin: 22px 0; }
+.preview-pane table{ width: 100%; border-collapse: collapse; margin: 6px 0 16px; font-size: 13px; }
+.preview-pane th:not([align]), .preview-pane td:not([align]){ text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border-soft); }
+.preview-pane th[align], .preview-pane td[align]{ padding: 7px 10px; border-bottom: 1px solid var(--border-soft); }
+.preview-pane th.markdown-align-left, .preview-pane td.markdown-align-left{ text-align:left; }
+.preview-pane th.markdown-align-center, .preview-pane td.markdown-align-center{ text-align:center; }
+.preview-pane th.markdown-align-right, .preview-pane td.markdown-align-right{ text-align:right; }
+.preview-pane th{ font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; color: var(--text-faint); }
+/* Bild-Größe per Prozent-Auswahl (Nutzer-Feature, ersetzt das vorherige
+   Ziehen — resize direkt auf <img> war unzuverlässig UND die laufenden
+   Beobachter störten den Editor bei jedem Tastenanschlag). Jetzt bewusst
+   einfach: ein Hover-Wrapper zeigt vier Knöpfe (25/50/75/100%), keine
+   Beobachter, keine dynamische Größenmessung. */
+.preview-pane .img-size-wrap{ position: relative; display: inline-block; max-width: 100%; vertical-align: top; }
+.preview-pane .img-size-wrap img{ display: block; max-width: 100%; border-radius: var(--radius-sm); cursor: zoom-in; }
+.preview-pane .img-size-buttons{
+  position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
+  opacity: 0; pointer-events: none; transition: opacity .12s ease;
+}
+.preview-pane .img-size-wrap:hover .img-size-buttons{ opacity: 1; pointer-events: auto; }
+/* Bewusst FEST dunkel/hell statt var(--border)/var(--text-muted): diese
+   Knöpfe schweben über einem beliebigen Bild, nicht über der App-Fläche —
+   Hell/Dunkel-Modus ändert nichts an einem Foto, also bleibt die Glas-Optik
+   hier unabhängig vom gewählten Theme dieselbe. */
+.preview-pane .img-size-buttons button{
+  background: rgba(10,13,18,.82); border: 1px solid rgba(255,255,255,.16); color: rgba(255,255,255,.78);
+  font-family: var(--mono); font-size: 10.5px; padding: 3px 7px; border-radius: var(--radius-sm); cursor: pointer;
+}
+.preview-pane .img-size-buttons button:hover{ color: var(--accent-color); border-color: var(--accent-dim); }
+/* Bild-Lightbox (Nutzer-Feature): eigenes Overlay, keine Browserfunktion
+   (kein neuer Tab, kein natives Vollbild). Dezente, schnelle Animation
+   (150ms) für Ein-/Ausblenden. Bild wird per max-width/max-height auf den
+   verfügbaren Platz begrenzt (object-fit:contain erhält das Seitenverhältnis
+   und "passt" so automatisch auch sehr große Bilder ein). */
+.image-lightbox-overlay{
+  position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,.75);
+  display: flex; align-items: center; justify-content: center;
+  cursor: zoom-out; animation: lightbox-fade-in .15s ease-out;
+}
+.image-lightbox-overlay img{
+  max-width: 90vw; max-height: 90vh; object-fit: contain;
+  border-radius: var(--radius-md); box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  animation: lightbox-scale-in .15s ease-out;
+}
+@keyframes lightbox-fade-in{ from{ opacity: 0; } to{ opacity: 1; } }
+@keyframes lightbox-scale-in{ from{ transform: scale(.96); opacity: 0; } to{ transform: scale(1); opacity: 1; } }
+.preview-pane .code-block{ position: relative; margin: 4px 0 16px; }
+.preview-pane .code-block .lang{
+  display: block; font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--text-faint); margin-bottom: 4px;
+}
+.preview-pane .code-block pre{
+  background: var(--bg-color); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 12px 14px; overflow-x: auto; font-size: 12.5px; line-height: 1.55; margin: 0;
+}
+/* War vorher fest #d8dee9 (helles Grau) — passend, solange .code-block pre
+   IMMER dunklen var(--bg-color) als Hintergrund hatte. Seit Hell/Dunkel-Modus
+   wird dieser Hintergrund im Hell-Theme selbst hell, ein festes helles Grau
+   wäre dort unlesbar. var(--text-main) folgt dem jeweiligen Theme korrekt. */
+.preview-pane .code-block code{ font-family: var(--mono); color: var(--text-main); background: transparent; border: none; padding: 0; border-radius: 0; }
+/* Inline-Code (einzelne Backticks) hatte bisher GAR KEIN CSS — Text verschmolz
+   unsichtbar mit dem Hintergrund. Fenced-Blöcke (oben) setzen das zurück, damit
+   kein doppelter Rahmen entsteht. */
+.preview-pane code{
+  font-family: var(--mono); font-size: 0.9em; color: var(--text-main);
+  background: var(--bg-elev-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 1px 6px;
+}
+.preview-pane .code-block .copy-btn{
+  position: absolute; top: 8px; right: 8px;
+  font-family: var(--mono); font-size: 11px;
+  background: var(--bg-elev-2); color: var(--text-faint);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 4px 9px; cursor: pointer;
+}
+.preview-pane .code-block .copy-btn:hover{ color: var(--text-main); border-color: var(--accent-dim); }
+.preview-pane .code-block .copy-btn.copied{ color: var(--green); border-color: rgba(110,201,123,.4); }
+
+/* --- Callouts: 7 farbcodierte Hinweis-Boxen --- */
+.preview-pane .callout{
+  border: 1px solid var(--c-border);
+  background: var(--c-bg);
+  border-left: 3px solid var(--c-accent);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  margin: 4px 0 16px;
+}
+.preview-pane .callout-title{
+  font-family: var(--mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--c-accent); margin-bottom: 6px; font-weight: 600;
+}
+.preview-pane .callout p, .preview-pane .callout ul, .preview-pane .callout ol{ margin: 0; color: var(--text-muted); font-size: 14px; }
+.preview-pane .callout ul, .preview-pane .callout ol{ padding-left: 18px; margin-top: 6px; }
+.preview-pane .callout p:not(:last-child){ margin-bottom: 8px; }
+
+.preview-pane .callout.note{ --c-accent: var(--blue); --c-bg: rgba(91,157,217,.06); --c-border: rgba(91,157,217,.25); }
+.preview-pane .callout.tip{ --c-accent: var(--cyan); --c-bg: rgba(94,200,192,.06); --c-border: rgba(94,200,192,.25); }
+.preview-pane .callout.warning{ --c-accent: var(--amber); --c-bg: rgba(226,165,58,.07); --c-border: rgba(226,165,58,.28); }
+.preview-pane .callout.danger{ --c-accent: var(--red); --c-bg: rgba(226,88,90,.06); --c-border: rgba(226,88,90,.25); }
+.preview-pane .callout.abstract{ --c-accent: var(--purple); --c-bg: rgba(167,139,250,.06); --c-border: rgba(167,139,250,.25); }
+.preview-pane .callout.example{ --c-accent: var(--green); --c-bg: rgba(110,201,123,.06); --c-border: rgba(110,201,123,.25); }
+.preview-pane .callout.info{ --c-accent: var(--blue); --c-bg: rgba(91,157,217,.06); --c-border: rgba(91,157,217,.25); }
+.preview-pane .katex-display{ margin: 12px 0; overflow-x: auto; }
+.preview-pane .katex-error{ color: var(--red); font-family: var(--mono); }
+
+/* hljs-Farben passend zu unserer Palette (vollständiges Set) */
+.preview-pane .hljs-keyword, .preview-pane .hljs-built_in, .preview-pane .hljs-selector-tag{ color: var(--purple); }
+.preview-pane .hljs-string, .preview-pane .hljs-addition, .preview-pane .hljs-regexp{ color: var(--green); }
+.preview-pane .hljs-number, .preview-pane .hljs-literal{ color: var(--accent-color); }
+.preview-pane .hljs-comment, .preview-pane .hljs-quote{ color: var(--text-faint); font-style: italic; }
+.preview-pane .hljs-title, .preview-pane .hljs-title.function_, .preview-pane .hljs-section{ color: var(--blue); }
+.preview-pane .hljs-variable, .preview-pane .hljs-attr, .preview-pane .hljs-attribute, .preview-pane .hljs-template-variable{ color: var(--cyan); }
+.preview-pane .hljs-name, .preview-pane .hljs-tag{ color: var(--red); }
+.preview-pane .hljs-symbol, .preview-pane .hljs-bullet, .preview-pane .hljs-link{ color: var(--cyan); }
+.preview-pane .hljs-meta, .preview-pane .hljs-doctag{ color: var(--text-faint); }
+.preview-pane .hljs-deletion{ color: var(--red); }
+.preview-pane .hljs-emphasis{ font-style: italic; }
+.preview-pane .hljs-strong{ font-weight: bold; }
+.preview-pane .hljs-params, .preview-pane .hljs-property{ color: var(--text-muted); }

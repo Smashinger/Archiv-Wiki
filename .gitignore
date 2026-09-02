@@ -1,0 +1,11 @@
+node_modules/
+dist/
+release/
+*.AppImage
+*.rpm
+*.deb
+*.log
+.DS_Store
+.wiki-config.json
+extension/distribution/chromium/*.pem
+extension/distribution/chromium/*.key

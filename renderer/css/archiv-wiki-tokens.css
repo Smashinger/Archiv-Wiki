@@ -1,0 +1,64 @@
+/* renderer/css/archiv-wiki-tokens.css
+   Farbtoken des Einstellungsfensters — 1:1 aus der Spezifikation
+   (archiv-wiki-einstellungen.md, Abschnitt 6). Beide Themes tragen exakt
+   dieselben Tokennamen; der Wechsel Hell/Dunkel entsteht ausschließlich durch
+   den Tausch dieses Variablensatzes. Keine Komponente in settings.css oder
+   settings-window.js fragt das aktive Theme ab.
+
+   Bewusst NICHT auf :root gesetzt, sondern auf die Fensterwurzel (.aws-scrim):
+   layout.css referenziert --c-shell/--c-s3/--c-rose/--c-text/--c-dim/--c-faint
+   bereits als "var(--c-…, var(--d2-…))"-Fallbackkette für die globale
+   Titelleiste. Eine :root-Definition würde dort ungefragt greifen und das
+   Aussehen der Titelleiste (auch in Classic) verändern. Die Begrenzung auf
+   .aws-scrim ändert an der Spezifikation nichts — innerhalb des Fensters
+   erben alle Nachfahren denselben vollständigen Satz.
+
+   Der Fensterschatten ist laut Spezifikation der einzige Wert, der zusätzlich
+   zum Farbtausch anders ist; er läuft deshalb als eigenes Token --c-shadow
+   durch dieselbe Mechanik. */
+
+.aws-scrim,
+[data-ui-design="design2"] #sidebarThemenLabel,
+[data-ui-design="design2"] #navTree{
+  --c-shell:   #120D0C;               /* Titelzeile, Reiterzeile, Grundfläche des Baums */
+  --c-s1:      #201917;               /* Arbeitsbereich */
+  --c-s2:      #2A2220;               /* Felder, Segmenthülle, Zustandszeile */
+  --c-s3:      #342B28;               /* zweitrangige Schaltflächen, Hover, Schalter aus */
+  --c-rose:    #CF8A94;               /* Abschnittsmarken, Auswahl, Schalter an */
+  --c-rose-t:  rgba(207,138,148,.13); /* aktiver Reiter, aktives Segment */
+  --c-rose-on: #F6DFE2;               /* Text auf Rosé-Tönung */
+  --c-on-rose: #2A1418;               /* Schalterknopf auf Rosé */
+  --c-blue:    #5B9BF8;               /* Textaktionen, Hauptaktion, Fokus, Statuspunkt */
+  --c-on-blue: #0D1726;               /* Text auf blauer Fläche */
+  --c-amber:   #D9A05B;               /* Kante der Zustandszeile bei Handlungsbedarf */
+  --c-green:   #7FB08A;               /* Häkchen im Datenschutzblock */
+  --c-text:    #ECE5DF;               /* Beschriftungen, Feldinhalt */
+  --c-dim:     #C4B9B2;               /* Fließtext, Schaltflächentext */
+  --c-muted:   #9B8F89;               /* inaktive Reiter, Icons in Ruhe */
+  --c-faint:   #7A6F6A;               /* Erklärungen, Platzhalter, Einheiten */
+  --c-line:    rgba(236,229,223,.09); /* Abschnittslinien, Reiter-Unterkante */
+  --c-shadow:  0 24px 60px rgba(0,0,0,.50);
+}
+
+body.theme-light .aws-scrim,
+body.theme-light[data-ui-design="design2"] #sidebarThemenLabel,
+body.theme-light[data-ui-design="design2"] #navTree{
+  --c-shell:   #E8E2DA;
+  --c-s1:      #FBF8F3;
+  --c-s2:      #F0EAE1;
+  --c-s3:      #E4DCD1;
+  --c-rose:    #A85260;
+  --c-rose-t:  rgba(168,82,96,.12);
+  --c-rose-on: #6E2A36;
+  --c-on-rose: #FFFFFF;
+  --c-blue:    #2C6BD4;
+  --c-on-blue: #FFFFFF;
+  --c-amber:   #A9702A;
+  --c-green:   #4E7A54;
+  --c-text:    #241D1A;
+  --c-dim:     #4A403B;
+  --c-muted:   #6E625B;
+  --c-faint:   #8E827A;
+  --c-line:    rgba(36,29,26,.10);
+  --c-shadow:  0 18px 44px rgba(36,29,26,.14);
+}

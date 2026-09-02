@@ -1,0 +1,269 @@
+/* renderer/css/sidebar-tree.css
+   Notizbereich der Sidebar — Umsetzung von archiv-wiki-sidebar-notizen.md.
+   Nur der Baum unter THEMEN: Hauptkategorie › Unterkategorie › Notiz. Kopf,
+   Suche, Bereiche (Start/Eingang/Archiv/Wissenspflege), Anlegen-Knöpfe und
+   Fußbereich sind nicht Teil dieses Auftrags und bleiben unverändert.
+
+   Farben ausschließlich aus archiv-wiki-tokens.css. Kein Hexwert, für den es
+   dort ein Token gibt, und keine Themenabfrage in einer Komponente — Hell und
+   Dunkel entstehen allein durch den Tausch des Variablensatzes.
+
+   Warum #navTree als Anker statt neuer Klassennamen: Der Baum trägt seine
+   Strukturklassen (.nav-group/.group-header/.nav-link/.row-handle …) an rund
+   dreißig Stellen in app.js — Ziehen und Ablegen, Mehrfachauswahl, Auf- und
+   Zuklappen, Aktiv-Markierung, Kontextmenüs und Tastaturbedienung hängen
+   daran. Ein Umbenennen wäre ein großer, riskanter Eingriff ohne Gegenwert.
+   Stattdessen behalten die Klassen ihre Namen, und die Gestaltung wird über
+   die ID des Baums verankert: eine ID schlägt jede Klassenregel, damit
+   gewinnen diese Regeln verlässlich gegen die bestehenden Baum-Regeln in
+   components.css und design2.css — ohne dass dort etwas gelöscht werden muss
+   und ohne !important. .nav-link/.nl-icon/.nl-title teilen sich die Bereiche
+   oben in der Sidebar; die Begrenzung auf #navTree lässt sie unangetastet. */
+
+/* --------------------------------------------------------------------
+   0  Umschaltung Classic ↔ Design2
+   --------------------------------------------------------------------
+   Der Baum liefert die Varianten weiterhin im selben DOM. Design2 ersetzt
+   nur bei Hauptkategorien das freie Ordner-Icon durch den Farbrücken und
+   "⠿" durch Griffpunkte. Unterkategorien und Notizen verwenden wieder ihre
+   bereits gespeicherten freien Icons; das feste file-text-Symbol bleibt als
+   vorhandene, aber ausgeblendete Rückfallvariante im Markup. Classic bleibt
+   vollständig unverändert. */
+
+#navTree .g-spine,
+#navTree .rh-tree,
+#navTree .nl-icon-tree{ display: none; }
+
+[data-ui-design="design2"] #navTree .rh-classic,
+[data-ui-design="design2"] #navTree .nav-group.level-1 > .group-header-row .g-icon,
+[data-ui-design="design2"] #navTree .nl-icon-tree{ display: none; }
+
+[data-ui-design="design2"] #navTree .g-spine,
+[data-ui-design="design2"] #navTree .rh-tree{ display: flex; }
+
+/* Strichstärke des Chevrons: Classic behält seine 2 aus dem Markup. */
+[data-ui-design="design2"] #navTree .g-chevron{ stroke-width: 1.5; }
+
+/* --------------------------------------------------------------------
+   2  Die Marke darüber
+   -------------------------------------------------------------------- */
+[data-ui-design="design2"] #sidebarThemenLabel{
+  display: flex; align-items: center;
+  padding: 22px 18px 8px;
+  font-family: 'Barlow Condensed', var(--sans); font-weight: 600;
+  font-size: 10px; letter-spacing: .22em; text-transform: uppercase;
+  color: var(--c-faint);
+}
+[data-ui-design="design2"] #sidebarThemenLabel .ssl-count{
+  margin-left: 9px;
+  font-family: 'IBM Plex Mono', var(--mono); font-weight: 400;
+  font-size: 10px; letter-spacing: normal; text-transform: none;
+  color: var(--c-faint);
+}
+
+/* --------------------------------------------------------------------
+   3  Die drei Ebenen
+   -------------------------------------------------------------------- */
+[data-ui-design="design2"] #navTree{
+  --tree-gap: 9px;
+  font-family: 'Barlow', var(--sans);
+}
+/* Der Baum malt seine Grundfläche bewusst nicht selbst, sondern sitzt auf der
+   Fläche der Sidebar. Ein eigener Anstrich würde die Sidebar zweifarbig
+   teilen, weil Kopf, Bereiche und Fußbereich nicht Teil dieses Auftrags sind. */
+[data-ui-design="design2"] #navTree,
+[data-ui-design="design2"] #navTree .nav-top,
+[data-ui-design="design2"] #navTree .group-list{
+  list-style: none; margin: 0; padding: 0; background: none; border: none;
+}
+
+/* Alle Zeilen laufen über die volle Sidebar-Breite. Der Einzug entsteht
+   ausschließlich über padding-left, nie über Ränder, Abstände oder
+   eingerückte Container — sonst bricht die Hover-Fläche an der falschen
+   Stelle ab. */
+[data-ui-design="design2"] #navTree .group-header-row,
+[data-ui-design="design2"] #navTree .nav-item-row{
+  display: flex; align-items: center;
+  width: 100%; margin: 0; padding: 0;
+  background: none; border: none; border-radius: 0; box-shadow: none;
+  position: relative;
+}
+[data-ui-design="design2"] #navTree .group-header,
+[data-ui-design="design2"] #navTree .nav-item-row > .nav-link{
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: var(--tree-gap);
+  width: 100%; margin: 0;
+  background: none; border: none; border-radius: 0; box-shadow: none;
+  text-align: left; cursor: pointer;
+  transition: background-color .12s ease, color .12s ease;
+}
+
+/* Hauptkategorie — 28 px, Einzug 12 */
+[data-ui-design="design2"] #navTree .nav-group.level-1 > .group-header-row .group-header{
+  height: var(--tree-row-main, 28px);
+  padding: 0 18px 0 12px;
+  font-size: 13px; color: var(--c-dim);
+}
+/* Unterkategorie — 26 px, Einzug 29 */
+[data-ui-design="design2"] #navTree .nav-group.level-2 > .group-header-row .group-header{
+  height: var(--tree-row-sub, 26px);
+  padding: 0 18px 0 29px;
+  font-size: 12.5px; color: var(--c-muted);
+}
+/* Notiz — 25 px, Einzug 49 */
+[data-ui-design="design2"] #navTree .nav-item-row > .nav-link{
+  height: var(--tree-row-note, 25px);
+  padding: 0 18px 0 49px;
+  font-size: 12.5px; color: var(--c-muted);
+  text-decoration: none;
+}
+[data-ui-design="design2"] #navTree .g-label,
+[data-ui-design="design2"] #navTree .nl-title{
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Auf- und Zuklappen bleibt unangetastet: Es läuft über .collapsed und eine
+   gemessene max-height-Animation in app.js (wireNavInteractions). Diese Datei
+   setzt deshalb bewusst weder display, noch max-height, noch overflow oder
+   transition auf .group-list — sie nimmt der Liste nur Rand, Einzug und
+   Abstand, weil der Einzug laut Spezifikation allein aus dem padding-left der
+   Zeile kommen darf. */
+
+/* --------------------------------------------------------------------
+   4  Chevron
+   -------------------------------------------------------------------- */
+
+/* Der Pfad zeigt nach rechts; offen wird er um 90° gedreht und zeigt damit
+   nach unten — dieselbe Form wie Lucide chevron-down, ohne zweites Symbol. */
+[data-ui-design="design2"] #navTree .g-chevron{
+  flex: none;
+  transform: rotate(90deg);
+  transition: transform .12s ease, stroke .12s ease;
+  stroke: var(--c-rose);
+}
+[data-ui-design="design2"] #navTree .nav-group.collapsed > .group-header-row .g-chevron{
+  transform: rotate(0deg);
+  stroke: var(--c-faint);
+}
+[data-ui-design="design2"] #navTree .nav-group.level-1 > .group-header-row .g-chevron{ width: 12px; height: 12px; }
+[data-ui-design="design2"] #navTree .nav-group.level-2 > .group-header-row .g-chevron{ width: 11px; height: 11px; }
+
+/* --------------------------------------------------------------------
+   5  Rücken der Hauptkategorie
+   -------------------------------------------------------------------- */
+
+[data-ui-design="design2"] #navTree .g-spine{
+  flex: none;
+  width: 3px; height: 15px; border-radius: 2px;
+  background: var(--c-rose);
+}
+[data-ui-design="design2"] #navTree .g-spine[data-spine="2"]{ background: var(--c-blue); }
+[data-ui-design="design2"] #navTree .g-spine[data-spine="3"]{ background: var(--c-amber); }
+[data-ui-design="design2"] #navTree .g-spine[data-spine="4"]{ background: var(--c-green); }
+
+/* --------------------------------------------------------------------
+   6  Ausgeblendetes Notiz-Rückfallsymbol und Zähler
+   -------------------------------------------------------------------- */
+[data-ui-design="design2"] #navTree .nl-icon-tree{
+  flex: none;
+  display: none; align-items: center; justify-content: center;
+  width: 11px; height: 11px;
+}
+[data-ui-design="design2"] #navTree .nl-icon-tree svg{ width: 11px; height: 11px; stroke: currentColor; fill: none; }
+/* Der Zähler steht rechtsbündig 18 px vor der Kante — das ist das
+   padding-right der Zeile, mehr nicht. Classic baut den Zähler als Pille mit
+   "padding: 1px 7px" und "border: 1px solid" (components.css); Design2 färbt
+   Fläche und Rand bislang nur durchsichtig, sodass beide weiterhin Platz
+   belegten und die Ziffer rund 8 px zu weit innen stand. Hier werden sie
+   deshalb ganz abgeräumt — begrenzt auf #navTree, Classic behält seine
+   Pille. */
+[data-ui-design="design2"] #navTree .g-count{
+  flex: none; margin-left: auto;
+  padding: 0; border: none; background: none;
+  font-family: 'IBM Plex Mono', var(--mono);
+  font-size: 11px; color: var(--c-faint);
+}
+
+/* --------------------------------------------------------------------
+   7  Zustände
+   -------------------------------------------------------------------- */
+
+/* Hover — volle Zeilenbreite, kein Radius, kein Rand.
+   Die Selektoren tragen die Ebenen-Klassen bewusst mit: Ohne sie läge die
+   Grundfarbe der Ebene (--c-dim bzw. --c-muted, Abschnitt 3) mit höherer
+   Spezifität darüber und der Hover-Text bliebe unverändert. */
+[data-ui-design="design2"] #navTree .nav-group.level-1 > .group-header-row .group-header:hover,
+[data-ui-design="design2"] #navTree .nav-group.level-2 > .group-header-row .group-header:hover,
+[data-ui-design="design2"] #navTree .nav-item-row > .nav-link:hover{
+  background: var(--c-s2);
+  color: var(--c-text);
+}
+
+/* Ausgewählt — die einzige Zeile im Baum mit Auswahlkante. */
+[data-ui-design="design2"] #navTree .nav-item-row > .nav-link.active{
+  box-shadow: inset 3px 0 0 var(--c-rose);
+  background: linear-gradient(90deg, rgba(207,138,148,.17), rgba(207,138,148,.02));
+  color: var(--c-rose-on);
+}
+body.theme-light[data-ui-design="design2"] #navTree .nav-item-row > .nav-link.active{
+  background: linear-gradient(90deg, rgba(168,82,96,.16), rgba(168,82,96,.02));
+}
+
+/* Aufgeklappte Kategorie ohne Auswahl — keine Fläche, nur hellerer Text.
+   Zwei Marker nebeneinander wären ein Fehler: die Vorfahren der offenen Notiz
+   bekommen deshalb ausdrücklich KEINE Kante und keine Tönung. */
+[data-ui-design="design2"] #navTree .nav-group:not(.collapsed) > .group-header-row .group-header,
+[data-ui-design="design2"] #navTree .nav-group.active-ancestor > .group-header-row .group-header{
+  background: none;
+  color: var(--c-text);
+  box-shadow: none;
+}
+/* Geöffnete Notiz, aber nicht die ausgewählte Zeile — eine Stufe schwächer:
+   Fläche und Rosé-Text, keine Kante. Trifft die Zeilen der Mehrfachauswahl. */
+[data-ui-design="design2"] #navTree .nav-item-row.is-selected > .nav-link:not(.active){
+  background: var(--c-s2);
+  color: var(--c-rose);
+  box-shadow: none;
+}
+
+/* Tastaturfokus */
+[data-ui-design="design2"] #navTree .group-header:focus-visible,
+[data-ui-design="design2"] #navTree .nav-link[data-relpath]:focus-visible{
+  outline: 2px solid var(--c-blue); outline-offset: -2px;
+  border-radius: 0;
+}
+
+/* Einfügestelle beim Ziehen */
+[data-ui-design="design2"] #navTree .group-header-row.drag-over-bottom,
+[data-ui-design="design2"] #navTree .nav-item-row.drag-over-bottom{ box-shadow: inset 0 -2px 0 var(--c-blue); }
+[data-ui-design="design2"] #navTree .group-header-row.drag-over-top,
+[data-ui-design="design2"] #navTree .nav-item-row.drag-over-top{ box-shadow: inset 0 2px 0 var(--c-blue); }
+[data-ui-design="design2"] #navTree .group-header-row.drag-over,
+[data-ui-design="design2"] #navTree .nav-item-row.drag-over{ background: var(--c-s2); }
+[data-ui-design="design2"] #navTree .group-header-row.drag-over.invalid,
+[data-ui-design="design2"] #navTree .nav-item-row.drag-over.invalid{ background: none; box-shadow: inset 0 0 0 1px var(--c-amber); }
+[data-ui-design="design2"] #navTree .nav-group.dragging,
+[data-ui-design="design2"] #navTree .nav-item-row.dragging{ opacity: .45; }
+
+/* --------------------------------------------------------------------
+   8  Griffpunkte zum Umsortieren
+   -------------------------------------------------------------------- */
+[data-ui-design="design2"] #navTree .row-handle{
+  flex: none;
+  width: 11px; height: 11px; margin: 0; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--c-faint); cursor: grab;
+  opacity: 0; transition: opacity .12s;
+  position: absolute; left: 1px; z-index: 1;
+  background: none; border: none; font-size: 0;
+}
+[data-ui-design="design2"] #navTree .row-handle svg{ width: 11px; height: 11px; stroke: currentColor; fill: none; }
+[data-ui-design="design2"] #navTree .group-header-row:hover .row-handle,
+[data-ui-design="design2"] #navTree .nav-item-row:hover .row-handle{ opacity: 1; }
+[data-ui-design="design2"] #navTree .row-handle:active{ cursor: grabbing; }
+
+/* Die Auswahl-Checkbox der Mehrfachauswahl ist keine Baum-Zeile, sondern ein
+   eigener Bedienmodus. Sie behält ihre bestehende Darstellung und liegt wie
+   der Griffpunkt vor dem Einzug, damit die Zeilenmaße unverändert bleiben. */
+[data-ui-design="design2"] #navTree .row-select-checkbox{ flex: none; position: absolute; left: 14px; z-index: 1; }

@@ -1,0 +1,371 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+## These messages are used as headings in the recommendation doorhanger
+
+cfr-doorhanger-extension-heading = Recommended Extension
+cfr-doorhanger-feature-heading = Recommended Feature
+
+##
+
+cfr-doorhanger-extension-sumo-link =
+  .tooltiptext = Why am I seeing this
+
+cfr-doorhanger-extension-cancel-button = Not Now
+  .accesskey = N
+
+cfr-doorhanger-extension-ok-button = Add Now
+  .accesskey = A
+
+cfr-doorhanger-extension-manage-settings-button = Manage Recommendation Settings
+  .accesskey = M
+
+cfr-doorhanger-extension-never-show-recommendation = Don’t Show Me This Recommendation
+  .accesskey = S
+
+cfr-doorhanger-extension-learn-more-link = Learn more
+
+# This string is used on a new line below the add-on name
+# Variables:
+#   $name (String) - Add-on author name
+cfr-doorhanger-extension-author = by { $name }
+
+# This is a notification displayed in the address bar.
+# When clicked it opens a panel with a message for the user.
+cfr-doorhanger-extension-notification = Recommendation
+# .a11y-announcement is extracted in JS and announced via A11y.announce.
+cfr-doorhanger-extension-notification2 = Recommendation
+  .tooltiptext = Extension recommendation
+  .a11y-announcement = Extension recommendation available
+
+# This is a notification displayed in the address bar.
+# When clicked it opens a panel with a message for the user.
+# .a11y-announcement is extracted in JS and announced via A11y.announce.
+cfr-doorhanger-feature-notification = Recommendation
+  .tooltiptext = Feature recommendation
+  .a11y-announcement = Feature recommendation available
+
+## Add-on statistics
+## These strings are used to display the total number of
+## users and rating for an add-on. They are shown next to each other.
+
+# Variables:
+#   $total (Number) - The rating of the add-on from 1 to 5
+cfr-doorhanger-extension-rating =
+  .tooltiptext =
+    { $total ->
+        [one] { $total } star
+       *[other] { $total } stars
+    }
+# Variables:
+#   $total (Number) - The total number of users using the add-on
+cfr-doorhanger-extension-total-users =
+  { $total ->
+      [one] { $total } user
+     *[other] { $total } users
+  }
+
+## Firefox Accounts Message
+
+cfr-doorhanger-bookmark-fxa-header = Sync your bookmarks everywhere.
+cfr-doorhanger-bookmark-fxa-body-2 = Great find! Now don’t be left without this bookmark on your mobile devices. Get started with an account.
+cfr-doorhanger-bookmark-fxa-link-text = Sync bookmarks now…
+cfr-doorhanger-bookmark-fxa-close-btn-tooltip =
+  .aria-label = Close button
+  .title = Close
+
+## What's New toolbar button and panel
+
+# This string is used by screen readers to offer a text based alternative for
+# the notification icon
+cfr-badge-reader-label-newfeature = New feature:
+
+cfr-whatsnew-button =
+  .label = What’s New
+  .tooltiptext = What’s New
+
+cfr-whatsnew-release-notes-link-text = Read the release notes
+
+## Enhanced Tracking Protection Milestones
+
+# Variables:
+#   $blockedCount (Number) - The total count of blocked trackers. This number will always be greater than 1.
+#   $date (Datetime) - The date we began recording the count of blocked trackers
+cfr-doorhanger-milestone-heading2 =
+  { $blockedCount ->
+    *[other] { -brand-short-name } blocked over <b>{ $blockedCount }</b> trackers since { DATETIME($date, month: "long", year: "numeric") }!
+  }
+cfr-doorhanger-milestone-ok-button = See All
+  .accesskey = S
+cfr-doorhanger-milestone-close-button = Close
+  .accesskey = C
+
+## DOH Message
+
+cfr-doorhanger-doh-body = Your privacy matters. { -brand-short-name } now securely routes your DNS requests whenever possible to a partner service to protect you while you browse.
+cfr-doorhanger-doh-header = More secure, encrypted DNS lookups
+cfr-doorhanger-doh-primary-button-2 = Okay
+  .accesskey = O
+cfr-doorhanger-doh-secondary-button = Disable
+  .accesskey = D
+
+## Full Video Support CFR message
+
+cfr-doorhanger-video-support-body = Videos on this site may not play correctly on this version of { -brand-short-name }. For full video support, update { -brand-short-name } now.
+cfr-doorhanger-video-support-header = Update { -brand-short-name } to play video
+cfr-doorhanger-video-support-primary-button = Update Now
+  .accesskey = U
+
+## VPN promotion dialog for public Wi-Fi users
+##
+## If a user is detected to be on a public Wi-Fi network, they are given a
+## bit of info about how to improve their privacy and then offered a button
+## to the Mozilla VPN page and a link to dismiss the dialog.
+
+# This header text can be explicitly wrapped.
+spotlight-public-wifi-vpn-header = Looks like you’re using public Wi-Fi
+spotlight-public-wifi-vpn-body = To hide your location and browsing activity, consider a Virtual Private Network. It will help keep you protected when browsing in public places like airports and coffee shops.
+spotlight-public-wifi-vpn-primary-button = Stay private with { -mozilla-vpn-brand-name }
+  .accesskey = S
+spotlight-public-wifi-vpn-link = Not Now
+  .accesskey = N
+
+## Emotive Continuous Onboarding
+
+spotlight-better-internet-header = A better internet starts with you
+spotlight-better-internet-body = When you use { -brand-short-name}, you’re voting for an open and accessible internet that’s better for everyone.
+spotlight-peace-mind-header = We’ve got you covered
+spotlight-peace-mind-body = Every month, { -brand-short-name } blocks an average of over 3,000 trackers per user. Because nothing, especially privacy nuisances like trackers, should stand between you and the good internet.
+spotlight-pin-primary-button = { PLATFORM() ->
+    [macos] Keep in Dock
+   *[other] Pin to taskbar
+}
+spotlight-pin-secondary-button = Not now
+
+## MR2022 Background Update Windows native toast notification strings.
+##
+## These strings will be displayed by the Windows operating system in
+## a native toast, like:
+##
+## <b>multi-line title</b>
+## multi-line text
+## <img>
+## [ primary button ] [ secondary button ]
+##
+## The button labels are fitted into narrow fixed-width buttons by
+## Windows and therefore must be as narrow as possible.
+
+mr2022-background-update-toast-title = New { -brand-short-name }. More private. Fewer trackers. No compromises.
+mr2022-background-update-toast-text = Try the newest { -brand-short-name } now, upgraded with our strongest anti-tracking protection yet.
+
+# This button label will be fitted into a narrow fixed-width button by
+# Windows. Try to not exceed the width of the English text (compare it
+# using a variable font like Arial): the button can only fit 1-2
+# additional characters, exceeding characters will be truncated.
+mr2022-background-update-toast-primary-button-label = Open { -brand-shorter-name } Now
+
+# This button label will be fitted into a narrow fixed-width button by
+# Windows. Try to not exceed the width of the English text (compare it using a
+# variable font like Arial): the button can only fit 1-2 additional characters,
+# exceeding characters will be truncated.
+mr2022-background-update-toast-secondary-button-label = Remind Me Later
+
+## Cookie Banner Handling CFR
+
+cookie-banner-blocker-onboarding-header = { -brand-short-name } just refused a cookie banner for you
+cookie-banner-blocker-onboarding-body = Less distractions, less cookies tracking you on this site.
+cookie-banner-blocker-onboarding-learn-more = Learn more
+
+## These strings are used in the Fox doodle Pin/set default spotlights
+
+july-jam-headline = We’ve got you covered
+july-jam-body = Every month, { -brand-short-name } blocks an average of 3,000+ trackers per user, giving you safe, speedy access to the good internet.
+july-jam-set-default-primary = Open my links with { -brand-short-name }
+fox-doodle-pin-headline = Welcome back
+
+# “indie” is short for the term “independent”.
+# In this instance, free from outside influence or control.
+fox-doodle-pin-body = Here’s a quick reminder that you can keep your favorite indie browser just one click away.
+fox-doodle-pin-primary = Open my links with { -brand-short-name }
+fox-doodle-pin-secondary = Not now
+
+## These strings are used in the Set Firefox as Default PDF Handler for Existing Users experiment
+
+set-default-pdf-handler-headline = <strong>Your PDFs now open in { -brand-short-name }.</strong> Edit or sign forms directly in your browser. To change, search “PDF” in settings.
+set-default-pdf-handler-primary = Got it
+
+## FxA sync CFR
+
+fxa-sync-cfr-header = New device in your future?
+fxa-sync-cfr-body = Make sure your latest bookmarks, passwords, and tabs come with you any time you open a new { -brand-product-name } browser.
+fxa-sync-cfr-primary = Learn more
+  .accesskey = L
+fxa-sync-cfr-secondary = Remind me later
+  .accesskey = R
+
+## Device Migration FxA Spotlight
+
+device-migration-fxa-spotlight-heavy-user-header = Don’t forget to back up your data
+device-migration-fxa-spotlight-heavy-user-body = Make sure important info — like bookmarks and passwords — is updated and protected across all your devices.
+device-migration-fxa-spotlight-heavy-user-primary-button = Get started
+
+device-migration-fxa-spotlight-older-device-header = Peace of mind, from { -brand-product-name }
+device-migration-fxa-spotlight-older-device-body = An account keeps your important info updated and protected on any device you connect.
+device-migration-fxa-spotlight-older-device-primary-button = Create an account
+
+device-migration-fxa-spotlight-getting-new-device-header-2 = New device in your future?
+device-migration-fxa-spotlight-getting-new-device-body-2 = Follow a few simple steps to bring your bookmarks, history, and passwords with you when you get started on a new device.
+device-migration-fxa-spotlight-getting-new-device-primary-button = How to back up my data
+
+device-migration-fxa-spotlight-sync-header = Browse without missing a beat
+device-migration-fxa-spotlight-sync-body = Sync all your important info with encryption — like bookmarks and passwords. You can pull everything up anywhere you use { -brand-product-name }.
+device-migration-fxa-spotlight-sync-primary-button = Get started
+
+## Set as Default PDF Reader Infobar
+
+# The question portion of the following message should have the <strong> and </strong> tags surrounding it.
+pdf-default-notification-message = <strong>Make { -brand-short-name } your default PDF reader?</strong> Use { -brand-short-name } to read and edit PDFs saved to your computer.
+pdf-default-notification-set-default-button =
+    .label = Set as default
+pdf-default-notification-decline-button =
+    .label = Not now
+
+## Launch on login infobar notification
+
+launch-on-login-infobar-message = <strong>Open { -brand-short-name } every time you restart your computer?</strong> Now you can set { -brand-short-name } to open automatically when you restart your device.
+launch-on-login-learnmore = Learn more
+launch-on-login-infobar-confirm-button = Yes, open { -brand-short-name }
+  .accesskey = Y
+launch-on-login-infobar-reject-button = Not now
+  .accesskey = N
+
+## These string variants are used when the “launch on login” infobar
+## notification is displayed for a second time.
+
+launch-on-login-infobar-final-message = <strong>Open { -brand-short-name } every time you restart your computer?</strong> To manage your Startup preferences, search “startup” in settings.
+launch-on-login-infobar-final-reject-button = No thanks
+  .accesskey = N
+
+## Tail Fox Set Default Spotlight
+
+# This title is displayed together with the picture of a running fox with a long tail.
+# In English, this is a figure of speech meaning 'stop something from following you'.
+# If the localization of this message is challenging, consider using a simplified
+# alternative as a reference for translation: 'Keep unwanted trackers away'.
+tail-fox-spotlight-title = Keep pesky trackers off your tail
+tail-fox-spotlight-subtitle = Say goodbye to annoying ad trackers and settle into a safer, speedy internet experience.
+tail-fox-spotlight-primary-button = Open my links with { -brand-short-name }
+tail-fox-spotlight-secondary-button = Not now
+
+## Root Certificate Succession Infobar
+
+root-certificate-succession-infobar-january-message = <strong>Older versions of { -brand-short-name } may start to have problems on January 14, 2025.</strong>
+root-certificate-succession-infobar-march-message = <strong>Update to keep using { -brand-short-name } after March 14, 2025.</strong>
+root-certificate-succession-infobar-link = Why do I need to update?
+root-certificate-succession-infobar-primary-button =
+  .label = Update now
+  .accesskey = U
+root-certificate-succession-infobar-secondary-button =
+  .label = Later
+  .accesskey = L
+
+## Root Certificate Succession Windows Background Notification
+
+root-certificate-windows-background-notification-title = You missed an important { -brand-short-name } update
+root-certificate-windows-background-notification-subtitle = Parts of the browser will stop working soon if you don’t update. Now is a great time to get our latest protections and features.
+root-certificate-windows-background-notification-learn-more-button = Learn more
+root-certificate-windows-background-notification-update-button = Update { -brand-short-name }
+
+## FxA Menu Message variants
+
+fxa-menu-message-close-button =
+    .title = Close
+    .aria-label = Close
+
+fxa-menu-message-sign-up-button = Sign up
+
+fxa-menu-message-sync-devices-primary-text = Sync all your devices
+fxa-menu-message-sync-devices-secondary-text = Instantly get your info — like bookmarks and passwords — everywhere you use { -brand-short-name }.
+fxa-menu-message-sync-devices-collapsed-text = Sync all your devices
+
+fxa-menu-message-backup-data-primary-text = Back up your browser data
+fxa-menu-message-backup-data-secondary-text = Automatically protect bookmarks, passwords, and other info on all your devices.
+fxa-menu-message-backup-data-collapsed-text = Back up browser data
+
+fxa-menu-message-backup-sync-primary-text = Keep your data safe and synced
+fxa-menu-message-backup-sync-secondary-text = Sync backs up most of your data so you can access it everywhere you use { -brand-short-name }.
+fxa-menu-message-backup-sync-collapsed-text = Sync and back up data
+
+fxa-menu-message-mobile-primary-text = Send tabs to your phone
+fxa-menu-message-mobile-secondary-text = Pick up where you left off instantly when you sync your tabs with a mobile device.
+fxa-menu-message-mobile-collapsed-text = Sync with your phone
+
+## Multi-CTA Fox Doodle Spotlight
+
+multi-cta-fox-doodle-title = Welcome back
+
+multi-cta-fox-doodle-set-default-checkbox = Set { -brand-short-name } to default
+multi-cta-fox-doodle-pin-startmenu-checkbox = Pin { -brand-short-name } to Start menu
+multi-cta-fox-doodle-pin-checkbox  = { PLATFORM() ->
+    [macos] Keep { -brand-short-name } in Dock
+   *[other] Pin { -brand-short-name } to taskbar
+}
+multi-cta-fox-doodle-start-browsing-primary-button-label = Start browsing
+multi-cta-fox-doodle-main-browser-primary-button-label = Make { -brand-short-name } my main browser
+
+multi-cta-fox-doodle-quick-reminder-subtitle = Here’s a quick reminder that you can keep your favorite privacy-focused browser just one click away.
+multi-cta-fox-doodle-privacy-focused-subtitle  = { PLATFORM() ->
+    [macos] Keep your favorite privacy-focused browser just one click away. Set { -brand-short-name } as your default browser for opening links and keep it in your Dock.
+   *[other] Keep your favorite privacy-focused browser just one click away. Set { -brand-short-name } as your default browser for opening links and pin it to your taskbar.
+}
+multi-cta-fox-doodle-msix-privacy-focused-subtitle = Keep your favorite privacy-focused browser just one click away. Set { -brand-short-name } as your default browser for opening links and pin it to your taskbar and Start menu.
+�oИ�      j���j���I�MClp��   �    a,:https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/ms-language-packs/b8aa99dd-b2b6-4312-8c40-d15867393b13.ftl strongly-framed 1 security-info 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 request-method GET response-head HTTP/2 200 
+content-type: application/octet-stream
+x-guploader-uploadid: AGQBYWyxIACouyInxuUFRJuMhngSI5T13ugh0MeEW7nxF0-3_1M1iQm2xq1HTOHH9yGbLXLr3MKTeCQ
+expires: Tue, 03 Mar 2026 13:21:05 GMT
+last-modified: Mon, 02 Dec 2024 20:56:25 GMT
+etag: "96c542dec016d9ec1ecc4dddfcbaac66"
+x-goog-generation: 1733172985945667
+x-goog-metageneration: 4
+x-goog-stored-content-encoding: identity
+x-goog-stored-content-length: 15829
+x-goog-hash: crc32c=Vecspg==, md5=lsVC3sAW2ewezE3d/LqsZg==
+x-goog-storage-class: STANDARD
+server: UploadServer
+via: 1.1 varnish, 1.1 varnish
+accept-ranges: bytes
+date: Wed, 02 Sep 2026 03:02:29 GMT
+age: 527034
+x-served-by: cache-bfi-krnt7300068-BFI, cache-muc13982-MUC
+x-cache: HIT, HIT
+x-cache-hits: 51088, 796
+x-timer: S1788318149.432810,VS0,VE0
+cache-control: public, max-age=31536000, immutable
+content-length: 15829
+X-Firefox-Spdy: h2
+ original-response-headers content-type: application/octet-stream
+x-guploader-uploadid: AGQBYWyxIACouyInxuUFRJuMhngSI5T13ugh0MeEW7nxF0-3_1M1iQm2xq1HTOHH9yGbLXLr3MKTeCQ
+expires: Tue, 03 Mar 2026 13:21:05 GMT
+last-modified: Mon, 02 Dec 2024 20:56:25 GMT
+etag: "96c542dec016d9ec1ecc4dddfcbaac66"
+x-goog-generation: 1733172985945667
+x-goog-metageneration: 4
+x-goog-stored-content-encoding: identity
+x-goog-stored-content-length: 15829
+x-goog-hash: crc32c=Vecspg==
+x-goog-hash: md5=lsVC3sAW2ewezE3d/LqsZg==
+x-goog-storage-class: STANDARD
+server: UploadServer
+via: 1.1 varnish, 1.1 varnish
+accept-ranges: bytes
+date: Wed, 02 Sep 2026 03:02:29 GMT
+age: 527034
+x-served-by: cache-bfi-krnt7300068-BFI, cache-muc13982-MUC
+x-cache: HIT, HIT
+x-cache-hits: 51088, 796
+x-timer: S1788318149.432810,VS0,VE0
+cache-control: public, max-age=31536000, immutable
+content-length: 15829
+X-Firefox-Spdy: h2
+ ctid 1 net-response-time-onstart 46 net-response-time-onstop 46      =�

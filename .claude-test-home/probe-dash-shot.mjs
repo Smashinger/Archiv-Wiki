@@ -1,0 +1,16 @@
+import { _electron as electron } from 'playwright-core';
+import * as path from 'node:path';
+const APP_DIR = '/home/smashii/Dokumente/Archiv Wiki/archiv-wiki';
+const TEST_HOME = path.join(APP_DIR, '.claude-test-home');
+const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
+env.HOME = TEST_HOME; env.XDG_CONFIG_HOME = path.join(TEST_HOME, '.config');
+env.XDG_CACHE_HOME = path.join(TEST_HOME, '.cache'); env.XDG_DATA_HOME = path.join(TEST_HOME, '.local/share');
+const app = await electron.launch({ executablePath: path.join(APP_DIR,'node_modules/electron/dist/electron'), args:['--disable-gpu', APP_DIR], env, timeout:30000 });
+await new Promise(r=>setTimeout(r,6000));
+const page = app.windows().find(w=>!w.url().startsWith('devtools://')) ?? await app.firstWindow();
+await page.setViewportSize({ width: 1700, height: 700 });
+await page.evaluate(()=>{ location.hash='#home'; });
+await new Promise(r=>setTimeout(r,1600));
+await page.screenshot({ path: path.join(TEST_HOME,'shots-layout','dashboard-ausgerichtet.png'), clip:{x:240,y:60,width:1180,height:330} });
+console.log('ok');
+await app.close();

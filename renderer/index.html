@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self';">
+<!--
+  Hinweis style-src 'unsafe-inline': CodeMirror injiziert sein Theming zur
+  Laufzeit über dynamisch erzeugte <style>-Elemente (style-mod) — fester
+  Bestandteil der Bibliothek. script-src (sicherheitskritisch, verhindert
+  Code-Ausführung) bleibt strikt auf 'self'.
+-->
+<title>Archiv Wiki</title>
+<link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/vendor/katex/katex.min.css">
+<link rel="stylesheet" href="css/design2.css">
+<!-- Einstellungsfenster: eigener, in sich geschlossener Tokensatz und
+     Formensprache (siehe archiv-wiki-einstellungen.md). Bewusst NACH
+     design2.css eingebunden, damit keine [data-ui-design]-Regel das Fenster
+     mitgestaltet — es sieht in Classic und Design2 identisch aus. -->
+<link rel="stylesheet" href="css/archiv-wiki-tokens.css">
+<link rel="stylesheet" href="css/settings.css">
+<link rel="stylesheet" href="css/sidebar-tree.css">
+</head>
+<body>
+  <!-- Eigene Titelleiste (Custom Window Chrome): ersetzt die native KDE/KWin-
+       Fensterdekoration und die native Electron-Menüzeile (siehe main.js,
+       frame:false) durch den einzigen sichtbaren oberen Fensterbereich.
+       Bewusst als eigenständiges Geschwister-Element VOR .lock-screen/.shell,
+       nicht als Teil davon — bleibt dadurch (per z-index, siehe
+       layout.css) auch bei Sperrbildschirm oder geöffnetem Dialog erreichbar,
+       genau wie eine native Titelleiste. -->
+  <header class="app-titlebar" id="appTitlebar">
+    <!-- Zone 1 — Struktur, linksbündig: Burger, Sidebar, Trenner, Archiv Wiki -->
+    <div class="app-titlebar-zone1" id="appTitlebarZone1">
+      <button class="app-titlebar-btn" id="titlebarBurgerBtn" type="button" title="Menü" aria-label="Menü">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+      </button>
+      <button class="app-titlebar-btn" id="titlebarSidebarBtn" type="button" title="Sidebar umschalten" aria-label="Sidebar umschalten" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="1"/><line x1="9.5" y1="5" x2="9.5" y2="19"/></svg>
+      </button>
+      <span class="app-titlebar-divider" aria-hidden="true"></span>
+      <span class="app-titlebar-appname" id="appTitlebarAppName">Archiv Wiki</span>
+    </div>
+    <!-- Zone 2 — Suche, in der Fenstermitte: flex:1 mit justify-center -->
+    <div class="app-titlebar-zone2" id="appTitlebarZone2">
+      <div class="d2-titlebar-search-slot" id="d2TitlebarSearchSlot"></div>
+    </div>
+    <!-- Zone 3 — Zustand, Anwendung, Fenster, rechtsbündig -->
+    <div class="app-titlebar-zone3" id="appTitlebarZone3">
+      <!-- Zustandsanzeige UND Zugang zu ihren Einstellungen in einem: der Klick
+           leitet auf den bestehenden #btnSync-Handler weiter (siehe app.js),
+           genau wie #titlebarSettingsBtn auf #btnSettings und
+           #titlebarSidebarBtn auf #burgerBtn. Kein zweiter Sync-Dialog, keine
+           zweite Sync-Logik. Bewusst ein <button>, damit der Zugang auch per
+           Tastatur und für Screenreader existiert. -->
+      <button class="app-titlebar-sync" id="titlebarSyncStatus" type="button" title="Synchronisationseinstellungen" aria-label="Synchronisationseinstellungen öffnen">
+        <span class="app-titlebar-sync-dot" id="titlebarSyncDot"></span>
+        <span class="app-titlebar-sync-text" id="titlebarSyncText">WEBDAV SYNCHRON</span>
+      </button>
+      <span class="app-titlebar-divider" aria-hidden="true"></span>
+      <!-- Globale Aktionsgruppe: nimmt die bestehenden .topbar-Aktionsknoten
+           (Backup-Warnung, Papierkorb, Mehrfachauswahl, Fehler melden, Über)
+           designübergreifend auf — dieselben Knoten, dieselben bereits
+           verdrahteten Handler, siehe applyTopbarActionsPlacement() in app.js. -->
+      <div class="app-titlebar-actions" id="titlebarActionsSlot"></div>
+      <!-- Korrekturauftrag Punkt 14: die sechs Symbole rechts standen alle im
+           selben Abstand, gehören aber zu drei Dingen — Inhalte (Papierkorb,
+           Mehrfachauswahl), Hilfe (Fehler melden, Über) und Oberfläche
+           (Theme, Einstellungen). Statt die Trenner in EINEN Slot zu legen,
+           in den applyTopbarActionsPlacement() die Knöpfe per appendChild
+           einhängt (sie landeten sonst hinter den Trennern), trägt die Hilfe
+           einen eigenen Slot. Der Trenner vor den Fensterknöpfen weiter unten
+           bestand bereits und bleibt unverändert. -->
+      <span class="app-titlebar-divider" aria-hidden="true"></span>
+      <div class="app-titlebar-actions" id="titlebarHelpSlot"></div>
+      <span class="app-titlebar-divider" aria-hidden="true"></span>
+      <button class="app-titlebar-btn" id="titlebarThemeBtn" type="button" title="Helles Design" aria-label="Design umschalten">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="6.34" y2="17.66"/><line x1="17.66" y1="6.34" x2="19.07" y2="4.93"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <button class="app-titlebar-btn" id="titlebarSettingsBtn" type="button" title="Einstellungen" aria-label="Einstellungen öffnen">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+      <span class="app-titlebar-divider" aria-hidden="true"></span>
+      <button type="button" class="app-titlebar-btn" id="btnWinMinimize" title="Minimieren" aria-label="Minimieren">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <button type="button" class="app-titlebar-btn" id="btnWinMaximize" title="Maximieren" aria-label="Maximieren">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5.5" y="5.5" width="13" height="13" rx="1"/></svg>
+      </button>
+      <button type="button" class="app-titlebar-btn app-titlebar-btn-close" id="btnWinClose" title="Schließen" aria-label="Schließen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+    </div>
+    <!-- Legacy Slots für bestehende Logik (weiterhin vorhanden, aber unsichtbar) -->
+    <div class="d2-titlebar-actions-slot" id="d2TitlebarActionsSlot" hidden></div>
+    <span class="app-titlebar-spacer" hidden></span>
+    <button type="button" class="d2-titlebar-more-btn" id="d2TitlebarMoreBtn" hidden></button>
+    <button type="button" class="d2-titlebar-newnote" id="d2TitlebarAddNote" hidden></button>
+    <nav class="app-titlebar-menu" id="appTitlebarMenu" hidden aria-label="Anwendungsmenü"></nav>
+    <button type="button" class="d2-titlebar-menu-btn" id="d2TitlebarMenuBtn" hidden></button>
+  </header>
+
+  <div class="lock-screen" id="lockScreen" style="display:none;">
+    <div class="lock-screen-box">
+      <div class="lock-screen-icon">🔒</div>
+      <h1 class="lock-screen-title">Archiv Wiki gesperrt</h1>
+      <input type="password" id="lockScreenPassword" class="lock-screen-input" placeholder="Passwort" autocomplete="current-password">
+      <div class="lock-screen-error" id="lockScreenError"></div>
+      <button type="button" class="btn primary lock-screen-btn" id="lockScreenUnlock">Entsperren</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay"></div>
+
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-resize-handle" id="sidebarResizeHandle"></div>
+      <!-- search-zone: gemeinsamer relativ positionierter Rahmen für Suchfeld,
+           Scope/Filter-Zeile, aktive Filter-Chips UND das Ergebnis-Dropdown
+           (Schritt B1/B2) — nötig, damit das Dropdown unterhalb ALLER
+           vorherigen Zeilen erscheint. Die Chip-Zeile lag ursprünglich als
+           Geschwister-Element NACH search-zone (siehe B2-Audit): da das
+           Dropdown position:absolute mit top:100% relativ zu search-zone
+           gesetzt ist, begann es an genau derselben Position wie die
+           Chip-Zeile — beide überlappten sich sichtbar, sobald gleichzeitig
+           Filter aktiv UND das Dropdown offen waren (z. B. leere Suche +
+           Filter). Die Chip-Zeile ist deshalb jetzt TEIL von search-zone,
+           vor dem Dropdown im normalen Fluss, damit dessen top:100% die
+           Chip-Höhe automatisch mit einrechnet. -->
+      <div class="search-zone">
+        <div class="search-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="navSearch" placeholder="Durchsuchen…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="searchDropdown" aria-autocomplete="list" aria-haspopup="listbox">
+          <button type="button" class="search-clear" id="searchClear" title="Suche leeren" aria-label="Suche leeren">✕</button>
+          <kbd>Ctrl K</kbd>
+        </div>
+
+        <!-- Suchbereich + Filter (Schritt B1) — bewusst als schmale zweite Zeile
+             statt einer eigenen Suchseite: Scope schränkt EINE Suche gezielt auf
+             ein Feld ein (kein Query-Syntax wie "tag:linux"), Filter grenzt
+             unabhängig vom Suchtext nach Kategorie/Tags ein (funktioniert auch
+             bei leerem Suchfeld). -->
+        <div class="search-controls-row">
+          <select id="searchScope" class="search-scope-select" aria-label="Suchbereich" title="Suchbereich">
+            <option value="all">Alle</option>
+            <option value="title">Titel</option>
+            <option value="body">Inhalt</option>
+            <option value="tags">Tags</option>
+            <option value="categories">Kategorie</option>
+          </select>
+          <div class="d2-search-scope-pills" id="d2SearchScopePills" role="group" aria-label="Suchbereich"></div>
+          <button type="button" id="searchFilterBtn" class="search-filter-btn" aria-haspopup="true" aria-expanded="false" title="Nach Kategorie/Tags filtern">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            <span>Filter</span>
+            <span class="search-filter-count" id="searchFilterCount" style="display:none;">0</span>
+          </button>
+          <div class="search-filter-panel" id="searchFilterPanel" style="display:none;"></div>
+        </div>
+
+        <div class="active-filters-row" id="activeFiltersRow" style="display:none;"></div>
+
+        <div class="search-dropdown" id="searchDropdown" role="listbox" aria-label="Suchergebnisse" style="display:none;"></div>
+      </div>
+
+      <div class="action-row">
+        <button type="button" class="action-btn" id="segAddMain" data-segment="main">+ Haupt</button>
+        <button type="button" class="action-btn" id="segAddSub" data-segment="sub">+ Unter</button>
+        <button type="button" class="action-btn action-btn-primary" id="btnAddNote">+ Notiz</button>
+      </div>
+
+      <!-- D2 / Block 1: Mehrfachauswahl-Leiste — nur sichtbar im Auswahlmodus,
+           an dieser EINEN Stelle (nicht pro Ansicht dupliziert), weil die
+           Sidebar unabhängig von Dashboard/Archiv-Seite immer sichtbar bleibt.
+           Noch keine funktionsfähigen Batch-Aktionen (kommen erst Block 2/3),
+           die drei Buttons sind bewusst sichtbar, aber deaktiviert. -->
+      <div class="selection-bar" id="selectionBar" style="display:none;">
+        <div class="selection-bar-status">
+          <span id="selectionCount">0 ausgewählt</span>
+          <button type="button" class="btn small" id="btnClearSelection">Auswahl aufheben</button>
+        </div>
+        <div class="selection-bar-actions">
+          <button type="button" class="btn small" id="btnBatchMove" disabled>Verschieben</button>
+          <button type="button" class="btn small" id="btnBatchArchive" disabled>Archivieren</button>
+          <button type="button" class="btn danger small" id="btnBatchDelete" disabled>Löschen</button>
+        </div>
+        <button type="button" class="btn small" id="btnExitSelectionMode">Fertig</button>
+      </div>
+
+      <ul class="nav-top">
+        <li class="nav-home-row">
+          <a class="nav-link" id="homeLink" data-route="home"><span class="nl-icon"><img class="lib-icon ui-nav-icon" src="assets/icon-library/navigation/home.svg" alt=""></span><span class="nl-title">Start</span></a>
+          <button type="button" class="nav-home-lock" id="btnLockWiki" title="Wiki sperren" aria-label="Wiki sperren" hidden>
+            <img class="lib-icon" src="assets/icon-library/network/shield.svg" alt="">
+          </button>
+        </li>
+        <li><a class="nav-link" id="incomingLink" data-route="incoming"><span class="nl-icon"><img class="lib-icon ui-nav-icon" src="assets/icon-library/navigation/inbox.svg" alt=""></span><span class="nl-title">Eingang</span><span class="fixed-nav-count fixed-nav-count-system" id="incomingNavCount" aria-hidden="true" hidden></span></a></li>
+        <li><a class="nav-link" id="archiveLink" data-route="archive"><span class="nl-icon"><img class="lib-icon ui-nav-icon" src="assets/icon-library/projects/archive.svg" alt=""></span><span class="nl-title">Archiv</span><span class="fixed-nav-count" id="archiveNavCount" aria-hidden="true" hidden></span></a></li>
+        <li><a class="nav-link" id="knowledgeCareLink" data-route="knowledge-care"><span class="nl-icon">✓</span><span class="nl-title">Wissenspflege</span></a></li>
+      </ul>
+
+      <!-- Design2-only Abschnittsüberschrift (Phase 5D): reines Textlabel,
+           kein interaktives Element. In Classic per Default ausgeblendet
+           (components.css), in Design2 sichtbar (design2.css). Der Zähler
+           wird in renderNavTree() aus bereits vorhandenen Baum-Daten befüllt
+           (state.tree-Hauptkategorien-Anzahl), keine neue Zähllogik. -->
+      <div class="sidebar-section-label" id="sidebarThemenLabel">
+        <span class="ssl-text">Themen</span>
+        <span class="ssl-count" id="sidebarThemenCount"></span>
+      </div>
+
+      <div class="sidebar-scroll">
+        <nav id="navTree"><!-- von app.js gerendert --></nav>
+      </div>
+
+      <div class="sidebar-foot-row">
+        <div class="update-status" id="updateStatus">
+          <div class="update-status-top" id="updateStatusTop">
+            <span class="update-dot" id="updateDot"></span>
+            <span class="update-status-label" id="updateStatusLabel">Wird geprüft …</span>
+          </div>
+          <div class="update-status-current" id="updateStatusCurrent"></div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="main-area">
+      <header class="topbar">
+        <!-- Sidebar-Ein-/Ausblendung, geteilt zwischen Classic und Design2 (ein
+             Button, eine ID, ein bestehender Klick-Handler, siehe app.js).
+             Classic zeigt weiterhin unverändert das bisherige Hamburger-
+             Unicode-Zeichen; Design2 zeigt stattdessen ein eindeutiges
+             Sidebar-Panel-Symbol (Fensterrahmen mit abgetrennter linker
+             Leiste), damit es sich vom Anwendungsmenü-Hamburger
+             (#d2TitlebarMenuBtn) unterscheidet — beide Glyphen liegen im
+             selben Knoten, nur ihre Sichtbarkeit ist per CSS nach aktivem
+             Design getrennt (layout.css blendet die Design2-Glyphe
+             standardmäßig aus, design2.css kehrt es um). title/aria-label
+             werden ausschließlich von app.js (updateBurgerButtonLabel())
+             anhand des echten Sidebar-Zustands gesetzt; die Werte hier sind
+             nur der Platzhalter vor dem ersten init(). -->
+        <button class="burger" id="burgerBtn" type="button" title="Sidebar ausblenden" aria-label="Sidebar ausblenden">
+          <span class="burger-classic-glyph" aria-hidden="true">☰</span>
+          <svg class="burger-d2-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2"/><line x1="9.5" y1="5" x2="9.5" y2="19"/></svg>
+        </button>
+        <div class="breadcrumb" id="breadcrumb">Start</div>
+        <span class="spacer"></span>
+        <span class="topbar-dates" id="topbarNoteDates"></span>
+        <button class="icon-btn" id="btnSync" type="button" title="Synchronisationseinstellungen" aria-label="Synchronisationseinstellungen"><img class="lib-icon ui-action-icon" src="assets/icon-library/network/cloud.svg" alt=""></button>
+        <!-- Diese vier Aktionen stehen seit der globalen Topbar in Zone 3
+             direkt neben dem Hell-/Dunkel-Umschalter und dem Zahnrad (siehe
+             applyTopbarActionsPlacement() in app.js). Ihre Symbole sind
+             deshalb Inline-SVG statt <img class="lib-icon"> aus der
+             Icon-Bibliothek: Ein <img> kann weder "currentColor" noch die
+             Strichstärke des umgebenden Knopfes übernehmen — die
+             Bibliotheks-SVGs sind Lucide mit fest eingebautem
+             stroke-width="2" und werden nur über einen Umweg eingefärbt
+             (.lib-icon{ filter: invert(1) brightness(1.7) } in
+             components.css). Beides ließ sie neben den vorhandenen
+             Titelleisten-Symbolen (stroke-width 1.5, currentColor) sichtbar
+             zu dick und farblich abweichend wirken. Es sind dieselben
+             Lucide-Pfade wie in assets/icon-library/, nur inline und auf
+             stroke-width 1.5 gebracht; Knoten, IDs, Klassen und Handler
+             bleiben unverändert. -->
+        <button class="icon-btn backup-warning-btn" id="btnBackupWarning" type="button" title="" aria-label="Backup-Warnung" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></button>
+        <button class="icon-btn trash-btn" id="btnTrash" type="button" title="Papierkorb" aria-label="Papierkorb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg><span class="trash-count" id="trashCount" style="display:none;"></span></button>
+        <button class="icon-btn" id="btnSelectionMode" type="button" title="Mehrfachauswahl" aria-label="Mehrfachauswahl" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10.656V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.344"/><path d="m9 11 3 3L22 4"/></svg></button>
+        <button class="icon-btn" id="btnBugReport" type="button" title="Fehler melden" aria-label="Fehler melden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20v-9"/><path d="M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z"/><path d="M14.12 3.88 16 2"/><path d="M21 21a4 4 0 0 0-3.81-4"/><path d="M21 5a4 4 0 0 1-3.55 3.97"/><path d="M22 13h-4"/><path d="M3 21a4 4 0 0 1 3.81-4"/><path d="M3 5a4 4 0 0 0 3.55 3.97"/><path d="M6 13H2"/><path d="m8 2 1.88 1.88"/><path d="M9 7.13V6a3 3 0 1 1 6 0v1.13"/></svg></button>
+        <button class="icon-btn" id="btnAbout" type="button" title="Über Archiv Wiki" aria-label="Über Archiv Wiki">ℹ</button>
+        <span class="topbar-icon-divider"></span>
+        <button class="icon-btn" id="btnSettings" type="button" title="Einstellungen" aria-label="Einstellungen"><img class="lib-icon ui-action-icon" src="assets/icon-library/projects/settings.svg" alt=""></button>
+      </header>
+
+      <main class="content-scroll" id="contentScroll">
+        <!-- Home-Grid oder Notiz-Ansicht, gerendert von app.js -->
+      </main>
+    </div>
+  </div>
+
+  <!-- Globale Design2-Statusleiste (P1-C1): ein dauerhaft im App-Frame
+       verankerter Host unter Sidebar und Hauptbereich. Die angezeigten Werte
+       werden ausschließlich aus den bereits vorhandenen zentralen Status-
+       callbacks beziehungsweise den bestehenden Editor-Berechnungen
+       übernommen. Classic blendet diesen Host vollständig aus und behält
+       seine lokale .note-bottombar unverändert. -->
+  <footer class="global-statusbar" id="globalStatusbar" data-mode="app" aria-label="Anwendungsstatus">
+    <div class="global-statusbar-left">
+      <span class="global-status-item global-status-primary global-status-app" id="globalStatusReady">Bereit</span>
+      <span class="global-status-item global-status-app" id="globalStatusLastEdited"></span>
+      <span class="global-status-item global-status-primary global-status-editor" id="globalStatusSave" aria-live="polite"></span>
+      <span class="global-status-item global-status-editor" id="globalStatusSync"></span>
+    </div>
+    <div class="global-statusbar-right">
+      <span class="global-status-item global-status-app" id="globalStatusBackup"></span>
+      <span class="global-status-update global-status-app" id="globalStatusUpdate">
+        <span class="update-dot" id="globalStatusUpdateDot"></span>
+        <span class="global-status-item" id="globalStatusUpdateCurrent"></span>
+        <span class="global-status-separator" aria-hidden="true">·</span>
+        <span class="global-status-item" id="globalStatusUpdateLabel"></span>
+      </span>
+      <span class="global-status-item global-status-editor" id="globalStatusWords"></span>
+      <span class="global-status-item global-status-editor" id="globalStatusLines"></span>
+      <span class="global-status-item global-status-editor" id="globalStatusReadTime"></span>
+      <span class="global-status-item global-status-editor" id="globalStatusCursor"></span>
+    </div>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+:root {
+  /* Flächen */
+  --c-ground: #171110;   /* App-Hintergrund */
+  --c-s1: #201917;       /* Fläche Ebene 1 (Panels, Sidebar-Inhalt) */
+  --c-s2: #2a2220;       /* Fläche Ebene 2 (z. B. Eingabefelder) */
+  --c-s3: #342b28;       /* Fläche Ebene 3 (Hover, sekundäre Buttons) */
+  --c-line: rgba(236,229,223,0.09);   /* dezente Trennlinie */
+  --c-line2: rgba(236,229,223,0.16);  /* deutlichere Trennlinie */
+
+  /* Text */
+  --c-text: #ece5df;     /* Haupttext, Überschriften – IMMER, nie farbig */
+  --c-dim: #c4b9b2;
+  --c-muted: #9b8f89;
+  --c-faint: #7a6f6a;
+
+  /* Akzente */
+  --c-rose: #cf8a94;     /* Auswahl durch den Menschen (Rand + Tint, keine Fläche) */
+  --c-rose-d: #6b4149;
+  --c-rose-t: rgba(207,138,148,0.13);
+  --c-blue: #5b9bf8;     /* App-Zustände: gespeichert, synchron, neu + primäre Aktion */
+  --c-blue-t: rgba(91,155,248,0.13);
+  --c-amber: #d9a05b;    /* NUR Themenrücken/Farbstreifen an Kategorien */
+
+  /* Schrift */
+  --font-heading: "Barlow Condensed", system-ui, sans-serif; /* Labels: immer Versalien */
+  --font-heading-weight: 600;
+  --font-body: "Barlow", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", monospace; /* Zahlen/Werte: Wortanzahl, Tags, Zeilen, Version */
+
+  /* Radius */
+  --radius-fill: 6px;   /* gefüllte Flächen (Panels, Buttons) */
+  --radius-chip: 4px;   /* kleine Chips/Tags */
+  --radius-swatch: 3px; /* Swatches */
+}
+
+/* Zustände als Referenz */
+.state-hover     { color: var(--c-text); background: var(--c-s3); }
+.state-selected  { color: #f6dfe2; background: var(--c-rose-t); border-left: 3px solid var(--c-rose); }
+.state-focus     { color: var(--c-text); outline: 2px solid var(--c-blue); outline-offset: 0; }
+.btn-primary     { background: var(--c-blue); color: #0d1726; border-radius: var(--radius-chip); }
+.btn-secondary   { background: var(--c-s3); color: var(--c-dim); border-radius: var(--radius-chip); }

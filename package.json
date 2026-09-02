@@ -1,0 +1,104 @@
+{
+  "name": "archiv-wiki",
+  "productName": "Archiv-Wiki",
+  "version": "2.2.0",
+  "description": "Persönliches Markdown-Wiki für den Desktop – Notizen, Setups und Checklisten, 100% lokal.",
+  "main": "main.js",
+  "author": {
+    "name": "Smashinger",
+    "email": "smashii@example.com"
+  },
+  "homepage": "https://github.com/Smashinger/Archiv-Wiki",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build:vendor": "node build/build.mjs",
+    "dist": "node build/verify-webclip-crx.mjs && electron-builder",
+    "release": "node build/verify-webclip-crx.mjs && electron-builder --publish always",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "devDependencies": {
+    "@codemirror/autocomplete": "^6.20.0",
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/lang-markdown": "^6.5.1",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/search": "^6.5.11",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.6",
+    "@lezer/highlight": "^1.2.3",
+    "dompurify": "^3.4.13",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.13.3",
+    "esbuild": "^0.28.1",
+    "flexsearch": "^0.8.212",
+    "highlight.js": "^11.11.1",
+    "katex": "^0.17.0",
+    "marked": "^18.0.6"
+  },
+  "dependencies": {
+    "@zip.js/zip.js": "^2.8.48",
+    "archiver": "^8.0.0",
+    "electron-updater": "^6.3.0",
+    "gray-matter": "^4.0.3",
+    "webdav": "^5.10.0"
+  },
+  "build": {
+    "appId": "de.smashii.archivwiki",
+    "productName": "Archiv-Wiki",
+    "copyright": "Copyright © 2026 smashii",
+    "files": [
+      "main.js",
+      "main/**/*",
+      "preload.js",
+      "renderer/**/*",
+      "assets/**/*",
+      "!renderer/**/*.map"
+    ],
+    "asarUnpack": [
+      "assets/icons/**/*",
+      "main/webclip-transport.js"
+    ],
+    "extraResources": [
+      {
+        "from": "extension/native-host",
+        "to": "native-host/extension/native-host",
+        "filter": [
+          "archiv-wiki-native-host",
+          "install-native-host.sh",
+          "native-host.js"
+        ]
+      },
+      {
+        "from": "extension/distribution/chromium",
+        "to": "web-clipper/chromium",
+        "filter": [
+          "archiv-wiki-web-clipper.crx"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Smashinger",
+      "repo": "Archiv-Wiki",
+      "releaseType": "draft"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "executableName": "archiv-wiki",
+      "category": "Office",
+      "icon": "assets/icons",
+      "synopsis": "Persönliches Markdown-Wiki für den Desktop",
+      "description": "Ein lokales, Electron-basiertes Wiki für Notizen, Setups und Checklisten. Keine Cloud-Pflicht, keine Telemetrie."
+    }
+  }
+}

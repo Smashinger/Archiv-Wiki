@@ -1,0 +1,31 @@
+{
+  "lastProjectPath": "/home/smashii/Dokumente/Archiv Wiki/archiv-wiki/.claude-test-wiki",
+  "mainWindowMaximized": true,
+  "lastUpdateCheckAt": "2026-08-29T22:57:46.546Z",
+  "mainWindowBounds": {
+    "x": 320,
+    "y": 117,
+    "width": 1280,
+    "height": 800
+  },
+  "closeBehavior": "quit",
+  "backupStatusByProject": {
+    "/home/smashii/Dokumente/Archiv Wiki/archiv-wiki/.claude-test-wiki": {
+      "consecutiveFailures": 0,
+      "lastSuccessAt": "2026-08-29T22:05:07.722Z",
+      "lastSuccessFileName": "backup-2026-08-30.zip",
+      "lastSuccessFileSize": 3821,
+      "lastSuccessFileMtimeMs": 1788041107805.7327,
+      "lastSuccessFileCtimeMs": 1788041107813.7327,
+      "lastSuccessFileIno": 5368001,
+      "lastErrorAt": null,
+      "lastErrorMessage": null,
+      "lastErrorCode": null,
+      "lastErrorUserMessage": null,
+      "lastCleanupErrorAt": null,
+      "lastCleanupErrorMessage": null,
+      "lastCleanupErrorCode": null,
+      "lastCleanupErrorUserMessage": null
+    }
+  }
+}
