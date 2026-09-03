@@ -95,6 +95,9 @@ contextBridge.exposeInMainWorld('archivAPI', {
   isEncryptionAvailable: () => ipcRenderer.invoke('wizard:isEncryptionAvailable'),
   openExistingProject: (projectPath) => ipcRenderer.invoke('wizard:openExisting', projectPath),
   finishWizard: (payload) => ipcRenderer.invoke('wizard:finish', payload),
+  wizardMinimize: () => ipcRenderer.invoke('wizard:minimize'),
+  wizardClose: () => ipcRenderer.invoke('wizard:close'),
+  wizardResizeToContent: (height) => ipcRenderer.invoke('wizard:resizeToContent', height),
 
   // --- Aktuelles Projekt ---
   getCurrentProject: () => ipcRenderer.invoke('project:getCurrent'),
@@ -174,6 +177,7 @@ contextBridge.exposeInMainWorld('archivAPI', {
     deleteEntry: (relPath) => ipcRenderer.invoke('fs:deleteEntry', relPath),
     listTrash: () => ipcRenderer.invoke('fs:listTrash'),
     restoreFromTrash: (trashRelPath) => ipcRenderer.invoke('fs:restoreFromTrash', trashRelPath),
+    deleteFromTrash: (trashRelPaths) => ipcRenderer.invoke('fs:deleteFromTrash', trashRelPaths),
     emptyTrash: () => ipcRenderer.invoke('fs:emptyTrash')
   },
 
@@ -192,6 +196,8 @@ contextBridge.exposeInMainWorld('archivAPI', {
     readText: () => ipcRenderer.invoke('clipboard:readText')
   },
   setCloseBehavior: (value) => ipcRenderer.invoke('app:setCloseBehavior', value),
+  getAutoStartSettings: () => ipcRenderer.invoke('app:getAutoStartSettings'),
+  setAutoStartSettings: (settings) => ipcRenderer.invoke('app:setAutoStartSettings', settings),
   resolveCloseDialog: (result) => ipcRenderer.invoke('app:resolveCloseDialog', result),
 
   // --- Eigene Titelleiste (Custom Window Chrome): eng begrenzte

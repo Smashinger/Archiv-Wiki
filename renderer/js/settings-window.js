@@ -566,6 +566,7 @@ function onToggle(scope, toggleId, handler) {
 
 async function renderGeneralSection(el, config, updateSetting, context, lifecycle) {
   const closeBehavior = await window.archivAPI.getCloseBehavior();
+  const autoStartSettings = await window.archivAPI.getAutoStartSettings?.() || { openAtLogin: false, startMinimized: false };
   if (!lifecycle.isCurrent()) return;
 
   const left = group('Wiki',
@@ -587,6 +588,13 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
           { value: 'allOpen', label: 'Alles geöffnet' }
         ]
       }))
+    + row('Mit dem System starten', 'Startet Archiv-Wiki automatisch beim Anmelden am Computer.',
+      toggle({ id: 'stAutoStart', on: Boolean(autoStartSettings.openAtLogin), label: 'Mit dem System starten' })
+      + feedbackLine('stAutoStartFeedback'))
+    + row('Minimiert im Tray starten', 'Gilt nur bei „Mit dem System starten“: Archiv-Wiki startet dann unaufdringlich als Symbol in der Systemleiste, ohne das Hauptfenster zu öffnen.',
+      toggle({ id: 'stStartMinimized', on: Boolean(autoStartSettings.startMinimized), disabled: !autoStartSettings.openAtLogin, label: 'Minimiert im Tray starten' })
+      + feedbackLine('stStartMinimizedFeedback'),
+      { disabled: !autoStartSettings.openAtLogin })
   );
 
   const right = group('Verhalten',
@@ -624,6 +632,55 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
   el.querySelector('#stCategoryStartup').addEventListener('change', async (event) => {
     if (event.target.name !== 'stCategoryStartup') return;
     await updateSetting({ categoryStartupBehavior: event.target.value });
+  });
+
+  // Autostart und der abhängige „Minimiert im Tray starten“-Schalter: der
+  // zweite Schalter gilt nur, wenn Autostart an ist. Er wird deshalb
+  // visuell untergeordnet/deaktiviert, solange Autostart aus ist — seine
+  // gespeicherte Vorliebe bleibt aber erhalten (main/app-state.js) und ist
+  // wieder da, sobald Autostart erneut aktiviert wird. Beide Schalter schalten
+  // optimistisch um und drehen bei einem Fehler sichtbar zurück, sodass die
+  // Oberfläche nie einen nicht wirklich angewandten Zustand behauptet.
+  const autoStartToggle = el.querySelector('#stAutoStart');
+  const minimizedToggle = el.querySelector('#stStartMinimized');
+  const minimizedRow = minimizedToggle?.closest('.aws-row');
+
+  function setMinimizedDependency(enabled) {
+    if (!minimizedToggle) return;
+    minimizedToggle.disabled = !enabled;
+    minimizedToggle.setAttribute('aria-disabled', String(!enabled));
+    minimizedRow?.classList.toggle('is-disabled', !enabled);
+  }
+  setMinimizedDependency(Boolean(autoStartSettings.openAtLogin));
+
+  autoStartToggle?.addEventListener('click', async () => {
+    if (autoStartToggle.disabled) return;
+    const next = autoStartToggle.getAttribute('aria-checked') !== 'true';
+    setFeedback(el, 'stAutoStartFeedback', '');
+    autoStartToggle.setAttribute('aria-checked', String(next));
+    setMinimizedDependency(next); // optimistisch mitführen
+    try {
+      await window.archivAPI.setAutoStartSettings?.({ openAtLogin: next });
+    } catch (error) {
+      console.error('Autostart-Einstellung konnte nicht gespeichert werden:', error);
+      if (autoStartToggle.isConnected) autoStartToggle.setAttribute('aria-checked', String(!next));
+      setMinimizedDependency(!next); // Abhängigkeit zurückdrehen
+      setFeedback(el, 'stAutoStartFeedback', 'Konnte nicht gespeichert werden.', true);
+    }
+  });
+
+  minimizedToggle?.addEventListener('click', async () => {
+    if (minimizedToggle.disabled) return;
+    const next = minimizedToggle.getAttribute('aria-checked') !== 'true';
+    setFeedback(el, 'stStartMinimizedFeedback', '');
+    minimizedToggle.setAttribute('aria-checked', String(next));
+    try {
+      await window.archivAPI.setAutoStartSettings?.({ startMinimized: next });
+    } catch (error) {
+      console.error('Minimiert-Starten konnte nicht gespeichert werden:', error);
+      if (minimizedToggle.isConnected) minimizedToggle.setAttribute('aria-checked', String(!next));
+      setFeedback(el, 'stStartMinimizedFeedback', 'Konnte nicht gespeichert werden.', true);
+    }
   });
 
   // Schließen-Verhalten ist app-weit (main/app-state.js), nicht Teil der

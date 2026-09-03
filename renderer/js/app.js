@@ -249,9 +249,30 @@ function setGlobalStatusRoute(slug = currentSlug()) {
   });
   const lastEditedNote = dashboard.recent[0] || null;
   const lastEditedTitle = lastEditedNote?.frontmatter?.title || lastEditedNote?.name || '';
-  els.globalStatusLastEdited.textContent = lastEditedTitle
-    ? `zuletzt bearbeitet: ${lastEditedTitle.replace(/\.md$/i, '')}`
-    : '';
+  // Nur der Notiztitel NACH dem Doppelpunkt ist anklickbar und springt zur
+  // zuletzt bearbeiteten Notiz — dasselbe Ziel wie "Weiterarbeiten" auf dem
+  // Dashboard (navigateTo('#note/…')). Das Präfix "zuletzt bearbeitet:" bleibt
+  // reiner Text. Ohne auflösbaren Pfad wird der Titel nur angezeigt, nicht
+  // verlinkt.
+  els.globalStatusLastEdited.textContent = '';
+  if (lastEditedTitle) {
+    els.globalStatusLastEdited.append('zuletzt bearbeitet: ');
+    const displayTitle = lastEditedTitle.replace(/\.md$/i, '');
+    const relPath = lastEditedNote?.relPath;
+    if (relPath) {
+      const link = document.createElement('button');
+      link.type = 'button';
+      link.className = 'global-status-link';
+      link.textContent = displayTitle;
+      link.title = 'Zuletzt bearbeitete Notiz öffnen';
+      link.addEventListener('click', () => {
+        void navigateTo('#note/' + encodeURIComponent(relPath));
+      });
+      els.globalStatusLastEdited.append(link);
+    } else {
+      els.globalStatusLastEdited.append(displayTitle);
+    }
+  }
 }
 
 function setGlobalEditorSaveStatus(text, kind = 'saved') {
@@ -10270,6 +10291,71 @@ async function renderStatsPageDesign2() {
   `;
 }
 
+// Gemeinsame Bausteine für die Papierkorb-Mehrfachauswahl (Classic + Design2).
+// Reine Darstellung/Verdrahtung; das endgültige Löschen selbst läuft über
+// fs.deleteFromTrash() (eigene, gezielte Fach-Aktion neben restoreFromTrash/
+// emptyTrash). Auswahl wird direkt aus dem DOM gelesen — kein zweiter,
+// sitzungslokaler Auswahlzustand.
+function trashSelectionToolbarHtml() {
+  return `
+    <div class="trash-select-bar" id="trashSelectBar">
+      <label class="trash-selectall"><input type="checkbox" id="trashSelectAll" aria-label="Alle Papierkorb-Einträge auswählen"><span>Alle auswählen</span></label>
+      <span class="trash-select-count" id="trashSelectCount" aria-live="polite"></span>
+      <button type="button" class="btn trash-delete-selected" id="btnDeleteSelected" disabled>Ausgewählte endgültig löschen</button>
+    </div>`;
+}
+
+function wireTrashMultiDelete({ listEl, rerender }) {
+  const selectAll = document.getElementById('trashSelectAll');
+  const deleteBtn = document.getElementById('btnDeleteSelected');
+  const countEl = document.getElementById('trashSelectCount');
+  if (!listEl || !deleteBtn) return;
+
+  const boxes = () => Array.from(listEl.querySelectorAll('input[type="checkbox"][data-select]'));
+  const selectedPaths = () => boxes().filter(c => c.checked).map(c => c.dataset.select);
+  const refresh = () => {
+    const all = boxes();
+    const sel = all.filter(c => c.checked);
+    if (countEl) countEl.textContent = sel.length ? `${sel.length} ausgewählt` : '';
+    deleteBtn.disabled = sel.length === 0;
+    if (selectAll) {
+      selectAll.checked = all.length > 0 && sel.length === all.length;
+      selectAll.indeterminate = sel.length > 0 && sel.length < all.length;
+    }
+  };
+
+  listEl.addEventListener('change', (e) => {
+    if (e.target instanceof HTMLInputElement && e.target.matches('input[type="checkbox"][data-select]')) refresh();
+  });
+  selectAll?.addEventListener('change', () => {
+    const check = selectAll.checked;
+    boxes().forEach(c => { c.checked = check; });
+    refresh();
+  });
+  deleteBtn.addEventListener('click', async () => {
+    const sel = selectedPaths();
+    if (!sel.length) return;
+    const many = sel.length !== 1;
+    if (!await showConfirmDialog({
+      title: many ? `${sel.length} Einträge endgültig löschen?` : 'Eintrag endgültig löschen?',
+      message: 'Die Auswahl wird dauerhaft gelöscht. Das kann nicht rückgängig gemacht werden.',
+      confirmLabel: 'Endgültig löschen',
+      danger: true
+    })) return;
+    await fs.deleteFromTrash(sel);
+    updateTrashBadge();
+    await rerender();
+  });
+
+  refresh();
+}
+
+// Auswahl-Kontrollkästchen für eine Papierkorb-Zeile (design-neutrales Markup,
+// gestaltet über die jeweilige Design-CSS).
+function trashRowSelectHtml(item, cls) {
+  return `<label class="${cls}" title="Auswählen"><input type="checkbox" data-select="${escapeHtml(item.trashRelPath)}" aria-label="${escapeHtml(item.title)} auswählen"></label>`;
+}
+
 async function renderTrash() {
   setBreadcrumb('Papierkorb');
   setActiveNav(null);
@@ -10284,6 +10370,7 @@ async function renderTrash() {
       </div>
       ${trash.totalCount ? '<button type="button" class="icon-btn danger" id="btnEmptyTrash" title="Papierkorb endgültig leeren" aria-label="Papierkorb endgültig leeren">🗑</button>' : ''}
     </div>
+    ${trash.totalCount ? trashSelectionToolbarHtml() : ''}
     ${trash.totalCount ? '<div id="trashList"></div>' : '<div class="empty-state">Papierkorb ist leer.</div>'}
   `;
   const list = document.getElementById('trashList');
@@ -10292,7 +10379,7 @@ async function renderTrash() {
       const row = document.createElement('div');
       row.className = 'note-card';
       row.innerHTML = `
-        <div class="nc-top"><span class="nc-icon">${item.type === 'folder' ? '📁' : '📄'}</span><span class="nc-tag">war: ${escapeHtml(item.originalRelPath)}</span></div>
+        <div class="nc-top">${trashRowSelectHtml(item, 'trash-select')}<span class="nc-icon">${item.type === 'folder' ? '📁' : '📄'}</span><span class="nc-tag">war: ${escapeHtml(item.originalRelPath)}</span></div>
         <div class="nc-title">${escapeHtml(item.title)}</div>
         <button type="button" class="btn" data-restore="${escapeHtml(item.trashRelPath)}">↩ Wiederherstellen</button>
       `;
@@ -10305,6 +10392,7 @@ async function renderTrash() {
       await refreshAll();
       renderTrash();
     });
+    wireTrashMultiDelete({ listEl: list, rerender: renderTrash });
   }
   document.getElementById('btnEmptyTrash')?.addEventListener('click', async () => {
     if (!await showConfirmDialog({
@@ -10347,6 +10435,7 @@ async function renderTrashDesign2() {
         </div>
         ${trash.totalCount ? `<button type="button" class="d2-trash-empty-btn" id="btnEmptyTrash" title="Papierkorb endgültig leeren" aria-label="Papierkorb endgültig leeren"><img class="lib-icon" src="assets/icon-library/actions/trash.svg" alt=""></button>` : ''}
       </div>
+      ${trash.totalCount ? trashSelectionToolbarHtml() : ''}
       ${trash.totalCount ? '<div class="d2-trash-list" id="trashList"></div>' : '<div class="empty-state">Papierkorb ist leer.</div>'}
     </div>
   `;
@@ -10362,6 +10451,7 @@ async function renderTrashDesign2() {
       await refreshAll();
       renderTrashDesign2();
     });
+    wireTrashMultiDelete({ listEl: list, rerender: renderTrashDesign2 });
   }
   document.getElementById('btnEmptyTrash')?.addEventListener('click', async () => {
     if (!await showConfirmDialog({
@@ -10384,6 +10474,7 @@ function buildTrashRowDesign2(item) {
   const row = document.createElement('div');
   row.className = 'd2-trash-row';
   row.innerHTML = `
+    ${trashRowSelectHtml(item, 'd2-trash-select')}
     <span class="d2-trash-icon">${item.type === 'folder' ? '📁' : '📄'}</span>
     <span class="d2-trash-title">${escapeHtml(item.title)}</span>
     <span class="d2-trash-meta">war: ${escapeHtml(item.originalRelPath)}</span>

@@ -243,6 +243,9 @@ function registerFilesystemIpc({ getCurrentProject, onProjectConfigLoaded }) {
   ipcMain.handle('fs:restoreFromTrash', (_e, trashRelPath) =>
     nfs.restoreFromTrash(requireProjectPath(), trashRelPath));
 
+  ipcMain.handle('fs:deleteFromTrash', (_e, trashRelPaths) =>
+    nfs.deleteFromTrash(requireProjectPath(), trashRelPaths));
+
   ipcMain.handle('fs:emptyTrash', () => nfs.emptyTrash(requireProjectPath()));
 }
 

@@ -293,6 +293,17 @@ body[data-ui-design="design2"]{
 [data-ui-design="design2"] #globalStatusSync.has-error{ color:var(--red); }
 [data-ui-design="design2"] #globalStatusSync.is-active,
 [data-ui-design="design2"] #globalStatusSync.is-ok{ color:var(--d2-system); }
+/* Nur der Notiztitel nach "zuletzt bearbeitet:" ist ein Klick-Ziel. Als
+   <button> ohne eigene Chrome-Optik: erbt Farbe/Schrift der Statuszeile, zeigt
+   aber per Cursor/Unterstreichung an, dass er anklickbar ist. */
+[data-ui-design="design2"] .global-status-link{
+  appearance:none; -webkit-appearance:none;
+  background:none; border:0; margin:0; padding:0;
+  font:inherit; color:inherit; cursor:pointer;
+  max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+[data-ui-design="design2"] .global-status-link:hover{ color:var(--accent-color); text-decoration:underline; }
+[data-ui-design="design2"] .global-status-link:focus-visible{ outline:1px solid var(--accent-color); outline-offset:1px; text-decoration:underline; }
 [data-ui-design="design2"] .global-status-update{ gap:6px; }
 [data-ui-design="design2"] .global-status-update .update-dot{ flex:0 0 auto; }
 [data-ui-design="design2"] .global-status-separator{ color:var(--d2-faint); }
@@ -619,6 +630,24 @@ body[data-ui-design="design2"]{
 [data-ui-design="design2"] .trash-view-d2 .d2-trash-empty-btn .lib-icon{
   width:16px; height:16px;
 }
+/* Design2-Feinschliff der Papierkorb-Mehrfachauswahl (Basis liegt in
+   components.css). Werkzeugleiste ruhig in die Chrome-Fläche gesetzt, der
+   Löschknopf als klarer Danger-Rahmen. */
+[data-ui-design="design2"] .trash-view-d2 .trash-select-bar{
+  padding:8px 12px; margin:0 0 10px;
+  border-radius: var(--radius-sm);
+  background: var(--d2-surface-2); border:1px solid var(--d2-line);
+}
+[data-ui-design="design2"] .trash-view-d2 .trash-selectall,
+[data-ui-design="design2"] .trash-view-d2 .trash-select-count{ color: var(--d2-faint); font-size:12.5px; }
+[data-ui-design="design2"] .trash-view-d2 .trash-delete-selected{
+  border-radius: var(--radius-sm); padding:5px 12px; font-size:12.5px;
+  border:1px solid var(--d2-line-strong); background: var(--d2-surface-1); color: var(--d2-text);
+  cursor:pointer; transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+[data-ui-design="design2"] .trash-view-d2 .trash-delete-selected:not(:disabled){ color: var(--red); border-color: var(--red); background: transparent; }
+[data-ui-design="design2"] .trash-view-d2 .trash-delete-selected:not(:disabled):hover{ background: var(--red); color:#fff; }
+[data-ui-design="design2"] .trash-view-d2 .d2-trash-select{ margin-right:2px; }
 
 /* Phase 4C — dritter echter Design2-Pilot: die Tags-Route
    (renderTagsOverviewDesign2() in app.js). Tag-Cloud/Chips und die

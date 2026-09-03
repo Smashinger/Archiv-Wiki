@@ -9,124 +9,209 @@
 <link rel="stylesheet" href="css/wizard.css">
 </head>
 <body>
-  <div class="wizard-shell">
-    <p class="wizard-brand">Archiv Wiki</p>
-    <p class="wizard-sub">Einrichtung deines neuen Wikis</p>
+  <div class="wz" id="wzShell">
 
-    <div class="wizard-progress">
-      <span class="dot" data-dot="1"></span>
-      <span class="line"></span>
-      <span class="dot" data-dot="2"></span>
-      <span class="line"></span>
-      <span class="dot" data-dot="3"></span>
-      <span class="label" id="progressLabel">Schritt 1 von 3</span>
-    </div>
+    <!-- Titelleiste (28 px) -->
+    <header class="wz-title">
+      <span class="wz-logo">Λ</span>
+      <span class="wz-title-text">Archiv Wiki — Einrichtung</span>
+      <div class="wz-winbtns">
+        <button type="button" class="wz-winbtn" id="wzMin" title="Minimieren" aria-label="Minimieren">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <button type="button" class="wz-winbtn wz-winbtn-close" id="wzClose" title="Schließen" aria-label="Schließen">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </header>
 
-    <!-- Schritt 1: Projektordner -->
-    <section class="wizard-step" data-step="1">
-      <h2>Projektordner wählen</h2>
-      <p class="step-desc">Wähle einen leeren oder eigenen Ordner, in dem dein Wiki gespeichert wird. Es werden keine Beispiel-Kategorien angelegt — du startest komplett leer.</p>
+    <!-- Inhaltsbereich -->
+    <main class="wz-content">
 
-      <div class="folder-picker">
-        <span class="folder-path empty" id="projectPathLabel">noch kein Ordner gewählt</span>
-        <button class="btn" id="btnSelectFolder" type="button">Ordner wählen …</button>
+      <!-- Kopf mit Schrittleiste -->
+      <div class="wz-head">
+        <div class="wz-head-left">
+          <div class="wz-brand">ARCHIV WIKI</div>
+          <div class="wz-subtitle">Einrichtung deines neuen Wikis</div>
+        </div>
+        <div class="wz-head-right">
+          <div class="wz-steps" id="wzSteps"></div>
+          <span class="wz-counter" id="wzCounter">1 / 3</span>
+        </div>
       </div>
 
-      <div class="banner error" id="folderErrorBanner"></div>
-      <div class="banner info" id="folderExistingBanner">
-        Dieser Ordner enthält bereits ein Archiv-Wiki-Projekt.
-        <button class="btn ghost btn-gap-left" id="btnOpenExisting" type="button">Direkt öffnen →</button>
-      </div>
-    </section>
+      <!-- Schritt 1: Projektordner -->
+      <section class="wz-step" data-step="1">
+        <h2 class="wz-h2">Projektordner wählen</h2>
+        <p class="wz-intro wz-intro-1">Wähle einen leeren oder eigenen Ordner, in dem dein Wiki gespeichert wird. Es werden keine Beispiel-Kategorien angelegt — du startest komplett leer.</p>
 
-    <!-- Schritt 2: Editor-Konfiguration -->
-    <section class="wizard-step" data-step="2">
-      <h2>Editor-Konfiguration</h2>
-      <p class="step-desc">Diese Einstellungen kannst du später jederzeit in den Einstellungen ändern.</p>
-
-      <div class="form-grid">
-        <div class="form-row">
-          <label for="fWikiName">Dein Name<span class="hint">Erscheint als "Wiki von …" über der Suche</span></label>
-          <input type="text" id="fWikiName" placeholder="Name" maxlength="40">
-        </div>
-        <div class="form-row">
-          <label>Akzentfarbe</label>
-          <div class="color-swatch-row" id="accentSwatchRow"></div>
-        </div>
-        <div class="form-row">
-          <label for="fAppLockPassword">App-Passwortschutz<span class="hint">Optional — leer lassen = kein Schutz</span></label>
-          <input type="password" id="fAppLockPassword" placeholder="Passwort" autocomplete="new-password">
-        </div>
-        <div class="form-row">
-          <label for="fTabSize">Tab-Größe</label>
-          <select id="fTabSize">
-            <option value="2" selected>2</option>
-            <option value="4">4</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <label for="fAutoSave">Auto-Save</label>
-          <select id="fAutoSave">
-            <option value="15">15s</option>
-            <option value="30" selected>30s</option>
-            <option value="60">60s</option>
-            <option value="0">Aus</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <label>Fensterstart<span class="hint">Wie soll Archiv-Wiki nach dem Start angezeigt werden?</span></label>
-          <div class="close-dialog-options" id="wizardWindowStartOptions">
-            <label class="close-dialog-option"><input type="radio" name="wizardWindowStart" value="maximized" checked> Maximiert (empfohlen)</label>
-            <label class="close-dialog-option"><input type="radio" name="wizardWindowStart" value="restore"> Letzten Zustand wiederherstellen</label>
-            <label class="close-dialog-option"><input type="radio" name="wizardWindowStart" value="centered"> Zentriert</label>
+        <div class="wz-row wz-row-line has-note">
+          <div class="wz-label"><b>Speicherort</b><span class="wz-note">Der Ordner bleibt dein Eigentum; Archiv-Wiki legt nur Markdown-Dateien darin ab.</span></div>
+          <div class="wz-ctl wz-ctl-wide wz-ctl-stack">
+            <span class="wz-path is-empty" id="projectPathLabel" title="">noch kein Ordner gewählt</span>
+            <button type="button" class="wz-primary wz-nowrap" id="btnSelectFolder">Ordner wählen …</button>
+            <span class="wz-inline-error" id="folderErrorBanner"></span>
+            <span class="wz-inline-info" id="folderExistingBanner">
+              Dieser Ordner enthält bereits ein Archiv-Wiki-Projekt.
+              <button type="button" class="wz-textaction" id="btnOpenExisting">Direkt öffnen →</button>
+            </span>
           </div>
         </div>
-        <div class="form-row backup-row">
-          <label>Backup-Pfad<span class="hint">Standard: ~/.local/share/archiv-wiki/backups</span></label>
-          <div class="backup-value">
-            <span class="folder-path" id="backupPathLabel">wird geladen …</span>
-            <button class="btn ghost" id="btnChangeBackup" type="button">Ändern …</button>
+
+        <div class="wz-section" data-section>
+          <span class="wz-section-mark">Prüfung</span><i class="wz-section-rule"></i>
+        </div>
+        <div class="wz-checks" id="folderChecks">
+          <div class="wz-check" data-check="writable">
+            <span class="wz-check-dot"></span>
+            <span class="wz-check-text">Schreibrechte</span>
+            <span class="wz-check-value">noch nicht geprüft</span>
+          </div>
+          <div class="wz-check" data-check="empty">
+            <span class="wz-check-dot"></span>
+            <span class="wz-check-text">Ordner leer</span>
+            <span class="wz-check-value">noch nicht geprüft</span>
+          </div>
+          <div class="wz-check" data-check="free">
+            <span class="wz-check-dot"></span>
+            <span class="wz-check-text">Freier Speicherplatz</span>
+            <span class="wz-check-value">noch nicht geprüft</span>
           </div>
         </div>
+      </section>
+
+      <!-- Schritt 2: Editor-Konfiguration -->
+      <section class="wz-step" data-step="2">
+        <div class="wz-h2-row">
+          <h2 class="wz-h2">Editor-Konfiguration</h2>
+          <span class="wz-h2-aside">Alles später in den Einstellungen änderbar.</span>
+        </div>
+
+        <div class="wz-section" data-section>
+          <span class="wz-section-mark">Wiki</span><i class="wz-section-rule"></i>
+        </div>
+
+        <div class="wz-row has-note">
+          <div class="wz-label"><b>Dein Name</b><span class="wz-note">Erscheint als „Wiki von …“</span></div>
+          <div class="wz-ctl"><input type="text" class="wz-input" id="fWikiName" placeholder="Name" maxlength="40"></div>
+        </div>
+        <div class="wz-row">
+          <div class="wz-label"><b>Akzentfarbe</b><span class="wz-note">Trägt Auswahl und Marken</span></div>
+          <div class="wz-ctl wz-ctl-wide"><div class="wz-swatches" id="accentSwatchRow"></div><input type="color" class="wz-color-input" id="customAccentInput" aria-hidden="true" tabindex="-1"></div>
+        </div>
+        <div class="wz-row has-note">
+          <div class="wz-label"><b>App-Passwortschutz</b><span class="wz-note">Optional — leer lassen = kein Schutz</span></div>
+          <div class="wz-ctl"><input type="password" class="wz-input" id="fAppLockPassword" placeholder="Passwort" autocomplete="new-password"></div>
+        </div>
+
+        <div class="wz-section" data-section>
+          <span class="wz-section-mark">Editor und Fenster</span><i class="wz-section-rule"></i>
+        </div>
+
+        <div class="wz-row has-note">
+          <div class="wz-label"><b>Tab-Größe und Auto-Save</b><span class="wz-note">Leerzeichen pro Tab · Speicherintervall</span></div>
+          <div class="wz-ctl wz-ctl-duo">
+            <select class="wz-select" id="fTabSize">
+              <option value="2" selected>2</option>
+              <option value="4">4</option>
+            </select>
+            <select class="wz-select" id="fAutoSave">
+              <option value="15">15 s</option>
+              <option value="30" selected>30 s</option>
+              <option value="60">60 s</option>
+              <option value="0">Aus</option>
+            </select>
+          </div>
+        </div>
+        <div class="wz-row has-note">
+          <div class="wz-label"><b>Fensterstart</b><span class="wz-note">Wie Archiv-Wiki nach dem Start erscheint</span></div>
+          <div class="wz-ctl">
+            <div class="wz-radios" id="wizardWindowStartOptions">
+              <label class="wz-radio"><input type="radio" name="wizardWindowStart" value="maximized" checked><span class="wz-radio-dot"></span><span>Maximiert<span class="wz-radio-rec">empfohlen</span></span></label>
+              <label class="wz-radio"><input type="radio" name="wizardWindowStart" value="restore"><span class="wz-radio-dot"></span><span>Letzten Zustand</span></label>
+              <label class="wz-radio"><input type="radio" name="wizardWindowStart" value="centered"><span class="wz-radio-dot"></span><span>Zentriert</span></label>
+            </div>
+          </div>
+        </div>
+        <div class="wz-row has-note">
+          <div class="wz-label"><b>Backup-Pfad</b><span class="wz-note">Standard: ~/.local/share/archiv-wiki/backups</span></div>
+          <div class="wz-ctl wz-ctl-wide wz-ctl-stack">
+            <span class="wz-path" id="backupPathLabel" title="">wird geladen …</span>
+            <button type="button" class="wz-textaction wz-self-end" id="btnChangeBackup">Ändern …</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Schritt 3: Cloud-Sync -->
+      <section class="wz-step" data-step="3">
+        <div class="wz-h2-row">
+          <h2 class="wz-h2">Cloud-Sync</h2>
+          <span class="wz-chip">Optional</span>
+        </div>
+        <p class="wz-intro wz-intro-3">Nextcloud- oder WebDAV-Anbindung. Du kannst sie jetzt vorbereiten oder komplett überspringen.</p>
+
+        <div class="wz-section" data-section>
+          <span class="wz-section-mark">Zugang</span><i class="wz-section-rule"></i>
+        </div>
+
+        <div class="wz-row">
+          <div class="wz-label"><b>Server-Adresse</b></div>
+          <div class="wz-ctl wz-ctl-wide"><input type="text" class="wz-input wz-input-mono" id="syncUrl" placeholder="https://deine-nextcloud.example/remote.php/dav/…"></div>
+        </div>
+        <div class="wz-row">
+          <div class="wz-label"><b>Benutzername</b></div>
+          <div class="wz-ctl wz-ctl-wide"><input type="text" class="wz-input" id="syncUser" placeholder="Benutzername"></div>
+        </div>
+        <div class="wz-row">
+          <div class="wz-label"><b>App-Passwort</b></div>
+          <div class="wz-ctl wz-ctl-wide"><input type="password" class="wz-input" id="syncPass" placeholder="App-Passwort"></div>
+        </div>
+        <div class="wz-row">
+          <div class="wz-label"><b>Passwort merken</b></div>
+          <div class="wz-ctl wz-ctl-switchline">
+            <label class="wz-switch" id="wizardRememberLabel"><input type="checkbox" id="wizardSyncRemember"><span class="wz-switch-track"></span></label>
+            <span class="wz-switch-aside">im Systemschlüsselbund</span>
+          </div>
+        </div>
+        <div class="wz-row" id="wizardAutoRow">
+          <div class="wz-label"><b>Automatischer Abgleich</b></div>
+          <div class="wz-ctl wz-ctl-switchline">
+            <label class="wz-switch" id="wizardAutoLabel"><input type="checkbox" id="wizardSyncAuto"><span class="wz-switch-track"></span></label>
+            <select class="wz-select wz-select-narrow" id="wizardSyncInterval"></select>
+          </div>
+        </div>
+        <div class="wz-row">
+          <div class="wz-label"><b>Verbindung</b></div>
+          <div class="wz-ctl wz-ctl-switchline">
+            <button type="button" class="wz-secondary" id="btnConnect">Verbindung testen</button>
+            <span class="wz-conn-status" id="syncTestStatus">nicht geprüft</span>
+          </div>
+        </div>
+
+        <div class="wz-hint">Eingaben werden gespeichert, die Verbindung aber erst nach Abschluss der Einrichtung aktiviert. Du kannst jederzeit ohne Cloud-Sync weitermachen.</div>
+      </section>
+
+    </main>
+
+    <!-- Fußleiste (56 px) -->
+    <footer class="wz-foot">
+      <button type="button" class="wz-textbtn wz-muted" id="btnCancel">Abbrechen</button>
+      <button type="button" class="wz-textbtn wz-dim" id="btnBack">← Zurück</button>
+      <div class="wz-foot-right">
+        <span class="wz-foot-hint" id="footHint">Wähle einen Ordner, um fortzufahren</span>
+        <div class="wz-foot-version clickable-guard" id="wizardUpdateHintText">
+          <span class="update-dot" id="wizardUpdateDot"></span>
+          <span id="wizardUpdateLabel">Aktuelle Version</span>
+        </div>
+        <button type="button" class="wz-textbtn wz-muted" id="btnSkip">Überspringen</button>
+        <button type="button" class="wz-primary" id="btnNext" disabled>Weiter →</button>
+        <button type="button" class="wz-primary wz-primary-finish" id="btnFinish">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          Projekt anlegen
+        </button>
       </div>
-    </section>
+    </footer>
 
-    <!-- Schritt 3: Cloud-Sync -->
-    <section class="wizard-step" data-step="3">
-      <h2>Cloud-Sync <span class="optional-tag">(optional)</span></h2>
-      <p class="step-desc">Nextcloud/WebDAV-Anbindung — kannst du jetzt vorbereiten oder komplett überspringen.</p>
-
-      <div class="sync-fields">
-        <input type="text" id="syncUrl" placeholder="https://deine-nextcloud.example/remote.php/dav/…">
-        <input type="text" id="syncUser" placeholder="Benutzername">
-        <input type="password" id="syncPass" placeholder="App-Passwort">
-        <label class="sync-remember-label" id="wizardRememberLabel">
-          <input type="checkbox" id="wizardSyncRemember"> Passwort merken
-        </label>
-        <label class="sync-remember-label" id="wizardAutoLabel">
-          <input type="checkbox" id="wizardSyncAuto"> Automatischer Abgleich, alle
-          <select id="wizardSyncInterval"></select>
-        </label>
-        <button class="btn" id="btnConnect" type="button">Verbindung testen</button>
-        <span class="sync-test-status" id="syncTestStatus"></span>
-      </div>
-      <p class="sync-note">Eingaben werden gespeichert, aber die eigentliche Verbindung wird erst nach Fertigstellung der Einrichtung aktiviert. Du kannst jederzeit ohne Cloud-Sync weitermachen.</p>
-    </section>
-
-    <div class="wizard-update-hint" id="wizardUpdateHint">
-      <div class="wizard-update-hint-text" id="wizardUpdateHintText">
-        <span class="update-dot" id="wizardUpdateDot"></span>
-        <span id="wizardUpdateLabel"></span>
-      </div>
-    </div>
-
-    <div class="wizard-actions">
-      <button class="btn ghost subtle" id="btnCancel" type="button">Abbrechen</button>
-      <button class="btn ghost" id="btnBack" type="button">← Zurück</button>
-      <span class="spacer"></span>
-      <button class="btn primary" id="btnNext" type="button" disabled>Weiter →</button>
-      <button class="btn primary" id="btnFinish" type="button">Projekt anlegen ✓</button>
-    </div>
   </div>
 
   <script type="module" src="js/wizard.js"></script>

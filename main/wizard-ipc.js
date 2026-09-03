@@ -22,6 +22,30 @@ const { validateBackupDestinationAccess } = require('./backup');
 const { writeAppState } = require('./app-state');
 const { savePasswordForProject } = require('./sync-ipc');
 
+// Prüft den gewählten Projektordner für die drei PRÜFUNG-Zeilen in Schritt 1:
+// Schreibrechte, Ordner leer, freier Speicherplatz. Reine Lesezugriffe, kein
+// Schreiben in den Ordner.
+function inspectProjectFolder(folder) {
+  const writable = isDirWritable(folder);
+  const alreadyConfigured = hasExistingConfig(folder);
+
+  let empty = null;
+  let entryCount = null;
+  try {
+    const entries = fs.readdirSync(folder);
+    entryCount = entries.length;
+    empty = entries.length === 0;
+  } catch { /* nicht lesbar → unbekannt */ }
+
+  let freeBytes = null;
+  try {
+    const st = fs.statfsSync(folder);
+    freeBytes = st.bavail * st.bsize;
+  } catch { /* statfs nicht verfügbar → unbekannt */ }
+
+  return { path: folder, writable, alreadyConfigured, empty, entryCount, freeBytes };
+}
+
 function registerWizardIpc({ getWizardWindow, onProjectReady }) {
   // Für die "Passwort merken"-Checkbox im Wizard: dasselbe safeStorage wie in
   // main/sync-ipc.js, aber projektunabhängig abfragbar (es gibt zu diesem
@@ -39,11 +63,21 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
     if (result.canceled || result.filePaths.length === 0) return null;
 
     const folder = result.filePaths[0];
-    return {
-      path: folder,
-      writable: isDirWritable(folder),
-      alreadyConfigured: hasExistingConfig(folder)
-    };
+    return inspectProjectFolder(folder);
+  });
+
+  // Fenstersteuerung der eigenen (rahmenlosen) Titelleiste des Wizards.
+  ipcMain.handle('wizard:minimize', () => { getWizardWindow()?.minimize(); });
+  ipcMain.handle('wizard:close', () => { getWizardWindow()?.close(); });
+  // Rahmenloses Fenster exakt an die gemessene Inhaltshöhe anpassen — so
+  // scrollt der Assistent nie und wächst bei größerer Schrift/Übersetzung mit
+  // (siehe Spezifikation: min-height statt height, Inhaltszeile "auto").
+  ipcMain.handle('wizard:resizeToContent', (_event, height) => {
+    const win = getWizardWindow();
+    if (!win) return;
+    const h = Math.max(600, Math.min(1000, Math.round(Number(height) || 0)));
+    const [w] = win.getContentSize();
+    win.setContentSize(w, h);
   });
 
   // Schritt 2 des Wizards: optionalen eigenen Backup-Pfad wählen
@@ -79,7 +113,7 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
   // Neues Projekt anlegen: .wiki-config.json + .wiki-trash/ + Backup-Ordner erzeugen
   ipcMain.handle('wizard:finish', async (_event, payload) => {
-    const { projectPath, editorConfig, wikiName, accentKey, appLockPassword, backupPath, sync, password, rememberPassword, windowStartBehavior } = payload || {};
+    const { projectPath, editorConfig, wikiName, accentKey, customAccentColor, appLockPassword, backupPath, sync, password, rememberPassword, windowStartBehavior } = payload || {};
 
     if (!projectPath || !isDirWritable(projectPath)) {
       throw new Error('Projektordner fehlt oder ist nicht beschreibbar.');
@@ -124,6 +158,12 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
       backupPath: resolvedBackupPath,
       sync: sync || { enabled: false }
     };
+    // Eigene (freie) Akzentfarbe nur speichern, wenn accentKey='custom' UND ein
+    // gültiger Hex-Wert vorliegt — dieselbe Form wie im Einstellungsfenster
+    // (config.customAccentColor, siehe resolveAccentForActiveDesign in app.js).
+    if (config.accentKey === 'custom' && /^#[0-9a-fA-F]{6}$/.test(String(customAccentColor || ''))) {
+      config.customAccentColor = customAccentColor;
+    }
 
     // Commit-Punkt: ab hier gilt der Ordner als fertig eingerichtetes Projekt.
     const persistedConfig = writeProjectConfig(projectPath, config, { create: true });

@@ -158,6 +158,10 @@ export async function restoreFromTrash(trashRelPath) {
   return window.archivAPI.fs.restoreFromTrash(trashRelPath);
 }
 
+export async function deleteFromTrash(trashRelPaths) {
+  return window.archivAPI.fs.deleteFromTrash(trashRelPaths);
+}
+
 export async function emptyTrash() {
   return window.archivAPI.fs.emptyTrash();
 }

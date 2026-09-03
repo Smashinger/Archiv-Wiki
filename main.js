@@ -13,6 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const { execFile } = require('child_process');
 const { readAppState, writeAppState } = require('./main/app-state');
+const { getAutoStartSettings, setAutoStartSettings, shouldStartHidden, revealExistingWindow } = require('./main/autostart');
 const { adoptProjectConfig, cloneProjectConfig, isValidProject, requireProjectConfig } = require('./main/project');
 const { registerWizardIpc } = require('./main/wizard-ipc');
 const { registerFilesystemIpc } = require('./main/filesystem-ipc');
@@ -393,11 +394,14 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
-    }
+    // Ein zweiter Start soll die bereits laufende (evtl. im Tray versteckte)
+    // Instanz sichtbar machen: bestehendes Fenster wiederverwenden — bei Bedarf
+    // wiederherstellen, zeigen und fokussieren. Kein zweites Fenster, kein
+    // zweiter Tray.
+    const win = (mainWindow && !mainWindow.isDestroyed())
+      ? mainWindow
+      : BrowserWindow.getAllWindows()[0];
+    revealExistingWindow(win);
   });
 }
 
@@ -683,11 +687,19 @@ function secureWindowNavigation(browserWindow, documentPath) {
 
 function createWizardWindow() {
   wizardWindow = new BrowserWindow({
-    width: 820,
-    height: 760,
+    // Eigene Titelleiste (Custom Window Chrome) wie das Hauptfenster: frame:false
+    // entfernt die native Dekoration; renderer/wizard.html rendert die
+    // 28px-Titelleiste selbst. useContentSize misst die reine Inhaltsfläche,
+    // damit die per Spezifikation gewünschte Breite (824) exakt gilt und der
+    // Wizard sich später per 'wizard:resizeToContent' an seine Inhaltshöhe
+    // anpassen kann (nie scrollen, min-height 600, wächst mit).
+    width: 824,
+    height: 600,
+    useContentSize: true,
+    frame: false,
     resizable: false,
     show: false,
-    backgroundColor: '#0a0d12',
+    backgroundColor: '#1A1B1D',
     icon: resolveNativeAssetPath('assets/icons/512x512.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -774,12 +786,31 @@ function createMainWindow() {
 
   attachWindowDiagnostics(mainWindow, 'main');
 
+  const autoStartSettings = getAutoStartSettings();
+  // Ein verstecktes Starten wird NUR geehrt, wenn ein nutzbares Tray-Symbol
+  // erzeugt wurde (createTray() läuft in whenReady() vor createMainWindow()).
+  // Sonst liefe die App unsichtbar und unerreichbar weiter — deshalb: klare
+  // Warnung und normales, fokussiertes Fenster.
+  const trayAvailable = Boolean(tray) && !tray.isDestroyed();
+  const { wantsHidden, hidden: isHiddenStart } = shouldStartHidden({
+    argv: process.argv,
+    startMinimized: autoStartSettings.startMinimized,
+    trayAvailable
+  });
+  if (wantsHidden && !trayAvailable) {
+    console.warn('[Archiv Wiki] Verstecktes Starten angefordert, aber kein nutzbares Tray-Symbol vorhanden — das Fenster wird sichtbar geöffnet, damit die App nicht unsichtbar und unerreichbar weiterläuft.');
+  }
+
   mainWindow.once('ready-to-show', () => {
     if (startBehavior === 'maximized') mainWindow.maximize();
     else if (startBehavior === 'centered') mainWindow.center();
     else if (startBehavior === 'restore' && readAppState().mainWindowMaximized) mainWindow.maximize();
-    mainWindow.show();
-    mainWindow.focus();
+    if (isHiddenStart) {
+      mainWindow.hide();
+    } else {
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
 
   // Ladefehler NIE stillschweigend verschlucken — im Terminal sichtbar machen.
@@ -1221,6 +1252,8 @@ function registerCoreIpc() {
   // das betrifft die App als Ganzes, nicht den Wiki-Inhalt. Wird trotzdem im
   // selben "Allgemein"-Tab des Einstellungsfensters angezeigt.
   ipcMain.handle('app:getCloseBehavior', () => readAppState().closeBehavior || 'ask');
+  ipcMain.handle('app:getAutoStartSettings', () => getAutoStartSettings());
+  ipcMain.handle('app:setAutoStartSettings', (_e, settings) => setAutoStartSettings(settings || {}));
   ipcMain.handle('app:getWindowStartBehavior', () => getWindowStartBehavior());
   ipcMain.handle('app:setWindowStartBehavior', (_e, value) => {
     if (!WINDOW_START_BEHAVIORS.has(value)) throw new Error('Ungültiges Fenster-Startverhalten.');

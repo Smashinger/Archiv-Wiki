@@ -1076,6 +1076,43 @@ function restoreFromTrash(projectPath, trashRelPath) {
   return { relPath: path.relative(projectPath, destPath) };
 }
 
+// Löscht AUSGEWÄHLTE Papierkorbeinträge endgültig (Mehrfachauswahl). Wie
+// emptyTrash irreversibel, aber gezielt statt vollständig. Konsistenz zwischen
+// Papierkorb-Verzeichnis und Herkunftsindex bleibt gewahrt: erst wird der Index
+// gelesen (das prüft die Konsistenz), dann werden nur bekannte Einträge
+// entfernt und der bereinigte Index geschrieben.
+function deleteFromTrash(projectPath, trashRelPaths) {
+  const names = Array.isArray(trashRelPaths) ? trashRelPaths : [trashRelPaths];
+  const trashDir = trashDirOf(projectPath);
+  if (!fs.existsSync(trashDir)) return { ok: true, deleted: 0 };
+
+  for (const name of names) {
+    if (!isSafeTrashName(name)) {
+      throw createTrashError('TRASH_ENTRY_INVALID', 'Der ausgewählte Papierkorbeintrag ist ungültig.');
+    }
+  }
+
+  const index = readTrashIndex(trashDir); // prüft Konsistenz, wirft sonst
+  const nextIndex = { ...index };
+  let deleted = 0;
+  for (const name of names) {
+    if (!Object.prototype.hasOwnProperty.call(nextIndex, name)) continue; // unbekannt → überspringen
+    fs.rmSync(path.join(trashDir, name), { recursive: true, force: true });
+    delete nextIndex[name];
+    deleted += 1;
+  }
+
+  try {
+    writeTrashIndex(trashDir, nextIndex);
+  } catch (writeError) {
+    // Die Dateien sind bereits endgültig entfernt; ein Rollback ist nicht
+    // möglich. Der Fehler wird klar gemeldet statt still verschluckt.
+    throw trashMutationError('gelöscht', writeError);
+  }
+
+  return { ok: true, deleted };
+}
+
 function emptyTrash(projectPath) {
   const trashDir = trashDirOf(projectPath);
   // Ein beschädigter oder bereits inkonsistenter Index wird nicht durch
@@ -1116,6 +1153,7 @@ module.exports = {
   deleteEntry,
   listTrash,
   restoreFromTrash,
+  deleteFromTrash,
   emptyTrash,
   CONFIG_FILENAME,
   TRASH_DIRNAME

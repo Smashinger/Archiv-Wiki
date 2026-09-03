@@ -893,6 +893,20 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
 
 /* --- Papierkorb-Kopf: Titel links, Leeren-Icon-Button rechts --- */
 .trash-header{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+
+/* Papierkorb-Mehrfachauswahl: Werkzeugleiste über der Liste (design-neutral,
+   Design2 verfeinert die Optik in design2.css). "Ausgewählte löschen" bleibt
+   deaktiviert, solange nichts angehakt ist. */
+.trash-select-bar{ display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin:12px 0 6px; }
+.trash-selectall{ display:inline-flex; align-items:center; gap:7px; cursor:pointer; font-size:13px; color: var(--text-faint); }
+.trash-selectall input{ cursor:pointer; }
+.trash-select-count{ font-size:13px; color: var(--text-faint); min-width:0; }
+.trash-delete-selected{ margin-left:auto; }
+.trash-delete-selected:not(:disabled){ color: var(--red); border-color: var(--red); }
+.trash-delete-selected:disabled{ opacity:.5; cursor:not-allowed; }
+.trash-select, .d2-trash-select{ display:inline-flex; align-items:center; cursor:pointer; flex:0 0 auto; }
+.trash-select input, .d2-trash-select input{ cursor:pointer; }
+.trash-select{ margin-right:8px; }
 /* D4 / Block 2: Umbenennen/Zusammenführen/Löschen-Buttons neben dem
    Tag-Detail-Titel — wiederverwendet .trash-header für die Kopfzeile. */
 .tag-actions-row{ display:flex; gap:8px; flex-shrink:0; }
