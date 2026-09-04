@@ -567,6 +567,7 @@ function onToggle(scope, toggleId, handler) {
 async function renderGeneralSection(el, config, updateSetting, context, lifecycle) {
   const closeBehavior = await window.archivAPI.getCloseBehavior();
   const autoStartSettings = await window.archivAPI.getAutoStartSettings?.() || { openAtLogin: false, startMinimized: false };
+  const windowStartBehavior = await window.archivAPI.getWindowStartBehavior?.() || 'maximized';
   if (!lifecycle.isCurrent()) return;
 
   const left = group('Wiki',
@@ -588,6 +589,16 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
           { value: 'allOpen', label: 'Alles geöffnet' }
         ]
       }))
+    + row('Fensterstart', 'Wie das Fenster nach dem Start erscheint.',
+      radios({
+        id: 'stWindowStart', name: 'stWindowStart', value: windowStartBehavior,
+        options: [
+          { value: 'maximized', label: 'Maximiert', isDefault: true },
+          { value: 'restore', label: 'Letzten Zustand wiederherstellen' },
+          { value: 'centered', label: 'Zentriert' }
+        ]
+      })
+      + feedbackLine('stWindowStartFeedback'))
     + row('Mit dem System starten', 'Startet Archiv-Wiki automatisch beim Anmelden am Computer.',
       toggle({ id: 'stAutoStart', on: Boolean(autoStartSettings.openAtLogin), label: 'Mit dem System starten' })
       + feedbackLine('stAutoStartFeedback'))
@@ -632,6 +643,27 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
   el.querySelector('#stCategoryStartup').addEventListener('change', async (event) => {
     if (event.target.name !== 'stCategoryStartup') return;
     await updateSetting({ categoryStartupBehavior: event.target.value });
+  });
+
+  // Fenster-Startverhalten ist app-weit (main/app-state.js), nicht Teil der
+  // projektbezogenen config — deshalb direkt über die eng benannte Brücke.
+  // Die Gültigkeitsprüfung (Allowlist) bleibt im Hauptprozess.
+  el.querySelector('#stWindowStart').addEventListener('change', async (event) => {
+    if (event.target.name !== 'stWindowStart') return;
+    setFeedback(el, 'stWindowStartFeedback', '');
+    try {
+      await window.archivAPI.setWindowStartBehavior(event.target.value);
+    } catch (error) {
+      console.error('Fenster-Startverhalten konnte nicht gespeichert werden:', error);
+      setFeedback(el, 'stWindowStartFeedback', 'Konnte nicht gespeichert werden.', true);
+      // Auswahl auf den tatsächlich gespeicherten Wert zurücksetzen, damit die
+      // Oberfläche keinen nicht angewandten Zustand behauptet.
+      try {
+        const saved = await window.archivAPI.getWindowStartBehavior?.() || 'maximized';
+        const radio = el.querySelector(`#stWindowStart input[value="${saved}"]`);
+        if (radio) radio.checked = true;
+      } catch { /* Anzeige bleibt, wenn auch das Lesen scheitert */ }
+    }
   });
 
   // Autostart und der abhängige „Minimiert im Tray starten“-Schalter: der

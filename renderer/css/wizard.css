@@ -154,6 +154,9 @@ body { font-family:var(--wf); -webkit-font-smoothing:antialiased; }
 .wz-switch-track::after { content:""; width:11px; height:11px; background:var(--w-faint); display:block; }
 .wz-switch input:checked + .wz-switch-track { background:var(--w-copper); }
 .wz-switch input:checked + .wz-switch-track::after { background:var(--w-on-copper); margin-left:auto; }
+/* Sichtbarer Tastaturfokus: die eigentliche Checkbox ist unsichtbar (0×0),
+   deshalb den Fokus am sichtbaren Track darstellen. */
+.wz-switch input:focus-visible + .wz-switch-track { outline:2px solid var(--w-copper); outline-offset:2px; }
 .wz-switch-aside { font-family:var(--wf); font-size:12.5px; color:var(--w-faint); }
 
 .wz-primary {
@@ -198,6 +201,20 @@ body { font-family:var(--wf); -webkit-font-smoothing:antialiased; }
 .wz-inline-error { color:var(--w-copper); }
 .wz-inline-info { color:var(--w-muted); }
 .wz-inline-error.show, .wz-inline-info.show { display:block; }
+
+/* Warnung bei nicht-leerem Zielordner (Schritt 1) und Schlüsselbund-Hinweis
+   (Schritt 3). Standardmäßig sichtbar über .show, sonst per is-hidden aus. */
+.wz-inline-warn { display:none; font-family:var(--wf); font-size:12px; line-height:1.5; color:var(--w-copper); }
+.wz-inline-warn.show { display:block; }
+#syncNoKeyringNote { margin:0 0 11px; max-width:600px; }
+#folderNonEmptyWarn { margin-top:2px; }
+
+/* Passwort-Feld mit Anzeigen/Verbergen-Schalter (App-Passwortschutz, Schritt 2) */
+.wz-pw-field { display:flex; align-items:center; gap:8px; }
+.wz-pw-field .wz-input { flex:1; }
+.wz-pw-toggle { flex:none; background:none; border:1px solid var(--w-rule2); border-radius:0; color:var(--w-dim); font-family:var(--wf); font-size:12px; padding:6px 10px; cursor:pointer; }
+.wz-pw-toggle:disabled { opacity:.45; cursor:default; }
+.wz-applock-field.is-hidden { display:none; }
 
 /* Hinweisblock */
 .wz-hint { border-left:2px solid var(--w-teal); padding:2px 0 2px 14px; margin-top:18px; max-width:600px; font-family:var(--wf); font-size:12.5px; line-height:1.5; color:var(--w-muted); }

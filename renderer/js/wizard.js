@@ -10,7 +10,12 @@ import { fetchUpdateStatus, onUpdateStatusChanged } from './update-check.js';
 import { showMessageDialog, showConfirmDialog } from './dialog.js';
 
 const TOTAL_STEPS = 3;
-const STAGE_NAMES = ['Ordner', 'Editor', 'Sync'];
+const STAGE_NAMES = ['Ordner', 'Wiki', 'Sync'];
+
+// Tab-Größe und Auto-Save wurden aus dem Ersteinrichtungs-Assistenten entfernt,
+// ihre bisherigen Standardwerte bleiben aber erhalten (siehe auch die
+// Absicherung im Hauptprozess in main/wizard-ipc.js).
+const DEFAULT_EDITOR = { tabSize: 2, autoSave: 30 };
 
 // Zwölf Farbfelder der Akzentwahl (Spezifikation, Abschnitt 1): elf feste
 // Farben plus Eigenwert-Knopf. Alle elf werden als frei gewählte Akzentfarbe
@@ -26,9 +31,14 @@ const state = {
   step: 1,
   projectPath: null,
   alreadyConfigured: false,
+  folderNonEmpty: false,   // beschreibbar, kein bestehendes Projekt, aber nicht leer
+  folderConfirmed: false,  // Nutzer hat den nicht-leeren Ordner ausdrücklich bestätigt
   backupPath: null,
   accentKey: 'custom',
   customAccentColor: SWATCH_COLORS[0],
+  // Erfolgreich getestete Sync-Kombination {url, username, password} oder null.
+  // Ändert der Nutzer danach eines der Felder, wird dies auf null gesetzt.
+  syncTested: null,
 };
 
 const els = {
@@ -54,15 +64,27 @@ const els = {
   projectPathLabel: document.getElementById('projectPathLabel'),
   folderErrorBanner: document.getElementById('folderErrorBanner'),
   folderExistingBanner: document.getElementById('folderExistingBanner'),
+  folderNonEmptyWarn: document.getElementById('folderNonEmptyWarn'),
   btnOpenExisting: document.getElementById('btnOpenExisting'),
   folderChecks: document.getElementById('folderChecks'),
 
   accentSwatchRow: document.getElementById('accentSwatchRow'),
   customAccentInput: document.getElementById('customAccentInput'),
 
+  appLockEnabled: document.getElementById('fAppLockEnabled'),
+  appLockRowPw: document.getElementById('appLockRowPw'),
+  appLockRowConfirm: document.getElementById('appLockRowConfirm'),
+  appLockPassword: document.getElementById('fAppLockPassword'),
+  appLockConfirm: document.getElementById('fAppLockConfirm'),
+  appLockShow: document.getElementById('appLockShow'),
+  appLockError: document.getElementById('appLockError'),
+
   backupPathLabel: document.getElementById('backupPathLabel'),
   btnChangeBackup: document.getElementById('btnChangeBackup'),
 
+  syncUrl: document.getElementById('syncUrl'),
+  syncUser: document.getElementById('syncUser'),
+  syncPass: document.getElementById('syncPass'),
   btnConnect: document.getElementById('btnConnect'),
   syncTestStatus: document.getElementById('syncTestStatus'),
   syncRemember: document.getElementById('wizardSyncRemember'),
@@ -71,6 +93,7 @@ const els = {
   autoLabel: document.getElementById('wizardAutoLabel'),
   autoRow: document.getElementById('wizardAutoRow'),
   syncInterval: document.getElementById('wizardSyncInterval'),
+  syncNoKeyringNote: document.getElementById('syncNoKeyringNote'),
 };
 
 // ---------------------------------------------------------------------------
@@ -173,6 +196,82 @@ els.customAccentInput.addEventListener('input', (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// App-Passwortschutz — optionaler Schalter, Felder nur bei aktivem Schutz
+// ---------------------------------------------------------------------------
+function setAppLockVisible(visible) {
+  const type = visible ? 'text' : 'password';
+  els.appLockPassword.type = type;
+  els.appLockConfirm.type = type;
+  els.appLockShow.setAttribute('aria-pressed', String(visible));
+  els.appLockShow.textContent = visible ? 'Verbergen' : 'Anzeigen';
+  els.appLockShow.setAttribute('aria-label', visible ? 'Passwörter verbergen' : 'Passwörter anzeigen');
+}
+
+function clearAppLockError() {
+  els.appLockError.classList.remove('show');
+  els.appLockError.textContent = '';
+}
+
+function refreshAppLockFields() {
+  const on = els.appLockEnabled.checked;
+  // Versteckte Felder sind per is-hidden nicht fokussierbar; zusätzlich
+  // deaktiviert, damit sie nicht im Tab-Fokus landen und keine alten Werte
+  // beitragen.
+  els.appLockRowPw.classList.toggle('is-hidden', !on);
+  els.appLockRowConfirm.classList.toggle('is-hidden', !on);
+  els.appLockPassword.disabled = !on;
+  els.appLockConfirm.disabled = !on;
+  els.appLockShow.disabled = !on;
+  if (!on) {
+    els.appLockPassword.value = '';
+    els.appLockConfirm.value = '';
+    setAppLockVisible(false);
+    clearAppLockError();
+  }
+  requestResize();
+}
+
+els.appLockEnabled.addEventListener('change', refreshAppLockFields);
+els.appLockShow.addEventListener('click', () => {
+  setAppLockVisible(els.appLockPassword.type === 'password');
+});
+[els.appLockPassword, els.appLockConfirm].forEach((inp) => {
+  inp.addEventListener('input', clearAppLockError);
+});
+refreshAppLockFields();
+
+function showAppLockError(message) {
+  els.appLockError.textContent = message;
+  els.appLockError.classList.add('show');
+  requestResize();
+}
+
+// ---------------------------------------------------------------------------
+// Verbindungstest-Zustand: nur die zuletzt ERFOLGREICH getestete Kombination
+// gilt als geprüft. Jede Änderung an URL/Benutzer/Passwort verwirft das.
+// ---------------------------------------------------------------------------
+function currentSyncCombo() {
+  return {
+    url: els.syncUrl.value.trim(),
+    username: els.syncUser.value.trim(),
+    password: els.syncPass.value,
+  };
+}
+function syncComboMatchesTested() {
+  const t = state.syncTested;
+  if (!t) return false;
+  const c = currentSyncCombo();
+  return t.url === c.url && t.username === c.username && t.password === c.password;
+}
+[els.syncUrl, els.syncUser, els.syncPass].forEach((inp) => {
+  inp.addEventListener('input', () => {
+    if (state.syncTested && syncComboMatchesTested()) return;
+    state.syncTested = null;
+    els.syncTestStatus.textContent = 'nicht geprüft';
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Automatischer Abgleich braucht ein gespeichertes Passwort → an
 // "Passwort merken" gekoppelt (exakt wie im In-App-Sync-Fenster).
 // ---------------------------------------------------------------------------
@@ -181,9 +280,13 @@ window.archivAPI.isEncryptionAvailable().then((available) => {
   encryptionAvailable = available;
   if (!available) {
     els.syncRemember.disabled = true;
+    els.syncRemember.checked = false;
     els.rememberLabel.title = 'Auf diesem System nicht verfügbar (kein Schlüsselbund gefunden).';
+    // Sichtbar erklären statt nur per Tooltip.
+    els.syncNoKeyringNote.classList.add('show');
   }
   refreshAutoAvailability();
+  requestResize();
 });
 
 function refreshAutoAvailability() {
@@ -318,10 +421,17 @@ function applyChecks(r) {
 
 els.btnSelectFolder.addEventListener('click', async () => {
   const result = await window.archivAPI.selectProjectFolder();
+  // Abgebrochener Dialog: bestehende Anzeige (z. B. „Direkt öffnen") NICHT
+  // verändern — es wurde ja kein neuer Ordner gewählt.
+  if (!result) return;
+
+  // Erst ab hier (echte neue Auswahl) Hinweise zurücksetzen.
   els.folderErrorBanner.classList.remove('show');
   els.folderExistingBanner.classList.remove('show');
-
-  if (!result) return; // Dialog abgebrochen
+  els.folderNonEmptyWarn.classList.remove('show');
+  // Eine neue Ordnerauswahl setzt eine frühere Bestätigung zurück.
+  state.folderConfirmed = false;
+  state.folderNonEmpty = false;
 
   state.projectPath = result.path;
   state.alreadyConfigured = result.alreadyConfigured;
@@ -334,6 +444,11 @@ els.btnSelectFolder.addEventListener('click', async () => {
     state.projectPath = null;
   } else if (result.alreadyConfigured) {
     els.folderExistingBanner.classList.add('show');
+  } else if (result.empty === false) {
+    // Beschreibbar, kein bestehendes Projekt, aber nicht leer: sichtbar warnen
+    // und beim „Weiter" eine ausdrückliche Bestätigung verlangen.
+    state.folderNonEmpty = true;
+    els.folderNonEmptyWarn.classList.add('show');
   }
 
   updateNextEnabled();
@@ -374,11 +489,20 @@ els.btnChangeBackup.addEventListener('click', async () => {
 // ---------------------------------------------------------------------------
 // Navigation
 // ---------------------------------------------------------------------------
-els.btnNext.addEventListener('click', () => {
-  if (state.step < TOTAL_STEPS) {
-    state.step += 1;
-    renderStep();
+els.btnNext.addEventListener('click', async () => {
+  if (state.step >= TOTAL_STEPS) return;
+  // Nicht-leerer Zielordner: ausdrückliche Bestätigung, bevor es weitergeht.
+  if (state.step === 1 && state.folderNonEmpty && !state.folderConfirmed) {
+    const ok = await showConfirmDialog({
+      title: 'Ordner ist nicht leer',
+      message: 'Deine vorhandenen Dateien bleiben erhalten. Archiv-Wiki legt in diesem Ordner zusätzlich seine eigene Konfiguration und Arbeitsordner an. Fortfahren?',
+      confirmLabel: 'Fortfahren'
+    });
+    if (!ok) return; // Bei Abbruch auf Schritt 1 bleiben.
+    state.folderConfirmed = true;
   }
+  state.step += 1;
+  renderStep();
 });
 els.btnBack.addEventListener('click', () => {
   if (state.step > 1) {
@@ -400,20 +524,45 @@ els.btnCancel.addEventListener('click', async () => {
 // Schritt 3 / Fertigstellen
 // ---------------------------------------------------------------------------
 async function doFinish({ skipSync = false } = {}) {
+  // App-Passwortschutz: Vorabprüfung im Renderer (der Hauptprozess prüft
+  // erneut). Bei Fehler in Schritt 2 bleiben und Inline-Fehler zeigen.
+  const appLockOn = els.appLockEnabled.checked;
+  const appLockPw = els.appLockPassword.value;
+  const appLockConfirmPw = els.appLockConfirm.value;
+  if (appLockOn) {
+    if (!appLockPw) {
+      if (state.step !== 2) { state.step = 2; renderStep(); }
+      showAppLockError('Bitte ein Passwort eingeben.');
+      return;
+    }
+    if (appLockPw !== appLockConfirmPw) {
+      if (state.step !== 2) { state.step = 2; renderStep(); }
+      showAppLockError('Die beiden Passwörter stimmen nicht überein.');
+      return;
+    }
+  }
+
+  const syncUrl = els.syncUrl.value.trim();
+  const syncUser = els.syncUser.value.trim();
+  const syncPassword = els.syncPass.value;
+
+  // Sync-URL angegeben, aber aktuelle Zugangsdaten nicht erfolgreich getestet:
+  // klar bestätigen lassen (lokal wird trotzdem angelegt, Sync evtl. nicht).
+  if (!skipSync && syncUrl && !syncComboMatchesTested()) {
+    const proceed = await showConfirmDialog({
+      title: 'Verbindung nicht bestätigt',
+      message: 'Die Zugangsdaten wurden nicht erfolgreich getestet. Dein Wiki wird lokal angelegt, die Synchronisation funktioniert aber möglicherweise nicht.',
+      confirmLabel: 'Trotzdem abschließen'
+    });
+    if (!proceed) return; // In Schritt 3 bleiben.
+  }
+
   els.btnFinish.disabled = true;
   els.btnSkip.disabled = true;
   const prevHtml = els.btnFinish.innerHTML;
   els.btnFinish.textContent = 'Lege an …';
 
   const wikiName = document.getElementById('fWikiName').value.trim();
-  const editorConfig = {
-    tabSize: Number(document.getElementById('fTabSize').value),
-    autoSave: Number(document.getElementById('fAutoSave').value),
-  };
-
-  const syncUrl = document.getElementById('syncUrl').value.trim();
-  const syncUser = document.getElementById('syncUser').value.trim();
-  const syncPassword = document.getElementById('syncPass').value;
   const rememberPassword = !skipSync && els.syncRemember.checked;
   const sync = (!skipSync && syncUrl)
     ? {
@@ -427,16 +576,18 @@ async function doFinish({ skipSync = false } = {}) {
   try {
     await window.archivAPI.finishWizard({
       projectPath: state.projectPath,
-      editorConfig,
+      editorConfig: { ...DEFAULT_EDITOR },
       wikiName,
       accentKey: state.accentKey,
       customAccentColor: state.accentKey === 'custom' ? state.customAccentColor : undefined,
-      appLockPassword: document.getElementById('fAppLockPassword').value,
+      appLockEnabled: appLockOn,
+      appLockPassword: appLockOn ? appLockPw : '',
+      appLockPasswordConfirm: appLockOn ? appLockConfirmPw : '',
       backupPath: state.backupPath,
       sync,
+      // Ohne Synchronisation: eingegebene Zugangsdaten werden ignoriert.
       password: skipSync ? '' : syncPassword,
       rememberPassword,
-      windowStartBehavior: document.querySelector('input[name="wizardWindowStart"]:checked')?.value || 'maximized',
     });
     // Main-Prozess öffnet jetzt das Hauptfenster und schließt dieses hier.
   } catch (err) {
@@ -457,18 +608,21 @@ els.btnSkip.addEventListener('click', () => doFinish({ skipSync: true }));
 // Verbindung testen — dieselbe testConnection-IPC wie das In-App-Sync-Modal
 // ---------------------------------------------------------------------------
 els.btnConnect.addEventListener('click', async () => {
-  const url = document.getElementById('syncUrl').value.trim();
-  const username = document.getElementById('syncUser').value.trim();
-  const password = document.getElementById('syncPass').value;
-  if (!url) {
-    els.syncTestStatus.textContent = 'Bitte zuerst eine URL eingeben.';
+  const combo = currentSyncCombo();
+  if (!combo.url) {
+    state.syncTested = null;
+    els.syncTestStatus.textContent = 'Bitte zuerst eine Adresse eingeben.';
     return;
   }
+  state.syncTested = null;
   els.syncTestStatus.textContent = 'Verbinde …';
   try {
-    await window.archivAPI.syncApi.testConnection({ url, username, password });
+    await window.archivAPI.syncApi.testConnection({ url: combo.url, username: combo.username, password: combo.password });
+    // Nur genau diese getestete Kombination gilt fortan als geprüft.
+    state.syncTested = { ...combo };
     els.syncTestStatus.textContent = '✓ Verbindung erfolgreich.';
   } catch (err) {
+    state.syncTested = null;
     els.syncTestStatus.textContent = '✕ ' + err.message;
   }
   requestResize();

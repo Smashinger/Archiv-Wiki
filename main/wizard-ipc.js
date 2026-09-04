@@ -46,6 +46,56 @@ function inspectProjectFolder(folder) {
   return { path: folder, writable, alreadyConfigured, empty, entryCount, freeBytes };
 }
 
+// App-Passwortschutz: vertrauenswürdige Ableitung aus dem (untrusted) Payload.
+// Ist der Schutz aus, entsteht NIE ein Passwort. Ist er an, muss ein nicht
+// leeres Passwort vorliegen und die Wiederholung exakt übereinstimmen; sonst
+// wird geworfen (auch bei manipuliertem/gefälschtem Payload). Gespeichert wird
+// nur Salt + scrypt-Hash, nie Klartext.
+function buildAppLock({ appLockEnabled, appLockPassword, appLockPasswordConfirm } = {}) {
+  if (appLockEnabled !== true) return { enabled: false };
+  const pw = typeof appLockPassword === 'string' ? appLockPassword : '';
+  const confirm = typeof appLockPasswordConfirm === 'string' ? appLockPasswordConfirm : '';
+  if (!pw) {
+    throw new Error('Bitte ein Passwort eingeben oder den Passwortschutz ausschalten.');
+  }
+  if (pw !== confirm) {
+    throw new Error('Die beiden Passwörter stimmen nicht überein.');
+  }
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(pw, salt, 64).toString('hex');
+  return { enabled: true, salt, hash };
+}
+
+// Editor-Standardwerte bleiben unverändert, obwohl Tab-Größe/Auto-Save aus dem
+// Assistenten entfernt wurden: fehlende Werte fallen auf die bisherigen
+// Vorgaben zurück (Tab 2, Auto-Save 30 s).
+function resolveEditorConfig(editorConfig) {
+  const incoming = (editorConfig && typeof editorConfig === 'object') ? editorConfig : {};
+  return { tabSize: 2, autoSave: 30, ...incoming };
+}
+
+// Übernimmt aus dem (untrusted) Sync-Objekt NUR die bekannten Felder in die
+// Projektkonfiguration — niemals ein Klartext-Passwort o. Ä. Der automatische
+// Abgleich darf nur dann als aktiv gespeichert werden, wenn die Zugangsdaten
+// tatsächlich sicher abgelegt wurden (credentialsStored). Die Verbindung selbst
+// bleibt bis nach der Einrichtung inaktiv (enabled:false).
+function sanitizeSyncConfig(rawSync, credentialsStored) {
+  const s = (rawSync && typeof rawSync === 'object') ? rawSync : {};
+  const url = typeof s.url === 'string' ? s.url.trim() : '';
+  if (!url) return { enabled: false };
+  const username = typeof s.username === 'string' ? s.username : '';
+  const rawAuto = (s.autoSync && typeof s.autoSync === 'object') ? s.autoSync : {};
+  const parsedInterval = Number(rawAuto.intervalMinutes);
+  const intervalMinutes = Number.isFinite(parsedInterval) && parsedInterval > 0 ? parsedInterval : 15;
+  const autoEnabled = Boolean(rawAuto.enabled) && Boolean(credentialsStored);
+  return {
+    enabled: false,
+    url,
+    username,
+    autoSync: { enabled: autoEnabled, intervalMinutes }
+  };
+}
+
 function registerWizardIpc({ getWizardWindow, onProjectReady }) {
   // Für die "Passwort merken"-Checkbox im Wizard: dasselbe safeStorage wie in
   // main/sync-ipc.js, aber projektunabhängig abfragbar (es gibt zu diesem
@@ -113,11 +163,17 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
   // Neues Projekt anlegen: .wiki-config.json + .wiki-trash/ + Backup-Ordner erzeugen
   ipcMain.handle('wizard:finish', async (_event, payload) => {
-    const { projectPath, editorConfig, wikiName, accentKey, customAccentColor, appLockPassword, backupPath, sync, password, rememberPassword, windowStartBehavior } = payload || {};
+    const { projectPath, editorConfig, wikiName, accentKey, customAccentColor, appLockEnabled, appLockPassword, appLockPasswordConfirm, backupPath, sync, password, rememberPassword } = payload || {};
 
     if (!projectPath || !isDirWritable(projectPath)) {
       throw new Error('Projektordner fehlt oder ist nicht beschreibbar.');
     }
+
+    // App-Passwortschutz (vertrauenswürdige Validierung im Hauptprozess):
+    // NICHT nur auf die Renderer-Prüfung verlassen. Bewusst VOR jeder
+    // Dateisystem-Änderung, damit ein Validierungsfehler keinen halb
+    // angelegten Projektordner hinterlässt (Commit bleibt writeProjectConfig).
+    const appLock = buildAppLock({ appLockEnabled, appLockPassword, appLockPasswordConfirm });
 
     const resolvedBackupPath = backupPath || defaultBackupPath();
 
@@ -136,16 +192,22 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
     }
     fs.mkdirSync(path.join(projectPath, TRASH_DIRNAME), { recursive: true });
 
-    // App-Passwortschutz: NIE im Klartext gespeichert — nur Salt (zufällig,
-    // pro Projekt einmalig) + Hash (scrypt, Node-eingebaut, kein zusätzliches
-    // npm-Paket nötig). Beim Entsperren wird derselbe Hash erneut berechnet
-    // und verglichen (siehe app:verifyAppLock in main.js), das Passwort selbst
-    // verlässt den Speicher-Vorgang nie.
-    let appLock = { enabled: false };
-    if (appLockPassword && appLockPassword.trim()) {
-      const salt = crypto.randomBytes(16).toString('hex');
-      const hash = crypto.scryptSync(appLockPassword, salt, 64).toString('hex');
-      appLock = { enabled: true, salt, hash };
+    const editor = resolveEditorConfig(editorConfig);
+
+    // Zugangsdaten VOR dem Commit sicher ablegen — nur dann darf der
+    // automatische Abgleich als aktiv gespeichert werden. So kann die
+    // Konfiguration nie "Auto-Sync an" behaupten, ohne dass die Zugangsdaten
+    // wirklich im Schlüsselbund liegen. Ein Fehlschlag hier bricht die
+    // Einrichtung NICHT ab (lokales Wiki bleibt möglich), führt aber dazu, dass
+    // Auto-Sync nicht aktiviert wird.
+    let credentialsStored = false;
+    if (rememberPassword && password) {
+      if (!safeStorage.isEncryptionAvailable()) {
+        console.warn('[Archiv Wiki] Kein Schlüsselbund verfügbar — Zugangsdaten werden nicht gespeichert, Auto-Sync bleibt aus.');
+      } else {
+        try { savePasswordForProject(projectPath, password); credentialsStored = true; }
+        catch (err) { console.error('[Archiv Wiki] Passwort konnte im Wizard nicht gespeichert werden:', err.message); }
+      }
     }
 
     const config = {
@@ -154,9 +216,9 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
       wikiName: (wikiName || '').trim(),
       accentKey: accentKey || 'orange',
       appLock,
-      editor: editorConfig || {},
+      editor,
       backupPath: resolvedBackupPath,
-      sync: sync || { enabled: false }
+      sync: sanitizeSyncConfig(sync, credentialsStored)
     };
     // Eigene (freie) Akzentfarbe nur speichern, wenn accentKey='custom' UND ein
     // gültiger Hex-Wert vorliegt — dieselbe Form wie im Einstellungsfenster
@@ -168,22 +230,13 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
     // Commit-Punkt: ab hier gilt der Ordner als fertig eingerichtetes Projekt.
     const persistedConfig = writeProjectConfig(projectPath, config, { create: true });
 
-    // Passwort erst JETZT sicher speichern — der projectPath steht jetzt
-    // endgültig fest (vorher, während des Wizard-Ausfüllens, gab es noch kein
-    // "aktuelles Projekt", über das main/sync-ipc.js das sonst abwickelt).
-    if (rememberPassword && password) {
-      try { savePasswordForProject(projectPath, password); }
-      catch (err) { console.error('[Archiv Wiki] Passwort konnte im Wizard nicht gespeichert werden:', err.message); }
-    }
-
-    const allowedWindowStartBehaviors = new Set(['maximized', 'restore', 'centered']);
-    writeAppState({
-      lastProjectPath: projectPath,
-      windowStartBehavior: allowedWindowStartBehaviors.has(windowStartBehavior) ? windowStartBehavior : 'maximized'
-    });
+    // Fenster-Startverhalten wird bewusst NICHT mehr hier gesetzt — es liegt
+    // jetzt ausschließlich in den normalen Einstellungen (Allgemein →
+    // Startverhalten) und hat dort seinen eigenen, validierten Standard.
+    writeAppState({ lastProjectPath: projectPath });
     onProjectReady(projectPath, persistedConfig);
     return { ok: true };
   });
 }
 
-module.exports = { registerWizardIpc };
+module.exports = { registerWizardIpc, buildAppLock, resolveEditorConfig, sanitizeSyncConfig, inspectProjectFolder };

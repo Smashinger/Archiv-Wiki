@@ -198,6 +198,13 @@ contextBridge.exposeInMainWorld('archivAPI', {
   setCloseBehavior: (value) => ipcRenderer.invoke('app:setCloseBehavior', value),
   getAutoStartSettings: () => ipcRenderer.invoke('app:getAutoStartSettings'),
   setAutoStartSettings: (settings) => ipcRenderer.invoke('app:setAutoStartSettings', settings),
+  // Fenster-Startverhalten (app-weit, main/app-state.js): eng benannte Brücken
+  // auf die bereits im Hauptprozess vorhandenen, allowlist-validierten Handler
+  // 'app:getWindowStartBehavior'/'app:setWindowStartBehavior' — KEIN generischer
+  // IPC-Zugang. Wird aus dem normalen Einstellungsfenster genutzt, seit das
+  // Fenster-Startverhalten aus dem Ersteinrichtungs-Assistenten entfernt wurde.
+  getWindowStartBehavior: () => ipcRenderer.invoke('app:getWindowStartBehavior'),
+  setWindowStartBehavior: (value) => ipcRenderer.invoke('app:setWindowStartBehavior', value),
   resolveCloseDialog: (result) => ipcRenderer.invoke('app:resolveCloseDialog', result),
 
   // --- Eigene Titelleiste (Custom Window Chrome): eng begrenzte
