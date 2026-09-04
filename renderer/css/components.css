@@ -1058,6 +1058,27 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
   color: var(--text-muted); font-size:13px; cursor:pointer;
 }
 .format-toolbar button:hover{ background: var(--bg-elev-2); color: var(--text-main); }
+/* Wikilink-Knopf: die vier Klammern sind das einzige Werkzeugsymbol aus
+   mehreren Zeichen. In der Fließtextschrift bei 11px liefen sie zu einem
+   Klecks zusammen; die Monospace-Schrift (gleiche Familie wie Code-Blöcke)
+   plus etwas Laufweite trennt sie sauber. Gilt für Classic UND Design2 —
+   das Markup ist gemeinsam, und beide Designs zeigten denselben Fehler. */
+.format-toolbar .wikilink-glyph{
+  display:inline-block; white-space:nowrap;
+  font-family: var(--mono); font-size:12px; line-height:1;
+}
+/* Gezeichnete Werkzeugsymbole (externer Link, Tabelle, Callout): Inline-SVG
+   statt Unicode-Zeichen. Grund: die vorherigen ⛓ (U+26D3), ▦ (U+25A6) und
+   ▤ (U+25A4) fehlen in allen mitgelieferten Schriften — sie kamen aus der
+   System-Schrift, sahen deshalb auf jedem Rechner anders aus, und ▦/▤ waren
+   bei 13px als zwei gefüllte Quadrate kaum auseinanderzuhalten.
+   "currentColor" übernimmt Ruhe-, Hover- und Aktiv-Farbe des Knopfes, damit
+   Classic und Design2 unverändert weiterfärben. */
+.format-toolbar .toolbar-glyph{
+  width:15px; height:15px; display:block;
+  fill:none; stroke:currentColor;
+  stroke-width:2; stroke-linecap:round; stroke-linejoin:round;
+}
 
 .callout-picker-list{ display:flex; flex-direction:column; gap:2px; }
 .callout-picker-btn{
@@ -1076,6 +1097,33 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
   font-family: var(--mono); font-size:12px; padding:4px 8px; border-radius: var(--radius-sm);
 }
 .table-picker-confirm{ width:100%; margin-top:6px; justify-content:center; }
+/* Raster zur Größenwahl: überfahren markiert, ein Klick fügt ein. Die oberste
+   Zeile ist die Kopfzeile — gestrichelt umrandet, kräftiger eingefärbt und
+   nicht anklickbar, weil buildMarkdownTable() sie immer zusätzlich anlegt.
+   Das Raster selbst trägt den Tastaturfokus (role="grid" in app.js), die
+   Pfeiltasten verändern die Auswahl. */
+.table-grid{ display:grid; grid-template-columns:repeat(8, 20px); gap:3px; margin-top:2px; }
+.table-grid:focus-visible{ outline:2px solid var(--accent-color); outline-offset:3px; }
+.table-grid-cell{
+  width:20px; height:16px; box-sizing:border-box; cursor:pointer;
+  border:1px solid var(--border); border-radius:2px; background: var(--bg-elev);
+}
+.table-grid-cell.is-head{ border-style:dashed; pointer-events:none; }
+.table-grid-cell.is-on{ background: var(--accent-dim); border-color: var(--accent-color); }
+.table-grid-cell.is-head.is-on{ background: var(--accent-color); }
+.table-grid-status{
+  font-family: var(--mono); font-size:11.5px; color: var(--text-muted);
+  margin:8px 2px 2px; min-height:15px;
+}
+.table-grid-status b{ color: var(--text-main); font-weight:600; }
+.table-picker-more{
+  display:block; width:100%; text-align:left; cursor:pointer;
+  background:transparent; border:0; border-top:1px solid var(--border-soft);
+  margin-top:6px; padding:7px 2px 2px;
+  font-family: var(--mono); font-size:11.5px; color: var(--text-faint);
+}
+.table-picker-more:hover{ color: var(--text-main); }
+.table-picker-fields{ padding-top:4px; }
 
 /* --- Tabellen-Bearbeitungsfenster (Doppelklick auf eine Tabelle) --- */
 .table-editor-overlay{
@@ -1769,6 +1817,15 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
   border:1px solid transparent;
   background:transparent;
   border-radius:var(--radius-sm);
+}
+/* Der Klammer-Glyph füllt die 32px-Quadrate der übrigen Knöpfe fast ganz aus.
+   Er käme knapp hinein, aber die Monospace-Schrift ist eine System-Schrift
+   (JetBrains Mono liegt nicht bei) und kann anderswo breiter ausfallen —
+   deshalb wächst dieser eine Knopf mit, statt zu beschneiden. Dieselbe
+   Ausnahme nutzt #btnHeadingMenu ("H ▾") direkt darunter schon. */
+.note-toolbar .format-toolbar button[data-fmt="wikilink"]{
+  width:auto;
+  padding:0 3px;
 }
 .note-toolbar #btnHeadingMenu{
   width:auto;

@@ -2162,13 +2162,12 @@ body[data-ui-design="design2"]{
 [data-ui-design="design2"] .note-toolbar .format-toolbar button.active{
   background: var(--d2-surface-3); color: var(--accent-color); border-color: transparent;
 }
-/* E2: funktionaler Emoji-Zugang bleibt erhalten, erscheint in Design2 aber
-   als monochromes Textsymbol statt als farbiges Plattform-Emoji. */
-[data-ui-design="design2"] .note-toolbar #btnEmoji{ font-size:0; }
-[data-ui-design="design2"] .note-toolbar #btnEmoji::before{
-  content:"\263A\FE0E";
-  font-family:var(--d2-font-body); font-size:15px; color:currentColor;
-}
+/* E2 (überholt): Der Emoji-Zugang wurde hier früher per ::before auf das
+   Textzeichen ☺ (U+263A) umgestellt, weil Classic ein farbiges
+   Plattform-Emoji zeigte. Beides ist entfallen — der Knopf trägt jetzt in
+   BEIDEN Designs dasselbe gezeichnete Symbol (.toolbar-glyph in
+   components.css, siehe app.js). Damit gibt es hier keine Sonderregel mehr;
+   das Ziel "monochrom statt Plattform-Emoji" erfüllt das gemeinsame Markup. */
 [data-ui-design="design2"] .note-toolbar .icon-btn:focus-visible,
 [data-ui-design="design2"] .note-toolbar .format-toolbar button:focus-visible,
 [data-ui-design="design2"] .note-toolbar .view-toggle button:focus-visible,
@@ -3781,6 +3780,76 @@ body[data-ui-design="design2"]:not(.reading-width) .preview-content{
   border: none;
   box-shadow: var(--d2-shadow-menu);
 }
+/* Auswahlfenster der Werkzeugleiste (Emoji, Icon, Callout, Tabelle) sowie die
+   Icon-Vorschau. Alle erben über ".emoji-picker" bzw. ".icon-picker" die
+   Classic-Flächen (--bg-elev-2 #2b2b2b, --border #333) und standen damit als
+   neutrales Grau auf den warmen Design2-Tönen. Sie übernehmen hier dieselbe
+   Bauform wie die Menüs weiter unten — Fläche --d2-surface-3, kein Rahmen,
+   --d2-shadow-menu — statt eigens erfundener Farbwerte.
+
+   WICHTIG zur Spezifität: design2.css lädt NACH components.css, gleich
+   spezifische Regeln gewinnen hier also. Jede Zustandsregel (:hover, .active,
+   .is-on) muss deshalb entweder mitgeschrieben oder ausgenommen werden —
+   sonst verdeckt die Grundregel den Zustand. */
+[data-ui-design="design2"] .emoji-picker,
+[data-ui-design="design2"] .icon-picker,
+[data-ui-design="design2"] .icon-hover-preview{
+  background: var(--d2-surface-3);
+  border: none;
+  box-shadow: var(--d2-shadow-menu);
+}
+[data-ui-design="design2"] .icon-hover-preview{ color: var(--d2-text); }
+[data-ui-design="design2"] .emoji-group-label,
+[data-ui-design="design2"] .icon-picker-section-label,
+[data-ui-design="design2"] .emoji-empty{ color: var(--d2-faint); }
+
+/* Anklickbare Einträge: als Hover auf --d2-surface-3 dieselbe aufgehellte
+   Mischung, die Design2 auf dieser Fläche überall sonst schon verwendet. */
+[data-ui-design="design2"] .emoji-btn:hover,
+[data-ui-design="design2"] .icon-lib-btn:hover,
+[data-ui-design="design2"] .callout-picker-btn:hover{
+  background: color-mix(in srgb, var(--d2-surface-3) 80%, var(--d2-text) 12%);
+}
+[data-ui-design="design2"] .callout-picker-btn{ color: var(--d2-muted); }
+[data-ui-design="design2"] .callout-picker-btn:hover{ color: var(--d2-text); }
+
+/* Reiter, Suchfeld und Favoritenstern des Icon-Fensters. */
+[data-ui-design="design2"] .icon-picker-tabs{ background: var(--d2-surface-1); }
+[data-ui-design="design2"] .icon-picker-tabs button{ color: var(--d2-faint); }
+[data-ui-design="design2"] .icon-picker-tabs button.active{
+  background: var(--d2-surface-3); color: var(--accent-color);
+}
+[data-ui-design="design2"] .icon-picker-search{
+  background: var(--d2-surface-1);
+  border-color: var(--d2-line-strong);
+  color: var(--d2-text);
+}
+[data-ui-design="design2"] .icon-picker-search::placeholder{ color: var(--d2-faint); }
+/* Nur der inaktive Stern: der aktive behält die Akzentfarbe, die diese gleich
+   spezifische, aber später geladene Regel sonst verdecken würde. */
+[data-ui-design="design2"] .icon-fav-star:not(.active){ color: var(--d2-faint); }
+/* Nur die NICHT gewählten Zellen umfärben. Ohne ":not(.is-on)" schlüge diese
+   Regel (0,3,0) die Auswahlregel ".table-grid-cell.is-on" (0,2,0) aus
+   components.css und die Markierung wäre in Design2 unsichtbar. Die
+   Akzentfarbe der Auswahl gilt bewusst designübergreifend. */
+[data-ui-design="design2"] .table-picker .table-grid-cell:not(.is-on){
+  background: var(--d2-surface-1);
+  border-color: var(--d2-line-strong);
+}
+[data-ui-design="design2"] .table-picker .table-grid-status{ color: var(--d2-muted); }
+[data-ui-design="design2"] .table-picker .table-grid-status b{ color: var(--d2-text); }
+[data-ui-design="design2"] .table-picker .table-picker-more{
+  border-top-color: var(--d2-line);
+  color: var(--d2-faint);
+}
+[data-ui-design="design2"] .table-picker .table-picker-more:hover{ color: var(--d2-text); }
+[data-ui-design="design2"] .table-picker .table-picker-field{ color: var(--d2-muted); }
+[data-ui-design="design2"] .table-picker .table-picker-field select{
+  background: var(--d2-surface-1);
+  border-color: var(--d2-line-strong);
+  color: var(--d2-text);
+}
+
 [data-ui-design="design2"] .context-menu{
   min-width: 216px;
 }

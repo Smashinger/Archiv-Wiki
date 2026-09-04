@@ -6592,7 +6592,7 @@ async function renderNote(relPath) {
                 <option value="18">18px</option>
               </select>
             </span>
-            <button type="button" class="icon-btn" id="btnEmoji" title="Icon/Emoji einfügen" aria-label="Icon/Emoji einfügen">😀</button>
+            <button type="button" class="icon-btn" id="btnEmoji" title="Icon/Emoji einfügen" aria-label="Icon/Emoji einfügen"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M9 9.8h.01" stroke-width="2.6"/><path d="M15 9.8h.01" stroke-width="2.6"/><path d="M8.2 14.6a4.6 4.6 0 0 0 7.6 0"/></svg></button>
             <button type="button" data-fmt="bold" title="Fett (**Text**)"><strong>F</strong></button>
             <button type="button" data-fmt="italic" title="Kursiv (*Text*)"><em>K</em></button>
             <button type="button" data-fmt="strike" title="Durchgestrichen (~~Text~~)"><s>D</s></button>
@@ -6611,9 +6611,9 @@ async function renderNote(relPath) {
         <div class="toolbar-group">
           <span class="toolbar-group-label">Einfügen</span>
           <div class="toolbar-group-controls">
-            <button type="button" data-fmt="link" title="Externen Link einfügen ([Text](URL))" aria-label="Externen Link einfügen">⛓</button>
-            <button type="button" data-fmt="wikilink" title="Wikilink zu einer vorhandenen Notiz einfügen ([[Notizname]])" aria-label="Wikilink zu einer vorhandenen Notiz einfügen"><span aria-hidden="true" style="display:inline-block;white-space:nowrap;font-size:11px;line-height:1;">[[]]</span></button>
-            <button type="button" id="btnTable" title="Neue Tabelle einfügen" aria-label="Neue Tabelle einfügen">▦</button>
+            <button type="button" data-fmt="link" title="Externen Link einfügen ([Text](URL))" aria-label="Externen Link einfügen"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg></button>
+            <button type="button" data-fmt="wikilink" title="Wikilink zu einer vorhandenen Notiz einfügen ([[Notizname]])" aria-label="Wikilink zu einer vorhandenen Notiz einfügen"><span class="wikilink-glyph" aria-hidden="true">[[]]</span></button>
+            <button type="button" id="btnTable" title="Neue Tabelle einfügen" aria-label="Neue Tabelle einfügen"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18"/><path d="M9.5 9.5V20"/><path d="M15.5 9.5V20"/></svg></button>
           </div>
         </div>
         <div class="toolbar-group">
@@ -6621,7 +6621,7 @@ async function renderNote(relPath) {
           <div class="toolbar-group-controls">
             <button type="button" data-fmt="code" title="Code-Block (dreifache Backticks)">{ }</button>
             <button type="button" data-fmt="quote" title="Markdown-Zitat einfügen" aria-label="Markdown-Zitat einfügen">&gt;</button>
-            <button type="button" id="btnCallout" title="Callout einfügen">▤</button>
+            <button type="button" id="btnCallout" title="Callout einfügen" aria-label="Callout einfügen"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v5"/><path d="M12 7.8h.01" stroke-width="2.5"/></svg></button>
           </div>
         </div>
       </div>
@@ -7404,23 +7404,123 @@ function buildMarkdownTable(columns, rows = 1) {
   return `\n\n| ${headerCells.join(' | ')} |\n| ${sepCells.join(' | ')} |\n${dataRows}\n`;
 }
 
+// Größe des anklickbaren Rasters. Die oberste Zeile ist die Kopfzeile, die
+// buildMarkdownTable() ohnehin immer zusätzlich anlegt — sie wird deshalb nur
+// mit eingefärbt und ist selbst nicht wählbar. Über das Raster sind so bis zu
+// TABLE_GRID_ROWS-1 Datenzeilen erreichbar; alles Größere läuft über "Mehr …".
+const TABLE_GRID_COLS = 8;
+const TABLE_GRID_ROWS = 8;
+
 function showTablePicker(anchorOrPos) {
   document.querySelectorAll('.table-picker').forEach(m => m.remove());
   const picker = document.createElement('div');
   picker.className = 'table-picker emoji-picker';
+
+  const zellen = [];
+  for (let z = 0; z < TABLE_GRID_ROWS; z++) {
+    for (let s = 1; s <= TABLE_GRID_COLS; s++) {
+      // z=0 ist die Kopfzeile: mitgefärbt, aber nicht auswählbar (CSS setzt
+      // pointer-events:none), damit nie eine Tabelle ohne Datenzeile entsteht.
+      zellen.push(`<div class="table-grid-cell${z === 0 ? ' is-head' : ''}" data-cols="${s}" data-rows="${z}"></div>`);
+    }
+  }
+
   picker.innerHTML = `
     <div class="emoji-group-label">Tabelle einfügen</div>
-    <label class="table-picker-field">
-      <span>Spalten</span>
-      <select id="tablePickerCols">${[2, 3, 4, 5, 6].map(n => `<option value="${n}">${n}</option>`).join('')}</select>
-    </label>
-    <label class="table-picker-field">
-      <span>Datenzeilen</span>
-      <select id="tablePickerRows">${[1, 2, 3, 4, 5, 6, 8, 10].map(n => `<option value="${n}">${n}</option>`).join('')}</select>
-    </label>
-    <button type="button" class="btn primary table-picker-confirm">Einfügen</button>
+    <div class="table-grid" role="grid" tabindex="0" aria-describedby="tableGridStatus"
+         aria-label="Tabellengröße wählen. Pfeiltasten ändern die Größe, Eingabetaste fügt ein.">${zellen.join('')}</div>
+    <div class="table-grid-status" id="tableGridStatus" role="status" aria-live="polite">Größe wählen</div>
+    <button type="button" class="table-picker-more" aria-expanded="false" aria-controls="tablePickerFields">▸ Mehr …</button>
+    <div class="table-picker-fields" id="tablePickerFields" hidden>
+      <label class="table-picker-field">
+        <span>Spalten</span>
+        <select id="tablePickerCols">${[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(n => `<option value="${n}"${n === 3 ? ' selected' : ''}>${n}</option>`).join('')}</select>
+      </label>
+      <label class="table-picker-field">
+        <span>Datenzeilen</span>
+        <select id="tablePickerRows">${[1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30].map(n => `<option value="${n}">${n}</option>`).join('')}</select>
+      </label>
+      <button type="button" class="btn primary table-picker-confirm">Einfügen</button>
+    </div>
   `;
   document.body.appendChild(picker);
+
+  const gitter = picker.querySelector('.table-grid');
+  const anzeige = picker.querySelector('.table-grid-status');
+  const felder = picker.querySelector('.table-picker-fields');
+  const mehrKnopf = picker.querySelector('.table-picker-more');
+
+  // Gewählte Größe; 0 bedeutet "noch nichts gewählt".
+  let spalten = 0, zeilen = 0;
+
+  function markiere(s, z) {
+    spalten = s; zeilen = z;
+    gitter.querySelectorAll('.table-grid-cell').forEach(zelle => {
+      const an = s > 0 && Number(zelle.dataset.cols) <= s && Number(zelle.dataset.rows) <= z;
+      zelle.classList.toggle('is-on', an);
+    });
+    anzeige.innerHTML = s > 0
+      ? `<b>${s} × ${z}</b> + Kopfzeile`
+      : 'Größe wählen';
+  }
+
+  function einfuegen(s, z) {
+    if (!s || !z) return;
+    insertAtCursor(buildMarkdownTable(s, z));
+    schliessen();
+  }
+
+  function schliessen() {
+    picker.remove();
+    document.removeEventListener('click', beiKlickAussen);
+    document.removeEventListener('keydown', beiTaste);
+  }
+  function beiKlickAussen(e) { if (!picker.contains(e.target)) schliessen(); }
+  function beiTaste(e) { if (e.key === 'Escape') { e.stopPropagation(); schliessen(); } }
+
+  gitter.addEventListener('mouseover', (e) => {
+    const zelle = e.target.closest('.table-grid-cell');
+    if (zelle) markiere(Number(zelle.dataset.cols), Number(zelle.dataset.rows));
+  });
+  gitter.addEventListener('click', (e) => {
+    const zelle = e.target.closest('.table-grid-cell');
+    if (zelle) einfuegen(Number(zelle.dataset.cols), Number(zelle.dataset.rows));
+  });
+  gitter.addEventListener('keydown', (e) => {
+    const schritte = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] };
+    if (schritte[e.key]) {
+      e.preventDefault();
+      // Aus dem Leerzustand heraus beginnt jede Pfeiltaste bei 1 × 1.
+      if (!spalten) { markiere(1, 1); return; }
+      const [ds, dz] = schritte[e.key];
+      markiere(
+        Math.min(TABLE_GRID_COLS, Math.max(1, spalten + ds)),
+        Math.min(TABLE_GRID_ROWS - 1, Math.max(1, zeilen + dz))
+      );
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      einfuegen(spalten, zeilen);
+    }
+  });
+
+  mehrKnopf.addEventListener('click', () => {
+    const offen = felder.hidden;
+    // Beim Zuklappen den Fokus VORHER herausholen: läge er noch in einem der
+    // Felder, verlöre ihn das Browserfenster an <body>, sobald der Bereich
+    // hidden wird — die Tastaturbedienung wäre damit still beendet.
+    if (!offen && felder.contains(document.activeElement)) mehrKnopf.focus();
+    felder.hidden = !offen;
+    mehrKnopf.setAttribute('aria-expanded', String(offen));
+    mehrKnopf.textContent = (offen ? '▾' : '▸') + ' Mehr …';
+    if (offen) picker.querySelector('#tablePickerCols').focus();
+  });
+
+  picker.querySelector('.table-picker-confirm').addEventListener('click', () => {
+    einfuegen(
+      Number(picker.querySelector('#tablePickerCols').value),
+      Number(picker.querySelector('#tablePickerRows').value)
+    );
+  });
 
   let left, top;
   if (anchorOrPos instanceof HTMLElement) {
@@ -7435,16 +7535,11 @@ function showTablePicker(anchorOrPos) {
   picker.style.left = Math.max(4, left) + 'px';
   picker.style.top = Math.max(4, top) + 'px';
 
-  picker.querySelector('.table-picker-confirm').addEventListener('click', () => {
-    const cols = Number(picker.querySelector('#tablePickerCols').value);
-    const rows = Number(picker.querySelector('#tablePickerRows').value);
-    insertAtCursor(buildMarkdownTable(cols, rows));
-    picker.remove();
-  });
-  setTimeout(() => document.addEventListener('click', function closeOnce(e) {
-    if (picker.contains(e.target)) return;
-    picker.remove(); document.removeEventListener('click', closeOnce);
-  }, { once: false }), 0);
+  gitter.focus();
+  setTimeout(() => {
+    document.addEventListener('click', beiKlickAussen);
+    document.addEventListener('keydown', beiTaste);
+  }, 0);
 }
 
 // Eigenes Tabellen-Bearbeitungsfenster (Option C, Nutzer-Entscheidung):
