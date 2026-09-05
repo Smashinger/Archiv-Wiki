@@ -3912,11 +3912,13 @@ body[data-ui-design="design2"]:not(.reading-width) .preview-content{
 
 /* Deaktiviert — bleibt sichtbar deaktiviert (gedämpfter Text + Opazität wie
    Classic), Hover bewirkt bei einem deaktivierten Eintrag weiterhin nichts. */
-[data-ui-design="design2"] .ectx-item.disabled{
+[data-ui-design="design2"] .ectx-item.disabled,
+[data-ui-design="design2"] .context-menu button:disabled{
   color: var(--d2-faint);
   opacity: .5;
 }
-[data-ui-design="design2"] .ectx-item.disabled:hover{
+[data-ui-design="design2"] .ectx-item.disabled:hover,
+[data-ui-design="design2"] .context-menu button:disabled:hover{
   background: transparent;
   color: var(--d2-faint);
 }

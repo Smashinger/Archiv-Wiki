@@ -6597,6 +6597,7 @@ async function renderNote(relPath) {
             <button type="button" data-fmt="italic" title="Kursiv (*Text*)"><em>K</em></button>
             <button type="button" data-fmt="strike" title="Durchgestrichen (~~Text~~)"><s>D</s></button>
             <button type="button" data-fmt="underline" title="Unterstrichen (&lt;u&gt;Text&lt;/u&gt;)"><u>U</u></button>
+            <button type="button" data-fmt="inlinecode" title="Quelltext im Fließtext (\`Code\`)" aria-label="Quelltext im Fließtext"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 8L5 12l4 4"/><path d="M15 8l4 4-4 4"/></svg></button>
             <button type="button" class="icon-btn" id="btnHeadingMenu" title="Überschrift auswählen" aria-label="Überschrift auswählen" aria-haspopup="menu" aria-expanded="false">H ▾</button>
           </div>
         </div>
@@ -6614,6 +6615,7 @@ async function renderNote(relPath) {
             <button type="button" data-fmt="link" title="Externen Link einfügen ([Text](URL))" aria-label="Externen Link einfügen"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg></button>
             <button type="button" data-fmt="wikilink" title="Wikilink zu einer vorhandenen Notiz einfügen ([[Notizname]])" aria-label="Wikilink zu einer vorhandenen Notiz einfügen"><span class="wikilink-glyph" aria-hidden="true">[[]]</span></button>
             <button type="button" id="btnTable" title="Neue Tabelle einfügen" aria-label="Neue Tabelle einfügen"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18"/><path d="M9.5 9.5V20"/><path d="M15.5 9.5V20"/></svg></button>
+            <button type="button" id="btnInsertImage" title="Bild einfügen (Datei auswählen)" aria-label="Bild einfügen"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="9.8" r="1.4"/><path d="M4 17.6l4.5-4.5 3 3 3.5-3.5L20 17"/></svg></button>
           </div>
         </div>
         <div class="toolbar-group">
@@ -6622,12 +6624,14 @@ async function renderNote(relPath) {
             <button type="button" data-fmt="code" title="Code-Block (dreifache Backticks)">{ }</button>
             <button type="button" data-fmt="quote" title="Markdown-Zitat einfügen" aria-label="Markdown-Zitat einfügen">&gt;</button>
             <button type="button" id="btnCallout" title="Callout einfügen" aria-label="Callout einfügen"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v5"/><path d="M12 7.8h.01" stroke-width="2.5"/></svg></button>
+            <button type="button" id="btnMarkdownMore" title="Weitere Markdown-Elemente" aria-label="Weitere Markdown-Elemente" aria-haspopup="menu" aria-expanded="false"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 12h.01" stroke-width="2.6"/><path d="M12 12h.01" stroke-width="2.6"/><path d="M18 12h.01" stroke-width="2.6"/></svg></button>
           </div>
         </div>
       </div>
       <div class="toolbar-group toolbar-document-group">
         <span class="toolbar-group-label">Dokument</span>
         <div class="toolbar-group-controls">
+          <button type="button" class="icon-btn" id="btnFindReplace" title="Im Dokument suchen und ersetzen (Strg+F)" aria-label="Im Dokument suchen und ersetzen"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 4h8l4 4v3.2"/><path d="M6 4v16h5"/><circle cx="16" cy="16" r="4"/><path d="M19 19l2.4 2.4"/></svg></button>
           <button type="button" class="icon-btn" id="btnExport" title="Notiz exportieren" aria-label="Notiz exportieren"><img class="lib-icon ui-action-icon" src="assets/icon-library/actions/download.svg" alt=""></button>
           <button type="button" class="icon-btn" id="btnSaveAsTemplate" title="Als eigene Vorlage speichern" aria-label="Als Vorlage speichern"><img class="lib-icon ui-action-icon" src="assets/icon-library/docs/clipboard.svg" alt=""></button>
           <button type="button" class="icon-btn${node.frontmatter?.archived ? ' active' : ''}" id="btnArchiveNote" title="${node.frontmatter?.archived ? 'Notiz wiederherstellen' : 'Notiz archivieren'}" aria-label="${node.frontmatter?.archived ? 'Notiz wiederherstellen' : 'Notiz archivieren'}"><img class="lib-icon ui-action-icon" src="assets/icon-library/projects/archive.svg" alt=""></button>
@@ -6810,6 +6814,10 @@ async function renderNote(relPath) {
         insertAtCursor('> Text');
       }
     }
+    // Zwei getrennte Quelltext-Wege, wie im Rechtsklick-Menü ("Quelltext" vs.
+    // "Quelltext-Block"): einfache Backticks umschließen die Auswahl im
+    // Fließtext, dreifache legen einen eigenen Block an.
+    else if (fmt === 'inlinecode') wrapSelection('`', '`', 'Code');
     else if (fmt === 'code') insertAtCursor('\n```\nCode hier\n```\n');
     else if (fmt === 'ul') insertAtCursor('\n- Punkt\n');
     else if (fmt === 'ol') insertAtCursor('\n1. Punkt\n');
@@ -6847,6 +6855,59 @@ async function renderNote(relPath) {
   document.getElementById('btnCallout').addEventListener('click', (e) => {
     e.stopPropagation();
     showCalloutPicker(e.currentTarget);
+  });
+
+  document.getElementById('btnInsertImage').addEventListener('click', (e) => {
+    e.stopPropagation();
+    pickImageFilesForNote();
+  });
+
+  document.getElementById('btnFindReplace').addEventListener('click', (e) => {
+    e.stopPropagation();
+    openDocumentSearch();
+  });
+
+  // Seltenere Markdown-Elemente hinter EINEM Knopf statt drei weiteren
+  // Quadraten: die Werkzeugleiste ist flex-wrap:nowrap mit overflow-x:auto
+  // (components.css), jeder zusätzliche Knopf kostet dort 36px und bringt sie
+  // im schmalen Fenster bzw. in der Split-Ansicht früher ins seitliche
+  // Scrollen. Dieselbe Bauform wie #btnHeadingMenu direkt darüber — kein
+  // zweiter Menü-Mechanismus. Die Aktionen selbst rufen exakt dieselben
+  // Funktionen auf wie die schon vorhandenen Einträge im Rechtsklick-Menü
+  // (buildEditorMenuItems), es entsteht keine zweite Umsetzung.
+  document.getElementById('btnMarkdownMore').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const trigger = e.currentTarget;
+    // Auswahl JETZT prüfen, nicht erst beim Klick auf den Menüpunkt: bis dahin
+    // wäre "Formatierung entfernen" zwar noch korrekt (CodeMirror behält seine
+    // Auswahl im State, auch wenn der Fokus auf dem Knopf liegt), der Zustand
+    // "ausgegraut" muss aber beim Aufbau des Menüs feststehen.
+    const hasSelection = editorHasSelection();
+    trigger.setAttribute('aria-expanded', 'true');
+    const menu = createHtmlContextMenu({
+      className: 'context-menu',
+      trigger,
+      label: 'Weitere Markdown-Elemente',
+      html: `
+        <button type="button" data-md-more="hr">Horizontale Linie</button>
+        <button type="button" data-md-more="math">Mathe-Block</button>
+        <hr>
+        <button type="button" data-md-more="strip"${hasSelection ? '' : ' disabled aria-disabled="true"'}>Formatierung entfernen</button>
+      `,
+      onDismiss: () => trigger.setAttribute('aria-expanded', 'false')
+    });
+    menu.addEventListener('click', (menuEvent) => {
+      const item = menuEvent.target.closest('[data-md-more]');
+      if (!item || item.disabled) return;
+      closeHtmlContextMenu(menu, { restoreFocus: false, reason: 'action' });
+      trigger.setAttribute('aria-expanded', 'false');
+      if (item.dataset.mdMore === 'hr') insertAtCursor('\n---\n');
+      else if (item.dataset.mdMore === 'math') insertAtCursor('\n$$\n\n$$\n');
+      else if (item.dataset.mdMore === 'strip') {
+        const text = getEditorSelectionText();
+        if (text) insertAtCursor(stripMarkdownSyntax(text));
+      }
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -7847,16 +7908,66 @@ function wireEditorContextMenus() {
   });
 }
 
-// Bilder per Drag&Drop aus dem Dateimanager in den Editor ziehen. Datei wird
-// gelesen (FileReader, funktioniert unabhängig von contextIsolation/
+// Bilder in den Editor einfügen. Die Datei wird im Renderer als Bytes gelesen
+// (File.arrayBuffer, funktioniert unabhängig von contextIsolation/
 // nodeIntegration-Einstellungen — robuster als sich auf File.path zu
-// verlassen), als Bytes an den Main-Prozess geschickt und dort in
-// .attachments/ gespeichert. Markdown nutzt bewusst ein eigenes
-// "attachment:dateiname"-Präfix statt eines relativen Pfades — macht die
-// Auflösung in der Vorschau unabhängig von der Verzeichnistiefe der Notiz
-// (siehe renderPreview in build/editor-entry.js).
+// verlassen), an den Main-Prozess geschickt und dort in .attachments/
+// gespeichert. Markdown nutzt bewusst ein eigenes "attachment:dateiname"-
+// Präfix statt eines relativen Pfades — macht die Auflösung in der Vorschau
+// unabhängig von der Verzeichnistiefe der Notiz (siehe renderPreview in
+// build/editor-entry.js).
+//
+// Drei Wege, EIN gemeinsamer Ablauf (insertImageFiles): Drag&Drop aus dem
+// Dateimanager (bestand bereits), Einfügen aus der Zwischenablage und der
+// Knopf in der Werkzeugleiste. Größenprüfung, Speicherweg und die erzeugte
+// Markdown-Zeile sind für alle drei identisch.
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB — großzügig für normale Fotos/Screenshots, verhindert aber das Einlesen von Riesendateien in den Speicher
+
+async function insertImageFiles(files) {
+  for (const file of files) {
+    if (file.size > MAX_IMAGE_BYTES) {
+      await showMessageDialog({
+        title: 'Bild ist zu groß',
+        message: `"${file.name}" ist ${(file.size / 1024 / 1024).toFixed(1)} MB groß. Maximal 20 MB pro Bild sind möglich.`
+      });
+      continue; // erst NACH der Prüfung wird überhaupt gelesen — vorher landete jede Dateigröße ungeprüft komplett im Speicher
+    }
+    try {
+      const buffer = await file.arrayBuffer();
+      const { fileName } = await fs.saveAttachment(file.name, buffer);
+      insertAtCursor(`\n![${file.name.replace(/\.[^.]+$/, '')}](attachment:${fileName})\n`);
+    } catch (err) {
+      await showMessageDialog({ title: 'Bild konnte nicht eingefügt werden', message: err.message });
+      console.error('[Archiv Wiki] Bild einfügen fehlgeschlagen:', err);
+    }
+  }
+}
+
+// Bild über die Werkzeugleiste auswählen. Bewusst ein <input type="file"> statt
+// eines neuen IPC-Kanals mit dialog.showOpenDialog: Electron öffnet dafür
+// denselben nativen Dateidialog, und die Datei kommt als File-Objekt an —
+// exakt das, was insertImageFiles ohnehin schon vom Drag&Drop-Weg bekommt.
+// Kein zweiter Speicherweg, keine neue Main-Prozess-Schnittstelle.
+function pickImageFilesForNote() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.multiple = true;
+  input.style.display = 'none';
+  document.body.appendChild(input);
+  input.addEventListener('change', async () => {
+    const files = [...(input.files || [])].filter(f => f.type.startsWith('image/'));
+    input.remove();
+    if (files.length) await insertImageFiles(files);
+    focusEditor();
+  });
+  // Bricht der Nutzer den Dateidialog ab, feuert "change" nicht — "cancel"
+  // deckt genau diesen Fall ab, damit das Element nicht im DOM zurückbleibt.
+  input.addEventListener('cancel', () => input.remove());
+  input.click();
+}
+
 function wireImageDrop() {
-  const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB — großzügig für normale Fotos/Screenshots, verhindert aber das Einlesen von Riesendateien in den Speicher
   const editorEl = document.getElementById('editorContainer');
   if (!editorEl) return;
   editorEl.addEventListener('dragover', (e) => {
@@ -7866,23 +7977,18 @@ function wireImageDrop() {
     const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/'));
     if (files.length === 0) return; // kein Bild dabei — normales Text-Drop (Umsortieren etc.) unangetastet lassen
     e.preventDefault();
-    for (const file of files) {
-      if (file.size > MAX_IMAGE_BYTES) {
-        await showMessageDialog({
-          title: 'Bild ist zu groß',
-          message: `"${file.name}" ist ${(file.size / 1024 / 1024).toFixed(1)} MB groß. Maximal 20 MB pro Bild sind möglich.`
-        });
-        continue; // erst NACH der Prüfung wird überhaupt gelesen — vorher landete jede Dateigröße ungeprüft komplett im Speicher
-      }
-      try {
-        const buffer = await file.arrayBuffer();
-        const { fileName } = await fs.saveAttachment(file.name, buffer);
-        insertAtCursor(`\n![${file.name.replace(/\.[^.]+$/, '')}](attachment:${fileName})\n`);
-      } catch (err) {
-        await showMessageDialog({ title: 'Bild konnte nicht eingefügt werden', message: err.message });
-        console.error('[Archiv Wiki] Bild-Drop fehlgeschlagen:', err);
-      }
-    }
+    await insertImageFiles(files);
+  });
+  // Screenshot/Bild aus der Zwischenablage: Bisher gab es dafür gar keinen Weg
+  // in eine bestehende Notiz. Nur eingreifen, wenn tatsächlich Bilddaten
+  // dabei sind — enthält die Zwischenablage (auch) Text, bleibt das normale
+  // Einfügen von CodeMirror unangetastet.
+  editorEl.addEventListener('paste', async (e) => {
+    const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/'));
+    if (files.length === 0) return;
+    if ((e.clipboardData?.getData('text/plain') || '').trim()) return;
+    e.preventDefault();
+    await insertImageFiles(files);
   });
 }
 

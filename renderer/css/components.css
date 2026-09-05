@@ -936,6 +936,12 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
 }
 .context-menu button.danger{ color: var(--red); }
 .context-menu button.danger:hover{ color: var(--red); background: rgba(226,88,90,.12); }
+/* Deaktivierter Eintrag: dieselbe Optik, die .ectx-item.disabled (Rechtsklick-
+   Menü, weiter unten) schon nutzt — gedämpfter Text, halbe Deckkraft, kein
+   Hover-Effekt. Bisher gab es sie nur dort, weil ausschließlich das
+   Rechtsklick-Menü deaktivierte Einträge kannte. */
+.context-menu button:disabled{ color: var(--text-faint); cursor:default; opacity:.5; }
+.context-menu button:disabled:hover{ background:transparent; color: var(--text-faint); }
 
 /* --- Rechtsklick-Menü (Editor + Vorschau), mit Untermenüs --- */
 .ectx-menu{
@@ -1073,12 +1079,20 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
    System-Schrift, sahen deshalb auf jedem Rechner anders aus, und ▦/▤ waren
    bei 13px als zwei gefüllte Quadrate kaum auseinanderzuhalten.
    "currentColor" übernimmt Ruhe-, Hover- und Aktiv-Farbe des Knopfes, damit
-   Classic und Design2 unverändert weiterfärben. */
-.format-toolbar .toolbar-glyph{
+   Classic und Design2 unverändert weiterfärben.
+   Der Selektor greift auf die ganze .note-toolbar (statt nur .format-toolbar),
+   damit auch die Dokument-Gruppe dieselben gezeichneten Symbole nutzen kann —
+   sie liegt als eigenes Kind der Werkzeugleiste NEBEN .format-toolbar, nicht
+   darin. Für die bisherigen Knöpfe ändert sich dadurch nichts. */
+.note-toolbar .toolbar-glyph{
   width:15px; height:15px; display:block;
   fill:none; stroke:currentColor;
   stroke-width:2; stroke-linecap:round; stroke-linejoin:round;
 }
+/* Die Dokument-Gruppe zeigt daneben die 16px großen Bibliotheks-Icons
+   (.ui-action-icon, Export/Vorlage/Archiv). Gezeichnete Symbole dort auf
+   dieselbe Kantenlänge, sonst steht ein Symbol sichtbar kleiner in der Reihe. */
+.toolbar-document-group .toolbar-glyph{ width:16px; height:16px; }
 
 .callout-picker-list{ display:flex; flex-direction:column; gap:2px; }
 .callout-picker-btn{
