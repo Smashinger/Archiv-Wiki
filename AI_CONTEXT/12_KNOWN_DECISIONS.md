@@ -372,3 +372,15 @@ Kritische bestehende Dateien werden in Archiv-Wiki nicht direkt überschrieben. 
 Die neue Datei wird als eindeutig benannte temporäre Datei im selben Zielordner geschrieben, vollständig abgeschlossen und erst danach atomar auf den endgültigen Pfad umbenannt. Scheitert der Vorgang, wird die temporäre Datei entfernt und eine vorhandene endgültige Datei bleibt unverändert. Bestehende Dateirechte werden nach Möglichkeit beibehalten.
 
 Diese Strategie ist eine dauerhafte Datenintegritätsregel. Neue kritische Schreibpfade müssen dieselbe gemeinsame Hilfe verwenden, statt bestehende Dateien direkt mit `writeFile` oder `writeFileSync` zu überschreiben.
+
+
+## Referenzpalette des Design2-Entwurfs (Verbleib)
+
+Die Referenzfarben lagen bis zum 05.09.2026 zusätzlich als `design-tokens.css` in der Projektwurzel. Die Datei wurde von keinem HTML geladen und ist entfernt worden: Flächen, Text und Akzente stehen als `--d2-*`-Tokens in `renderer/css/design2.css`, die Schriften Barlow, Barlow Condensed und IBM Plex Mono liegen unter `renderer/assets/fonts/`, die Radien des Entwurfs entsprechen `--radius-md` (6px) und `--radius-sm` (4px).
+
+Zwei Punkte des Entwurfs sind **bewusst nicht** übernommen und bleiben es:
+
+- Der Entwurf sieht als Fokusrahmen ein festes Blau (`#5b9bf8`) vor. Fokus und Auswahl gehören hier der frei wählbaren Akzentfarbe (`--accent-color`/`--accent-dim`/`--accent-soft`), siehe Farbrollentrennung weiter oben. Ein fest verdrahteter Fokusfarbwert würde diese Regel aufheben und ist deshalb kein offener Fidelity-Punkt.
+- `--c-rose-d: #6b4149` (dunkle Rosé-Stufe) wird von keiner Regel gebraucht. Der Wert ist hier nur festgehalten, damit er nicht als Token ohne Verwendung im Stylesheet landet.
+
+`14_DESIGNSYSTEM.md` bleibt bewusst ohne konkrete Farbcodes (siehe dort Abschnitt 9.2); konkrete Werte gehören in diese Datei oder in den Code.
