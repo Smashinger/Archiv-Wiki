@@ -17,7 +17,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "test": "node --test \"test/**/*.test.js\"",
+    "test": "node --test test/*.test.js",
     "build:vendor": "node build/build.mjs",
     "dist": "node build/verify-webclip-crx.mjs && electron-builder",
     "release": "node build/verify-webclip-crx.mjs && electron-builder --publish always",
