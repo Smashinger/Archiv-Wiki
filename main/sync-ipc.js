@@ -178,7 +178,25 @@ function savePasswordForProject(projectPath, password) {
     throw new Error('Sichere Speicherung ist auf diesem System nicht verfügbar (kein Schlüsselbund gefunden).');
   }
   const store = loadCredentialsStore();
+  const previous = Object.prototype.hasOwnProperty.call(store, projectPath)
+    ? { existed: true, value: store[projectPath] }
+    : { existed: false, value: null };
   store[projectPath] = safeStorage.encryptString(password || '').toString('base64');
+  saveCredentialsStore(store);
+  return previous;
+}
+
+// Rollback-Helfer für den Setup-Wizard: Falls das eigentliche Anlegen der
+// Projektkonfiguration nach dem Speichern der Zugangsdaten fehlschlägt, wird
+// der vorherige Schlüsselbund-Eintrag exakt wiederhergestellt. So bleibt weder
+// ein neuer verwaister Eintrag zurück noch geht ein bereits vorhandener verloren.
+function restorePasswordForProject(projectPath, previous) {
+  if (!previous || typeof previous.existed !== 'boolean') {
+    throw new Error('Ungültiger vorheriger Zugangsdaten-Zustand.');
+  }
+  const store = loadCredentialsStore();
+  if (previous.existed) store[projectPath] = previous.value;
+  else delete store[projectPath];
   saveCredentialsStore(store);
 }
 
@@ -789,6 +807,7 @@ function registerSyncIpc({ getCurrentProject, getMainWindow, onProjectConfigLoad
 module.exports = {
   registerSyncIpc,
   savePasswordForProject,
+  restorePasswordForProject,
   isSyncInProgress,
   getSyncStatusSnapshot,
   runExclusiveSyncMutation,

@@ -442,6 +442,10 @@ els.btnSelectFolder.addEventListener('click', async () => {
     els.folderErrorBanner.textContent = 'Dieser Ordner ist nicht beschreibbar. Bitte einen anderen wählen.';
     els.folderErrorBanner.classList.add('show');
     state.projectPath = null;
+  } else if (result.projectConfigError) {
+    els.folderErrorBanner.textContent = result.projectConfigError;
+    els.folderErrorBanner.classList.add('show');
+    state.projectPath = null;
   } else if (result.alreadyConfigured) {
     els.folderExistingBanner.classList.add('show');
   } else if (result.empty === false) {

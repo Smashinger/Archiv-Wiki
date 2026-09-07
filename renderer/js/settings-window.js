@@ -571,7 +571,7 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
   if (!lifecycle.isCurrent()) return;
 
   const left = group('Wiki',
-    row('Wiki-Name', 'Betrifft nur dieses Wiki.',
+    row('Dein Name', 'Für die persönliche Begrüßung und „Wiki von …“.',
       textInput({ id: 'stWikiName', value: config.wikiName || '', placeholder: 'z. B. Max' }))
     + row('Speicherort', 'Kopiert das Wiki; der bisherige Ordner bleibt erhalten.',
       readonlyValue({ id: 'stProjectPath', text: context.projectPath || '' })

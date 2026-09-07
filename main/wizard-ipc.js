@@ -12,7 +12,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const {
   isDirWritable,
-  hasExistingConfig,
+  readProjectConfig,
   requireProjectConfig,
   writeProjectConfig,
   defaultBackupPath,
@@ -20,14 +20,23 @@ const {
 } = require('./project');
 const { validateBackupDestinationAccess } = require('./backup');
 const { writeAppState } = require('./app-state');
-const { savePasswordForProject } = require('./sync-ipc');
+const { savePasswordForProject, restorePasswordForProject } = require('./sync-ipc');
 
 // Prüft den gewählten Projektordner für die drei PRÜFUNG-Zeilen in Schritt 1:
 // Schreibrechte, Ordner leer, freier Speicherplatz. Reine Lesezugriffe, kein
 // Schreiben in den Ordner.
 function inspectProjectFolder(folder) {
   const writable = isDirWritable(folder);
-  const alreadyConfigured = hasExistingConfig(folder);
+  let alreadyConfigured = false;
+  let projectConfigError = null;
+  try {
+    alreadyConfigured = readProjectConfig(folder) !== null;
+  } catch (error) {
+    // Eine vorhandene, aber unlesbare/beschädigte Konfiguration ist kein
+    // gültiges bestehendes Projekt und darf auch nicht wie ein beliebiger
+    // nicht-leerer Ordner zur Neuerstellung angeboten werden.
+    projectConfigError = error?.message || 'Die vorhandene Projektkonfiguration ist ungültig.';
+  }
 
   let empty = null;
   let entryCount = null;
@@ -43,7 +52,7 @@ function inspectProjectFolder(folder) {
     freeBytes = st.bavail * st.bsize;
   } catch { /* statfs nicht verfügbar → unbekannt */ }
 
-  return { path: folder, writable, alreadyConfigured, empty, entryCount, freeBytes };
+  return { path: folder, writable, alreadyConfigured, projectConfigError, empty, entryCount, freeBytes };
 }
 
 // App-Passwortschutz: vertrauenswürdige Ableitung aus dem (untrusted) Payload.
@@ -94,6 +103,61 @@ function sanitizeSyncConfig(rawSync, credentialsStored) {
     username,
     autoSync: { enabled: autoEnabled, intervalMinutes }
   };
+}
+
+function shouldStoreSyncPassword({ rawSync, rememberPassword, password } = {}) {
+  const url = rawSync && typeof rawSync === 'object' && typeof rawSync.url === 'string'
+    ? rawSync.url.trim()
+    : '';
+  return Boolean(url) && rememberPassword === true && typeof password === 'string' && password.length > 0;
+}
+
+// Hält Zugangsdaten und Projektkonfiguration beim Wizard-Abschluss zusammen:
+// Nur eine tatsächlich konfigurierte Sync-URL darf einen Schlüsselbund-Eintrag
+// erzeugen. Schlägt der anschließende Config-Commit fehl, wird der vorherige
+// Zugangsdaten-Zustand exakt zurückgerollt; ein Rollback-Fehler wird nie
+// verschluckt. Abhängigkeiten sind nur für gezielte Unit-Tests injizierbar.
+function persistWizardConfig({ projectPath, config, rawSync, rememberPassword, password }, dependencies = {}) {
+  const isEncryptionAvailable = dependencies.isEncryptionAvailable
+    || (() => safeStorage.isEncryptionAvailable());
+  const savePassword = dependencies.savePassword || savePasswordForProject;
+  const restorePassword = dependencies.restorePassword || restorePasswordForProject;
+  const writeConfig = dependencies.writeConfig || writeProjectConfig;
+  const logger = dependencies.logger || console;
+
+  let credentialsStored = false;
+  let previousCredentials = null;
+  if (shouldStoreSyncPassword({ rawSync, rememberPassword, password })) {
+    if (!isEncryptionAvailable()) {
+      logger.warn('[Archiv Wiki] Kein Schlüsselbund verfügbar — Zugangsdaten werden nicht gespeichert, Auto-Sync bleibt aus.');
+    } else {
+      try {
+        previousCredentials = savePassword(projectPath, password);
+        credentialsStored = true;
+      } catch (error) {
+        logger.error('[Archiv Wiki] Passwort konnte im Wizard nicht gespeichert werden:', error.message);
+      }
+    }
+  }
+
+  const configToPersist = { ...config, sync: sanitizeSyncConfig(rawSync, credentialsStored) };
+  try {
+    return writeConfig(projectPath, configToPersist, { create: true });
+  } catch (error) {
+    if (credentialsStored) {
+      try {
+        restorePassword(projectPath, previousCredentials);
+      } catch (rollbackError) {
+        const combined = new Error(
+          `${error.message} Die zuvor gespeicherten Sync-Zugangsdaten konnten nicht zurückgesetzt werden: ${rollbackError.message}`
+        );
+        combined.cause = error;
+        combined.rollbackError = rollbackError;
+        throw combined;
+      }
+    }
+    throw error;
+  }
 }
 
 function registerWizardIpc({ getWizardWindow, onProjectReady }) {
@@ -194,22 +258,6 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
     const editor = resolveEditorConfig(editorConfig);
 
-    // Zugangsdaten VOR dem Commit sicher ablegen — nur dann darf der
-    // automatische Abgleich als aktiv gespeichert werden. So kann die
-    // Konfiguration nie "Auto-Sync an" behaupten, ohne dass die Zugangsdaten
-    // wirklich im Schlüsselbund liegen. Ein Fehlschlag hier bricht die
-    // Einrichtung NICHT ab (lokales Wiki bleibt möglich), führt aber dazu, dass
-    // Auto-Sync nicht aktiviert wird.
-    let credentialsStored = false;
-    if (rememberPassword && password) {
-      if (!safeStorage.isEncryptionAvailable()) {
-        console.warn('[Archiv Wiki] Kein Schlüsselbund verfügbar — Zugangsdaten werden nicht gespeichert, Auto-Sync bleibt aus.');
-      } else {
-        try { savePasswordForProject(projectPath, password); credentialsStored = true; }
-        catch (err) { console.error('[Archiv Wiki] Passwort konnte im Wizard nicht gespeichert werden:', err.message); }
-      }
-    }
-
     const config = {
       version: '1.0.0',
       created: new Date().toISOString(),
@@ -217,8 +265,7 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
       accentKey: accentKey || 'orange',
       appLock,
       editor,
-      backupPath: resolvedBackupPath,
-      sync: sanitizeSyncConfig(sync, credentialsStored)
+      backupPath: resolvedBackupPath
     };
     // Eigene (freie) Akzentfarbe nur speichern, wenn accentKey='custom' UND ein
     // gültiger Hex-Wert vorliegt — dieselbe Form wie im Einstellungsfenster
@@ -227,8 +274,15 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
       config.customAccentColor = customAccentColor;
     }
 
-    // Commit-Punkt: ab hier gilt der Ordner als fertig eingerichtetes Projekt.
-    const persistedConfig = writeProjectConfig(projectPath, config, { create: true });
+    // Commit-Punkt: Zugangsdaten werden nur für eine echte Sync-Konfiguration
+    // gespeichert und bei einem fehlgeschlagenen Config-Commit zurückgerollt.
+    const persistedConfig = persistWizardConfig({
+      projectPath,
+      config,
+      rawSync: sync,
+      rememberPassword,
+      password
+    });
 
     // Fenster-Startverhalten wird bewusst NICHT mehr hier gesetzt — es liegt
     // jetzt ausschließlich in den normalen Einstellungen (Allgemein →
@@ -239,4 +293,12 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
   });
 }
 
-module.exports = { registerWizardIpc, buildAppLock, resolveEditorConfig, sanitizeSyncConfig, inspectProjectFolder };
+module.exports = {
+  registerWizardIpc,
+  buildAppLock,
+  resolveEditorConfig,
+  sanitizeSyncConfig,
+  shouldStoreSyncPassword,
+  persistWizardConfig,
+  inspectProjectFolder
+};

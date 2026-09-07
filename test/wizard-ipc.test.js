@@ -120,6 +120,70 @@ test('sanitizeSyncConfig: ungültiges Intervall fällt auf 15 zurück', () => {
   assert.equal(out.autoSync.intervalMinutes, 15);
 });
 
+test('Sync-Passwort wird nur für eine echte URL und ausdrückliches Merken vorgesehen', () => {
+  assert.equal(wiz.shouldStoreSyncPassword({ rawSync: {}, rememberPassword: true, password: 'geheim' }), false);
+  assert.equal(wiz.shouldStoreSyncPassword({ rawSync: { url: '   ' }, rememberPassword: true, password: 'geheim' }), false);
+  assert.equal(wiz.shouldStoreSyncPassword({ rawSync: { url: 'https://s/dav' }, rememberPassword: false, password: 'geheim' }), false);
+  assert.equal(wiz.shouldStoreSyncPassword({ rawSync: { url: 'https://s/dav' }, rememberPassword: true, password: '' }), false);
+  assert.equal(wiz.shouldStoreSyncPassword({ rawSync: { url: ' https://s/dav ' }, rememberPassword: true, password: 'geheim' }), true);
+});
+
+test('persistWizardConfig: ohne URL entsteht kein Zugangsdaten-Eintrag', () => {
+  let saveCalls = 0;
+  let writtenConfig = null;
+  const result = wiz.persistWizardConfig({
+    projectPath: '/tmp/wiki',
+    config: { version: '1.0.0' },
+    rawSync: { enabled: false },
+    rememberPassword: true,
+    password: 'darf-nicht-gespeichert-werden'
+  }, {
+    isEncryptionAvailable: () => true,
+    savePassword: () => { saveCalls += 1; },
+    restorePassword: () => assert.fail('kein Rollback ohne Speicherung'),
+    writeConfig: (_projectPath, config) => { writtenConfig = config; return config; },
+    logger: { warn() {}, error() {} }
+  });
+  assert.equal(saveCalls, 0);
+  assert.deepEqual(writtenConfig.sync, { enabled: false });
+  assert.deepEqual(result, writtenConfig);
+});
+
+test('persistWizardConfig: Config-Fehler stellt vorherige Zugangsdaten exakt wieder her', () => {
+  const previous = { existed: true, value: 'vorheriger-verschluesselter-wert' };
+  let restored = null;
+  assert.throws(() => wiz.persistWizardConfig({
+    projectPath: '/tmp/wiki',
+    config: { version: '1.0.0' },
+    rawSync: { url: 'https://s/dav', autoSync: { enabled: true, intervalMinutes: 15 } },
+    rememberPassword: true,
+    password: 'geheim'
+  }, {
+    isEncryptionAvailable: () => true,
+    savePassword: () => previous,
+    restorePassword: (projectPath, snapshot) => { restored = { projectPath, snapshot }; },
+    writeConfig: () => { throw new Error('Config-Schreibfehler'); },
+    logger: { warn() {}, error() {} }
+  }), /Config-Schreibfehler/);
+  assert.deepEqual(restored, { projectPath: '/tmp/wiki', snapshot: previous });
+});
+
+test('persistWizardConfig: auch ein Rollback-Fehler wird gemeldet', () => {
+  assert.throws(() => wiz.persistWizardConfig({
+    projectPath: '/tmp/wiki',
+    config: { version: '1.0.0' },
+    rawSync: { url: 'https://s/dav' },
+    rememberPassword: true,
+    password: 'geheim'
+  }, {
+    isEncryptionAvailable: () => true,
+    savePassword: () => ({ existed: false, value: null }),
+    restorePassword: () => { throw new Error('Rollback fehlgeschlagen'); },
+    writeConfig: () => { throw new Error('Config-Schreibfehler'); },
+    logger: { warn() {}, error() {} }
+  }), /Config-Schreibfehler.*Rollback fehlgeschlagen/);
+});
+
 // --- Ordner-Inspektion (Datengrundlage der drei Ordner-Fälle) ---------------
 
 test('inspectProjectFolder: leerer beschreibbarer Ordner → empty true', () => {
@@ -147,6 +211,15 @@ test('inspectProjectFolder: bestehendes Archiv-Wiki-Projekt → alreadyConfigure
   fs.writeFileSync(path.join(dir, '.wiki-config.json'), JSON.stringify({ version: '1.0.0' }));
   const r = wiz.inspectProjectFolder(dir);
   assert.equal(r.alreadyConfigured, true, 'Direkt-öffnen-Pfad bleibt erkennbar');
+  assert.equal(r.projectConfigError, null);
+});
+
+test('inspectProjectFolder: beschädigte Projektkonfiguration ist kein bestehendes Wiki', () => {
+  const dir = tmpDir('invalid-existing');
+  fs.writeFileSync(path.join(dir, '.wiki-config.json'), '{ ungültig');
+  const r = wiz.inspectProjectFolder(dir);
+  assert.equal(r.alreadyConfigured, false);
+  assert.match(r.projectConfigError, /beschädigt|ungültig/i);
 });
 
 // --- preload.js: nur eng benannte Fenster-Start-Brücken ---------------------
