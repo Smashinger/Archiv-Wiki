@@ -1331,7 +1331,30 @@ export function renderDetectedBrowsersHtml({ loading = false, result = null, err
 
   let html = browsers.map(b => {
     const typeLabel = b.installType === 'system' ? 'Systeminstallation erkannt' : 'Flatpak erkannt';
-    return row(b.name || b.id || 'Browser', '', `<div class="aws-value-mono">${esc(typeLabel)}</div>`);
+
+    if (b.id === 'firefox' && b.installType === 'system') {
+      return row(
+        b.name || b.id || 'Firefox',
+        `${typeLabel} · Öffnet die Erweiterung bei Mozilla Add-ons.`,
+        button2('stOpenFirefoxAmo', 'Installieren')
+      );
+    }
+
+    if (b.id === 'brave' && b.installType === 'flatpak') {
+      return row(
+        b.name || b.id || 'Brave',
+        `${typeLabel} · Bereitet die mitgelieferte Erweiterung ohne Entwicklermodus vor. Wirkt beim nächsten vollständigen Start.`,
+        button2('stInstallBraveWebClipper', 'Vorbereiten')
+        + feedbackLine('stBraveFeedback')
+        + `<span id="stRevokeBraveWrap" hidden>${textAction('stRevokeBraveFlatpakPermission', 'Native-Messaging-Berechtigung entfernen')}</span>`
+      );
+    }
+
+    return row(
+      b.name || b.id || 'Browser',
+      typeLabel,
+      '<span class="aws-note">Einrichtung für diese Installationsart noch nicht verfügbar.</span>'
+    );
   }).join('');
 
   if (result.flatpakStatus === 'failed') {
@@ -1339,6 +1362,91 @@ export function renderDetectedBrowsersHtml({ loading = false, result = null, err
   }
 
   return html;
+}
+
+export function wireDetectedBrowserActions(container, lifecycle) {
+  if (!container || (lifecycle && !lifecycle.isCurrent())) return;
+
+  const amoButton = container.querySelector('#stOpenFirefoxAmo');
+  if (amoButton && !amoButton._wired) {
+    amoButton._wired = true;
+    amoButton.addEventListener('click', () => {
+      window.open(FIREFOX_AMO_URL, '_blank');
+    });
+  }
+
+  const braveButton = container.querySelector('#stInstallBraveWebClipper');
+  const revokeWrap = container.querySelector('#stRevokeBraveWrap');
+  const revokeAction = container.querySelector('#stRevokeBraveFlatpakPermission');
+
+  if (braveButton && !braveButton._wired && revokeWrap && revokeAction) {
+    braveButton._wired = true;
+    revokeAction._wired = true;
+
+    async function refreshBraveFlatpakPermissionUi() {
+      const permission = await window.archivAPI?.webClipper?.getBraveFlatpakPermissionStatus?.();
+      if (lifecycle && !lifecycle.isCurrent()) return;
+      revokeWrap.hidden = !(permission?.supported && permission.installed && permission.granted);
+    }
+    void refreshBraveFlatpakPermissionUi();
+
+    revokeAction.addEventListener('click', async () => {
+      revokeAction.disabled = true;
+      try {
+        await window.archivAPI?.webClipper?.revokeBraveFlatpakPermission?.();
+      } catch (error) {
+        console.error('Native-Messaging-Berechtigung konnte nicht entfernt werden:', error);
+        if (!lifecycle || lifecycle.isCurrent()) setFeedback(container, 'stBraveFeedback', error?.message || 'Die Berechtigung konnte nicht entfernt werden.', true);
+      } finally {
+        if (!lifecycle || lifecycle.isCurrent()) revokeAction.disabled = false;
+      }
+      await refreshBraveFlatpakPermissionUi();
+    });
+
+    braveButton.addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = 'Wird vorbereitet …';
+      setFeedback(container, 'stBraveFeedback', '');
+      try {
+        // Brave läuft als Flatpak sandboxed und kann den Native Host ohne eine
+        // zusätzliche, persistente Host-Berechtigung nicht starten. Diese
+        // Berechtigung wird ausschließlich hier, nach ausdrücklicher Zustimmung,
+        // gesetzt — nie automatisch beim App-Start.
+        const permission = await window.archivAPI?.webClipper?.getBraveFlatpakPermissionStatus?.();
+        if (permission?.installed && !permission.granted) {
+          const consent = await showConfirmDialog({
+            title: 'Native-Messaging-Berechtigung für Brave (Flatpak)',
+            message: 'Brave läuft als Flatpak in einer eigenen Sandbox und kann den Archiv-Wiki-Native-Host deshalb nicht direkt starten.\n\nDafür braucht Brave zusätzlich die dauerhafte Berechtigung, mit dem Flatpak-Hostdienst (org.freedesktop.Flatpak) zu sprechen. Das erweitert die Brave-Sandbox gegenüber deinem System und gilt für die gesamte Brave-App, nicht nur für Archiv-Wiki.\n\nDu kannst diese Berechtigung hier jederzeit wieder entfernen.',
+            confirmLabel: 'Berechtigung erteilen',
+            cancelLabel: 'Abbrechen'
+          });
+          if (lifecycle && !lifecycle.isCurrent()) return;
+          if (!consent) {
+            setFeedback(container, 'stBraveFeedback', 'Abgebrochen. Es wurde nichts verändert.');
+            button.textContent = 'Erneut versuchen';
+            return;
+          }
+          await window.archivAPI?.webClipper?.grantBraveFlatpakPermission?.();
+          if (lifecycle && !lifecycle.isCurrent()) return;
+          await refreshBraveFlatpakPermissionUi();
+        }
+
+        const result = await window.archivAPI?.webClipper?.installBrave?.();
+        if (!result?.prepared) throw new Error('Die Installation konnte nicht vorbereitet werden.');
+        if (lifecycle && !lifecycle.isCurrent()) return;
+        setFeedback(container, 'stBraveFeedback', 'Vorbereitet. Brave vollständig schließen und neu starten.');
+        button.textContent = 'Erneut vorbereiten';
+      } catch (error) {
+        if (lifecycle && !lifecycle.isCurrent()) return;
+        console.error('Brave Web Clipper konnte nicht vorbereitet werden:', error);
+        setFeedback(container, 'stBraveFeedback', error?.message || 'Die Installation konnte nicht vorbereitet werden.', true);
+        button.textContent = 'Erneut versuchen';
+      } finally {
+        if (!lifecycle || lifecycle.isCurrent()) button.disabled = false;
+      }
+    });
+  }
 }
 
 async function renderWebClipperSection(el, config, updateSetting, context, lifecycle) {
@@ -1382,15 +1490,6 @@ async function renderWebClipperSection(el, config, updateSetting, context, lifec
         options: WEB_CLIPPER_CAPTURE_MODES.map(option => ({ value: option.value, label: option.label }))
       }))
   ) + group('Browser-Erweiterung',
-    row('Firefox', 'Öffnet die Erweiterung bei Mozilla Add-ons.', button2('stOpenFirefoxAmo', 'Installieren'))
-    + row('Brave / Chromium', 'Bereitet die mitgelieferte Erweiterung ohne Entwicklermodus vor. Wirkt beim nächsten vollständigen Start.',
-      button2('stInstallBraveWebClipper', 'Vorbereiten')
-      + feedbackLine('stBraveFeedback')
-      // Nicht in der Spezifikation, bewusst erhalten: die einzige Stelle, an
-      // der die einmal erteilte Flatpak-Native-Messaging-Berechtigung wieder
-      // entzogen werden kann. Erscheint nur, wenn sie tatsächlich erteilt ist.
-      + `<span id="stRevokeBraveWrap" hidden>${textAction('stRevokeBraveFlatpakPermission', 'Native-Messaging-Berechtigung entfernen')}</span>`)
-  ) + group('Erkannte Browser',
     `<div id="stDetectedBrowsers">${renderDetectedBrowsersHtml({ loading: true })}</div>`
   );
 
@@ -1402,6 +1501,7 @@ async function renderWebClipperSection(el, config, updateSetting, context, lifec
       .then((result) => {
         if (!lifecycle.isCurrent()) return;
         detectedContainer.innerHTML = renderDetectedBrowsersHtml({ result });
+        wireDetectedBrowserActions(detectedContainer, lifecycle);
       })
       .catch((error) => {
         if (!lifecycle.isCurrent()) return;
@@ -1416,75 +1516,6 @@ async function renderWebClipperSection(el, config, updateSetting, context, lifec
 
   onToggle(el, 'stIncomingShowInSidebar', async (next) => {
     await updateSetting({ incoming: { showInSidebar: next } });
-  });
-
-  el.querySelector('#stOpenFirefoxAmo').addEventListener('click', () => window.open(FIREFOX_AMO_URL, '_blank'));
-
-  const revokeWrap = el.querySelector('#stRevokeBraveWrap');
-  const revokeAction = el.querySelector('#stRevokeBraveFlatpakPermission');
-
-  async function refreshBraveFlatpakPermissionUi() {
-    const permission = await window.archivAPI.webClipper?.getBraveFlatpakPermissionStatus?.();
-    if (!lifecycle.isCurrent()) return;
-    revokeWrap.hidden = !(permission?.supported && permission.installed && permission.granted);
-  }
-  void refreshBraveFlatpakPermissionUi();
-
-  revokeAction.addEventListener('click', async () => {
-    revokeAction.disabled = true;
-    try {
-      await window.archivAPI.webClipper?.revokeBraveFlatpakPermission?.();
-    } catch (error) {
-      console.error('Native-Messaging-Berechtigung konnte nicht entfernt werden:', error);
-      if (lifecycle.isCurrent()) setFeedback(el, 'stBraveFeedback', error?.message || 'Die Berechtigung konnte nicht entfernt werden.', true);
-    } finally {
-      if (lifecycle.isCurrent()) revokeAction.disabled = false;
-    }
-    await refreshBraveFlatpakPermissionUi();
-  });
-
-  el.querySelector('#stInstallBraveWebClipper').addEventListener('click', async (event) => {
-    const button = event.currentTarget;
-    button.disabled = true;
-    button.textContent = 'Wird vorbereitet …';
-    setFeedback(el, 'stBraveFeedback', '');
-    try {
-      // Brave läuft als Flatpak sandboxed und kann den Native Host ohne eine
-      // zusätzliche, persistente Host-Berechtigung nicht starten. Diese
-      // Berechtigung wird ausschließlich hier, nach ausdrücklicher Zustimmung,
-      // gesetzt — nie automatisch beim App-Start.
-      const permission = await window.archivAPI.webClipper?.getBraveFlatpakPermissionStatus?.();
-      if (permission?.installed && !permission.granted) {
-        const consent = await showConfirmDialog({
-          title: 'Native-Messaging-Berechtigung für Brave (Flatpak)',
-          message: 'Brave läuft als Flatpak in einer eigenen Sandbox und kann den Archiv-Wiki-Native-Host deshalb nicht direkt starten.\n\nDafür braucht Brave zusätzlich die dauerhafte Berechtigung, mit dem Flatpak-Hostdienst (org.freedesktop.Flatpak) zu sprechen. Das erweitert die Brave-Sandbox gegenüber deinem System und gilt für die gesamte Brave-App, nicht nur für Archiv-Wiki.\n\nDu kannst diese Berechtigung hier jederzeit wieder entfernen.',
-          confirmLabel: 'Berechtigung erteilen',
-          cancelLabel: 'Abbrechen'
-        });
-        if (!lifecycle.isCurrent()) return;
-        if (!consent) {
-          setFeedback(el, 'stBraveFeedback', 'Abgebrochen. Es wurde nichts verändert.');
-          button.textContent = 'Erneut versuchen';
-          return;
-        }
-        await window.archivAPI.webClipper.grantBraveFlatpakPermission();
-        if (!lifecycle.isCurrent()) return;
-        await refreshBraveFlatpakPermissionUi();
-      }
-
-      const result = await window.archivAPI.webClipper?.installBrave?.();
-      if (!result?.prepared) throw new Error('Die Installation konnte nicht vorbereitet werden.');
-      if (!lifecycle.isCurrent()) return;
-      setFeedback(el, 'stBraveFeedback', 'Vorbereitet. Brave vollständig schließen und neu starten.');
-      button.textContent = 'Erneut vorbereiten';
-    } catch (error) {
-      if (!lifecycle.isCurrent()) return;
-      console.error('Brave Web Clipper konnte nicht vorbereitet werden:', error);
-      setFeedback(el, 'stBraveFeedback', error?.message || 'Die Installation konnte nicht vorbereitet werden.', true);
-      button.textContent = 'Erneut versuchen';
-    } finally {
-      if (lifecycle.isCurrent()) button.disabled = false;
-    }
   });
 }
 
