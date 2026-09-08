@@ -545,12 +545,15 @@ function installBraveWebClipper({
   };
 }
 
+const { detectBrowsers: defaultDetectBrowsers } = require('./webclip-browser-detection');
+
 function registerWebClipperDistributionIpc({
   ipcMain,
   resourcesPath,
   homePath,
   platform = process.platform,
-  isPackaged = true
+  isPackaged = true,
+  detectBrowsers = defaultDetectBrowsers
 }) {
   ipcMain.handle('webclip:installBrave', () => installBraveWebClipper({
     resourcesPath,
@@ -561,6 +564,7 @@ function registerWebClipperDistributionIpc({
   ipcMain.handle('webclip:getBraveFlatpakPermissionStatus', () => getBraveFlatpakPermissionStatus({ homePath, platform }));
   ipcMain.handle('webclip:grantBraveFlatpakPermission', () => grantBraveFlatpakHostPermission({ homePath, platform }));
   ipcMain.handle('webclip:revokeBraveFlatpakPermission', () => revokeBraveFlatpakHostPermission({ homePath, platform }));
+  ipcMain.handle('webclip:detectBrowsers', () => detectBrowsers());
 }
 
 module.exports = {

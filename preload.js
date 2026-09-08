@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('archivAPI', {
   },
   webClipper: {
     getStatus: () => ipcRenderer.invoke('app:getWebClipperStatus'),
+    detectBrowsers: () => ipcRenderer.invoke('webclip:detectBrowsers'),
     installBrave: () => ipcRenderer.invoke('webclip:installBrave'),
     // M15: getrennt vom CRX-Installationsschritt — read-only Statusabfrage
     // sowie der explizit zustimmungspflichtige Berechtigungsweg für die

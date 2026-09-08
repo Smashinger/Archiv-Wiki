@@ -254,6 +254,13 @@ export async function showSettingsWindow(context = {}) {
   let activeId = SETTINGS_SECTIONS[0].id;
   let isClosing = false;
   const backupUiState = { manualInProgress: false, feedback: null };
+  let detectedBrowsersPromise = null;
+  function getDetectedBrowsers() {
+    if (!detectedBrowsersPromise) {
+      detectedBrowsersPromise = Promise.resolve().then(() => window.archivAPI.webClipper?.detectBrowsers?.());
+    }
+    return detectedBrowsersPromise;
+  }
 
   const scrim = document.createElement('div');
   scrim.className = 'aws-scrim';
@@ -395,7 +402,7 @@ export async function showSettingsWindow(context = {}) {
     };
 
     try {
-      await section.render(bodyEl, config, updateSetting, { ...context, backupUiState, ...overrides }, lifecycle);
+      await section.render(bodyEl, config, updateSetting, { ...context, backupUiState, getDetectedBrowsers, ...overrides }, lifecycle);
       if (!lifecycle.isCurrent()) return;
       if (section.id === 'general') applySearchFilter(bodyEl, searchInput.value);
     } catch (error) {
@@ -1300,7 +1307,49 @@ function normalizedCaptureMode(value) {
   return WEB_CLIPPER_CAPTURE_MODES.some(option => option.value === candidate) ? candidate : 'selection';
 }
 
+export function renderDetectedBrowsersHtml({ loading = false, result = null, error = null } = {}) {
+  if (loading) {
+    return block('<p class="aws-block-note">Browser werden erkannt …</p>');
+  }
+  if (error || !result) {
+    return block('<p class="aws-block-note">Browser konnten nicht erkannt werden.</p>');
+  }
+  if (!result.supported) {
+    return block('<p class="aws-block-note">Die automatische Browser-Erkennung ist derzeit nur unter Linux verfügbar.</p>');
+  }
+
+  const browsers = Array.isArray(result.browsers) ? result.browsers : [];
+  if (browsers.length === 0) {
+    if (result.flatpakStatus === 'unavailable') {
+      return block('<p class="aws-block-note">Keine bekannten Systembrowser erkannt. Flatpak ist nicht verfügbar.</p>');
+    }
+    if (result.flatpakStatus === 'failed') {
+      return block('<p class="aws-block-note">Keine bekannten Systembrowser erkannt. Flatpak-Installationen konnten nicht geprüft werden.</p>');
+    }
+    return block('<p class="aws-block-note">Keine bekannten Browserinstallationen erkannt.</p>');
+  }
+
+  let html = browsers.map(b => {
+    const typeLabel = b.installType === 'system' ? 'Systeminstallation erkannt' : 'Flatpak erkannt';
+    return row(b.name || b.id || 'Browser', '', `<div class="aws-value-mono">${esc(typeLabel)}</div>`);
+  }).join('');
+
+  if (result.flatpakStatus === 'failed') {
+    html += block('<p class="aws-block-note">Flatpak-Installationen konnten nicht geprüft werden.</p>');
+  }
+
+  return html;
+}
+
 async function renderWebClipperSection(el, config, updateSetting, context, lifecycle) {
+  const getDetectedBrowsers = context?.getDetectedBrowsers
+    || (() => {
+      if (!context._detectedBrowsersPromise) {
+        context._detectedBrowsersPromise = Promise.resolve().then(() => window.archivAPI.webClipper?.detectBrowsers?.());
+      }
+      return context._detectedBrowsersPromise;
+    });
+
   const status = context.webClipperStatus
     || await window.archivAPI.webClipper?.getStatus?.()
     || { receiverReady: false, browserConnected: false, lastBrowserConnectionAt: null, lastClipAt: null, lastError: null };
@@ -1341,9 +1390,25 @@ async function renderWebClipperSection(el, config, updateSetting, context, lifec
       // der die einmal erteilte Flatpak-Native-Messaging-Berechtigung wieder
       // entzogen werden kann. Erscheint nur, wenn sie tatsächlich erteilt ist.
       + `<span id="stRevokeBraveWrap" hidden>${textAction('stRevokeBraveFlatpakPermission', 'Native-Messaging-Berechtigung entfernen')}</span>`)
+  ) + group('Erkannte Browser',
+    `<div id="stDetectedBrowsers">${renderDetectedBrowsersHtml({ loading: true })}</div>`
   );
 
   el.innerHTML = pane(2, left, right);
+
+  const detectedContainer = el.querySelector('#stDetectedBrowsers');
+  if (detectedContainer) {
+    getDetectedBrowsers()
+      .then((result) => {
+        if (!lifecycle.isCurrent()) return;
+        detectedContainer.innerHTML = renderDetectedBrowsersHtml({ result });
+      })
+      .catch((error) => {
+        if (!lifecycle.isCurrent()) return;
+        console.error('Browser-Erkennung fehlgeschlagen:', error);
+        detectedContainer.innerHTML = renderDetectedBrowsersHtml({ error });
+      });
+  }
 
   onSelectChange(el, 'stWebClipperDefaultMode', async (value) => {
     await updateSetting({ webClipper: { defaultCaptureMode: normalizedCaptureMode(value) } });
