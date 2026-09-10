@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('archivAPI', {
     getStatus: () => ipcRenderer.invoke('app:getWebClipperStatus'),
     detectBrowsers: () => ipcRenderer.invoke('webclip:detectBrowsers'),
     installBrave: () => ipcRenderer.invoke('webclip:installBrave'),
+    prepareChromiumSystem: () => ipcRenderer.invoke('webclip:prepareChromiumSystem'),
     // M15: getrennt vom CRX-Installationsschritt — read-only Statusabfrage
     // sowie der explizit zustimmungspflichtige Berechtigungsweg für die
     // Brave-Flatpak-Native-Messaging-Freigabe (org.freedesktop.Flatpak).

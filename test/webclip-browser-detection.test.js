@@ -19,8 +19,7 @@ const EXPECTED_BROWSERS = Object.freeze([
   { id: 'brave', flatpakId: 'com.brave.Browser' },
   { id: 'chromium', flatpakId: 'org.chromium.Chromium' },
   { id: 'firefox', flatpakId: 'org.mozilla.firefox' },
-  { id: 'google-chrome', flatpakId: 'com.google.Chrome' },
-  { id: 'vivaldi', flatpakId: 'com.vivaldi.Vivaldi' }
+  { id: 'google-chrome', flatpakId: 'com.google.Chrome' }
 ]);
 
 // ── Hilfsfunktionen ────────────────────────────────────────────────────────
@@ -173,8 +172,7 @@ test('3. Chromium-Browser werden über exakte ausführbare Namen erkannt', async
     executables: new Map([
       ['/usr/bin/brave-browser', { executable: true }],
       ['/usr/bin/chromium', { executable: true }],
-      ['/usr/bin/google-chrome-stable', { executable: true }],
-      ['/usr/bin/vivaldi', { executable: true }]
+      ['/usr/bin/google-chrome-stable', { executable: true }]
     ]),
     flatpakMissing: true
   });
@@ -185,7 +183,6 @@ test('3. Chromium-Browser werden über exakte ausführbare Namen erkannt', async
   assert.ok(ids.includes('brave'), 'Brave erkannt');
   assert.ok(ids.includes('chromium'), 'Chromium erkannt');
   assert.ok(ids.includes('google-chrome'), 'Google Chrome erkannt');
-  assert.ok(ids.includes('vivaldi'), 'Vivaldi erkannt');
 
   for (const b of result.browsers) {
     assert.equal(b.engine, 'chromium');
@@ -351,8 +348,7 @@ test('8. Nur exakt bekannte Flatpak-Application-IDs werden akzeptiert', async ()
         'com.brave.Browser',
         'org.mozilla.firefox',
         'org.chromium.Chromium',
-        'com.google.Chrome',
-        'com.vivaldi.Vivaldi'
+        'com.google.Chrome'
       ].join('\n') + '\n'
     }
   });
@@ -360,7 +356,7 @@ test('8. Nur exakt bekannte Flatpak-Application-IDs werden akzeptiert', async ()
   const result = await detectBrowsers(deps);
 
   const flatpaks = result.browsers.filter(b => b.installType === 'flatpak');
-  assert.equal(flatpaks.length, 5, 'Alle 5 bekannten Flatpak-Browser erkannt');
+  assert.equal(flatpaks.length, 4, 'Alle 4 bekannten Flatpak-Browser erkannt');
 });
 
 
@@ -473,30 +469,30 @@ test('12. Leere oder fehlerhafte Flatpak-Ausgabe erzeugt keine falschen Browser'
 // ── 13. Deterministische Sortierung ────────────────────────────────────────
 
 test('13. Die Reihenfolge der Ergebnisse ist unabhängig von PATH-/Flatpak-Reihenfolge stabil', async () => {
-  // Absichtlich umgekehrte Reihenfolge: vivaldi vor brave im PATH,
+  // Absichtlich umgekehrte Reihenfolge: chromium vor brave im PATH,
   // Flatpak-Ausgabe ebenfalls umgekehrt.
   const deps = makeDeps({
-    pathEnv: '/opt/vivaldi:/opt/brave',
+    pathEnv: '/opt/chromium:/opt/brave',
     executables: new Map([
-      ['/opt/vivaldi/vivaldi', { executable: true }],
+      ['/opt/chromium/chromium', { executable: true }],
       ['/opt/brave/brave-browser', { executable: true }]
     ]),
     flatpakResult: {
-      stdout: 'com.vivaldi.Vivaldi\ncom.brave.Browser\n'
+      stdout: 'org.chromium.Chromium\ncom.brave.Browser\n'
     }
   });
 
   const result = await detectBrowsers(deps);
 
-  // Erwartete Reihenfolge: brave-system, brave-flatpak, vivaldi-system, vivaldi-flatpak
+  // Erwartete Reihenfolge: brave-system, brave-flatpak, chromium-system, chromium-flatpak
   assert.equal(result.browsers.length, 4);
   assert.equal(result.browsers[0].id, 'brave');
   assert.equal(result.browsers[0].installType, 'system');
   assert.equal(result.browsers[1].id, 'brave');
   assert.equal(result.browsers[1].installType, 'flatpak');
-  assert.equal(result.browsers[2].id, 'vivaldi');
+  assert.equal(result.browsers[2].id, 'chromium');
   assert.equal(result.browsers[2].installType, 'system');
-  assert.equal(result.browsers[3].id, 'vivaldi');
+  assert.equal(result.browsers[3].id, 'chromium');
   assert.equal(result.browsers[3].installType, 'flatpak');
 });
 
@@ -618,24 +614,22 @@ test('17. Fehler bei einem Browserkandidaten verwirft andere gültige Treffer ni
 });
 
 
-// ── 19. Vollständiger Erkennungslauf: alle 5 als System + Flatpak ──────────
+// ── 19. Vollständiger Erkennungslauf: alle 4 als System + Flatpak ──────────
 
-test('19. Vollständiger Lauf: alle 5 Browser als System und Flatpak erkannt', async () => {
+test('19. Vollständiger Lauf: alle 4 Browser als System und Flatpak erkannt', async () => {
   const deps = makeDeps({
     executables: new Map([
       ['/usr/bin/firefox', { executable: true }],
       ['/usr/bin/brave-browser', { executable: true }],
       ['/usr/bin/chromium', { executable: true }],
-      ['/usr/bin/google-chrome', { executable: true }],
-      ['/usr/bin/vivaldi', { executable: true }]
+      ['/usr/bin/google-chrome', { executable: true }]
     ]),
     flatpakResult: {
       stdout: [
         'org.mozilla.firefox',
         'com.brave.Browser',
         'org.chromium.Chromium',
-        'com.google.Chrome',
-        'com.vivaldi.Vivaldi'
+        'com.google.Chrome'
       ].join('\n') + '\n'
     }
   });
@@ -644,7 +638,7 @@ test('19. Vollständiger Lauf: alle 5 Browser als System und Flatpak erkannt', a
 
   assert.equal(result.supported, true);
   assert.equal(result.flatpakStatus, 'ok');
-  assert.equal(result.browsers.length, 10, '5 Browser × 2 Installationsarten');
+  assert.equal(result.browsers.length, 8, '4 Browser × 2 Installationsarten');
 
   // Jeder Browser hat genau eine System- und eine Flatpak-Installation.
   for (const expected of EXPECTED_BROWSERS) {

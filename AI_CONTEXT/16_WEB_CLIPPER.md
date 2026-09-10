@@ -34,7 +34,7 @@ Die Komponenten besitzen getrennte Zuständigkeiten:
 - `extension/native-host/native-host.js` übersetzt das Browser-stdio-Protokoll in das lokale Socket-Protokoll; der Host speichert selbst keine Projektdaten.
 - `main/webclip-receiver.js` nimmt die lokale Socket-Verbindung an und übergibt validierte Nutzdaten an `main/incoming-store.js`.
 - `main/incoming-store.js` ist die einzige persistente Speichergrenze für den Eingang.
-- `main/webclip-distribution.js` prüft die signierte CRX und bereitet den vorhandenen Brave-Flatpak-Distributionsweg vor.
+- `main/webclip-distribution.js` prüft die signierte CRX und bereitet die vorhandenen Distributionswege für Chromium (System) und Brave (Flatpak) vor.
 
 Der Transport implementiert keinen HTTP-Server und keinen Cloud-Endpunkt.
 
@@ -94,7 +94,7 @@ Fehlt die Native-Host-Registrierung, ist Archiv-Wiki nicht geöffnet, antwortet 
 
 Im Entwicklungsmodus verwendet der Host das lokal verfügbare Node.js. Erkannte normale Chromium-Installationen erhalten benutzerbezogene Native-Messaging-Manifeste. Für ein erkanntes Brave-Flatpak legt der Installer zusätzlich einen Wrapper innerhalb des Flatpak-Benutzerbereichs an, der den Host über `flatpak-spawn --host` startet, sowie das zugehörige Native-Messaging-Manifest. Im AppImage-Modus führt dieser Wrapper zum stabil vorbereiteten AppImage-Host; nur der Entwicklungsmodus verwendet dafür Node.js und den Projektquellstand.
 
-Der Installer selbst setzt dabei **keine** Flatpak-Berechtigung mehr. `flatpak-spawn --host` benötigt für Brave zusätzlich die benutzerbezogene, für die gesamte Brave-App geltende Berechtigung `--talk-name=org.freedesktop.Flatpak`. Diese wird ausschließlich nutzerinitiiert und nach informierter Zustimmung über Einstellungen → Web Clipper → „Brave / Chromium“ gesetzt (`main/webclip-distribution.js`, siehe dortiger Abschnitt) — nie automatisch durch einen normalen App- oder AppImage-Start.
+Der Installer selbst setzt dabei **keine** Flatpak-Berechtigung mehr. `flatpak-spawn --host` benötigt für Brave zusätzlich die benutzerbezogene, für die gesamte Brave-App geltende Berechtigung `--talk-name=org.freedesktop.Flatpak`. Diese wird ausschließlich nutzerinitiiert und nach informierter Zustimmung über Einstellungen → Web Clipper → „Brave“ gesetzt (`main/webclip-distribution.js`, siehe dortiger Abschnitt) — nie automatisch durch einen normalen App- oder AppImage-Start.
 
 ## Firefox
 
@@ -108,9 +108,19 @@ Firefox als Flatpak wird vom vorhandenen Native-Host-Installer weiterhin nicht e
 
 ## Chromium und Brave
 
-Für normal installierte Chromium-basierte Browser kennt der Native-Host-Installer benutzerbezogene Manifestpfade für Chromium, Google Chrome, Brave und Vivaldi. Daraus folgt kein gemeinsamer automatischer Installationsweg der Extension für alle diese Browser.
+Für normal installierte Chromium-basierte Browser kennt der Native-Host-Installer benutzerbezogene Manifestpfade für Chromium, Google Chrome und Brave. Daraus folgt kein gemeinsamer automatischer Installationsweg der Extension für alle diese Browser.
 
-Die aktive Schaltfläche „Brave / Chromium“ in den Einstellungen ruft tatsächlich den Linux-spezifischen Brave-Flatpak-Weg in `main/webclip-distribution.js` auf. Dieser Weg:
+Aktiv unterstützt werden ausschließlich Chromium (System) und Brave (Flatpak), jeweils über eine eigene Schaltfläche „Vorbereiten“ in den Einstellungen und einen eigenen Weg in `main/webclip-distribution.js`. Google Chrome erhält dort keine Vorbereiten-Aktion.
+
+**Chromium (System)** — Schaltfläche „Chromium“, `prepareChromiumSystemWebClipper()`:
+
+- prüft die mitgelieferte signierte CRX vor der Vorbereitung;
+- kopiert sie atomar in einen stabilen Pfad unter `XDG_DATA_HOME` (Fallback `~/.local/share`);
+- schreibt dort benutzerbezogen eine `External Extensions`-Registrierung für die feste Chromium-ID und Version `0.2.0` unter `XDG_CONFIG_HOME` (Fallback `~/.config`), also derselben Konfigurationswurzel, die auch der Native-Host-Installer für Chromium verwendet (siehe „Native-Host-Registrierung“);
+- benötigt weder Root-Rechte noch Chromium-Entwicklermodus;
+- erfordert anschließend einen vollständigen Chromium-Neustart.
+
+**Brave (Flatpak)** — Schaltfläche „Brave“, `installBraveWebClipper()`:
 
 - verlangt den vorhandenen Brave-Flatpak-Benutzerbereich `com.brave.Browser`;
 - prüft die mitgelieferte signierte CRX vor der Vorbereitung;
@@ -119,11 +129,9 @@ Die aktive Schaltfläche „Brave / Chromium“ in den Einstellungen ruft tatsä
 - benötigt weder Root-Rechte noch Chromium-Entwicklermodus;
 - erfordert anschließend einen vollständigen Brave-Neustart.
 
-Die Vorbereitung wird ausdrücklich vom Nutzer in den Einstellungen ausgelöst; ein normaler App-Start installiert die Erweiterung nicht automatisch. Entfernt der Nutzer die externe Erweiterung bewusst, wird der daraus entstehende Brave-Blockierungszustand weder umgangen noch zurückgesetzt. Eine erneute automatische Installation derselben ID wird nicht erzwungen.
+Beide Vorbereitungen werden ausdrücklich vom Nutzer in den Einstellungen ausgelöst; ein normaler App-Start installiert die Erweiterung nicht automatisch. Entfernt der Nutzer die externe Erweiterung bewusst, wird der daraus entstehende Browser-Blockierungszustand weder umgangen noch zurückgesetzt. Eine erneute automatische Installation derselben ID wird nicht erzwungen.
 
-Derselbe Schaltflächen-Weg übernimmt zusätzlich die für Brave-Flatpak nötige Native-Messaging-Berechtigung (`--talk-name=org.freedesktop.Flatpak`, siehe „AppImage-Rolle“): Fehlt sie, zeigt Archiv-Wiki vor dem Setzen einen Zustimmungsdialog mit den konkreten Auswirkungen; bricht der Nutzer ab, bleibt die Berechtigung unverändert und die weitere Vorbereitung stoppt kontrolliert. Ist sie bereits vorhanden, erscheint kein erneuter Dialog. Der Einstellungsbereich zeigt den aktuellen, rein lesend ermittelten Berechtigungsstatus und bietet bei vorhandener Berechtigung einen gezielten Widerruf, der ausschließlich diesen einen `talk-name` entfernt (`flatpak override --user --no-talk-name=…`) und keine anderen, unabhängig gesetzten Brave-Overrides verändert.
-
-Die UI-Bezeichnung „Brave / Chromium“ darf daher nicht als Zusage verstanden werden, dass dieser Installationsknopf jeden Chromium-basierten Browser unterstützt. Der aktuell implementierte UI-Distributionsweg ist auf Brave als Linux-Flatpak zugeschnitten.
+Die Brave-Schaltfläche übernimmt zusätzlich die für Brave-Flatpak nötige Native-Messaging-Berechtigung (`--talk-name=org.freedesktop.Flatpak`, siehe „AppImage-Rolle“): Fehlt sie, zeigt Archiv-Wiki vor dem Setzen einen Zustimmungsdialog mit den konkreten Auswirkungen; bricht der Nutzer ab, bleibt die Berechtigung unverändert und die weitere Vorbereitung stoppt kontrolliert. Ist sie bereits vorhanden, erscheint kein erneuter Dialog. Der Einstellungsbereich zeigt den aktuellen, rein lesend ermittelten Berechtigungsstatus und bietet bei vorhandener Berechtigung einen gezielten Widerruf, der ausschließlich diesen einen `talk-name` entfernt (`flatpak override --user --no-talk-name=…`) und keine anderen, unabhängig gesetzten Brave-Overrides verändert. Chromium (System) benötigt keine Flatpak-Berechtigung.
 
 ## AppImage-Rolle
 

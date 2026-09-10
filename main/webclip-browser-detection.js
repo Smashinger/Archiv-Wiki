@@ -45,13 +45,6 @@ const BROWSER_CANDIDATES = Object.freeze([
     engine: 'chromium',
     systemNames: ['google-chrome', 'google-chrome-stable'],
     flatpakId: 'com.google.Chrome'
-  },
-  {
-    id: 'vivaldi',
-    name: 'Vivaldi',
-    engine: 'chromium',
-    systemNames: ['vivaldi', 'vivaldi-stable'],
-    flatpakId: 'com.vivaldi.Vivaldi'
   }
 ]);
 

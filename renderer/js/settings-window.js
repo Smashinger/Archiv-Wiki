@@ -1350,6 +1350,15 @@ export function renderDetectedBrowsersHtml({ loading = false, result = null, err
       );
     }
 
+    if (b.id === 'chromium' && b.installType === 'system') {
+      return row(
+        b.name || b.id || 'Chromium',
+        `${typeLabel} · Bereitet die mitgelieferte Erweiterung ohne Entwicklermodus vor. Wirkt nach einem vollständigen Neustart von Chromium.`,
+        button2('stPrepareChromiumSystemWebClipper', 'Vorbereiten')
+        + feedbackLine('stChromiumSystemFeedback')
+      );
+    }
+
     return row(
       b.name || b.id || 'Browser',
       typeLabel,
@@ -1447,6 +1456,32 @@ export function wireDetectedBrowserActions(container, lifecycle) {
       }
     });
   }
+
+  const chromiumButton = container.querySelector('#stPrepareChromiumSystemWebClipper');
+  if (chromiumButton && !chromiumButton._wired) {
+    chromiumButton._wired = true;
+    chromiumButton.addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = 'Wird vorbereitet …';
+      setFeedback(container, 'stChromiumSystemFeedback', '');
+      try {
+        const result = await window.archivAPI?.webClipper?.prepareChromiumSystem?.();
+        if (!result?.prepared) throw new Error('Die Installation konnte nicht vorbereitet werden.');
+        if (lifecycle && !lifecycle.isCurrent()) return;
+        setFeedback(container, 'stChromiumSystemFeedback', 'Vorbereitet. Chromium vollständig schließen und neu starten. Eine Rückfrage des Browsers zur Erweiterung gegebenenfalls bestätigen.');
+        button.textContent = 'Erneut vorbereiten';
+      } catch (error) {
+        if (lifecycle && !lifecycle.isCurrent()) return;
+        console.error('Chromium Web Clipper konnte nicht vorbereitet werden:', error);
+        setFeedback(container, 'stChromiumSystemFeedback', error?.message || 'Die Vorbereitung konnte nicht abgeschlossen werden.', true);
+        button.textContent = 'Erneut versuchen';
+      } finally {
+        if (!lifecycle || lifecycle.isCurrent()) button.disabled = false;
+      }
+    });
+  }
+
 }
 
 async function renderWebClipperSection(el, config, updateSetting, context, lifecycle) {

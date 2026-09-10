@@ -34,6 +34,31 @@ if [[ "$MODE" == "appimage" && ! -f "$WEBCLIP_TRANSPORT_JS" ]]; then
   WEBCLIP_TRANSPORT_JS="$RESOURCE_ROOT/../app.asar.unpacked/main/webclip-transport.js"
 fi
 
+# Resolves the single configuration root used for BOTH the system-Chromium
+# Native Messaging manifest below (…/chromium/NativeMessagingHosts) and the
+# Chromium external-extension registration written by
+# main/webclip-distribution.js (getChromiumSystemRegistrationPath(),
+# …/chromium/External Extensions). Only normal system Chromium follows this
+# XDG_CONFIG_HOME-aware rule; Google Chrome, Brave (system and Flatpak),
+# and Firefox keep their existing, unrelated paths untouched.
+resolve_chromium_config_home() {
+  local candidate="${XDG_CONFIG_HOME:-}"
+  if [[ -n "$candidate" && "$candidate" == /* ]]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  local home_candidate="${HOME:-}"
+  if [[ -z "$home_candidate" || "$home_candidate" != /* ]]; then
+    echo "Fehler: Chromium-Konfigurationswurzel kann nicht ermittelt werden: XDG_CONFIG_HOME ist nicht gesetzt oder relativ, und HOME ist ebenfalls nicht gesetzt, leer oder relativ." >&2
+    return 1
+  fi
+  printf '%s\n' "$home_candidate/.config"
+}
+
+if ! CHROMIUM_CONFIG_HOME="$(resolve_chromium_config_home)"; then
+  exit 1
+fi
+
 atomic_write_file() {
   local target="$1"
   local mode="$2"
@@ -119,12 +144,16 @@ JSON
 # aus ~/.mozilla/native-messaging-hosts. Firefox-Flatpak bleibt bewusst unberührt.
 FIREFOX_NATIVE_DIR="$HOME/.mozilla/native-messaging-hosts"
 
-# Normale Chromium-Installationen auf dem Host.
+# Normale Chromium-Installationen auf dem Host. Chromium selbst verwendet die
+# aufgelöste, XDG_CONFIG_HOME-bewusste Konfigurationswurzel (siehe
+# resolve_chromium_config_home oben), damit Native Messaging und die
+# Erweiterungsregistrierung in main/webclip-distribution.js denselben
+# Chromium-Konfigurationsordner treffen. Google Chrome und Brave
+# bleiben unverändert auf $HOME/.config.
 TARGETS=(
-  "$HOME/.config/chromium/NativeMessagingHosts"
+  "$CHROMIUM_CONFIG_HOME/chromium/NativeMessagingHosts"
   "$HOME/.config/google-chrome/NativeMessagingHosts"
   "$HOME/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts"
-  "$HOME/.config/vivaldi/NativeMessagingHosts"
 )
 
 brave_flatpak_is_installed() {
@@ -241,6 +270,6 @@ fi
 
 if [[ "$installed" -eq 0 ]]; then
   # Chromium ist der neutrale Fallback für Test-/Entwicklungsumgebungen.
-  target="$HOME/.config/chromium/NativeMessagingHosts"
+  target="$CHROMIUM_CONFIG_HOME/chromium/NativeMessagingHosts"
   write_chromium_manifest "$target" "$HOST_PATH"
 fi

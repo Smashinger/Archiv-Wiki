@@ -32,7 +32,7 @@ const CRX3_FIELD_PROOF_SIGNATURE = 2;
 const CRX3_SIGNATURE_CONTEXT = Buffer.concat([Buffer.from('CRX3 SignedData', 'ascii'), Buffer.alloc(1)]);
 
 function requireAbsoluteDirectory(directoryPath, label) {
-  if (!path.isAbsolute(directoryPath)) {
+  if (!directoryPath || typeof directoryPath !== 'string' || !path.isAbsolute(directoryPath)) {
     throw new Error(`${label} muss ein absoluter Pfad sein.`);
   }
   return directoryPath;
@@ -545,6 +545,104 @@ function installBraveWebClipper({
   };
 }
 
+function getChromiumSystemStableCrxPath(optionsOrHome, maybeEnv) {
+  const options = (typeof optionsOrHome === 'string' || optionsOrHome === undefined || optionsOrHome === null)
+    ? { homePath: optionsOrHome, env: maybeEnv }
+    : optionsOrHome;
+  const { homePath, env = process.env } = options || {};
+
+  const xdgDataHome = env?.XDG_DATA_HOME;
+  if (typeof xdgDataHome === 'string' && xdgDataHome.trim() !== '' && path.isAbsolute(xdgDataHome)) {
+    return path.join(xdgDataHome, 'archiv-wiki', 'web-clipper', 'chromium', CRX_FILENAME);
+  }
+
+  const baseHome = (homePath !== undefined && homePath !== null) ? homePath : env?.HOME;
+  return path.join(
+    requireAbsoluteDirectory(baseHome, 'Das Benutzerverzeichnis'),
+    '.local',
+    'share',
+    'archiv-wiki',
+    'web-clipper',
+    'chromium',
+    CRX_FILENAME
+  );
+}
+
+function getChromiumSystemRegistrationPath(optionsOrHome, maybeEnv) {
+  const options = (typeof optionsOrHome === 'string' || optionsOrHome === undefined || optionsOrHome === null)
+    ? { homePath: optionsOrHome, env: maybeEnv }
+    : optionsOrHome;
+  const { homePath, env = process.env } = options || {};
+
+  const xdgConfigHome = env?.XDG_CONFIG_HOME;
+  if (typeof xdgConfigHome === 'string' && xdgConfigHome.trim() !== '' && path.isAbsolute(xdgConfigHome)) {
+    return path.join(xdgConfigHome, 'chromium', 'External Extensions', `${CHROMIUM_EXTENSION_ID}.json`);
+  }
+
+  const baseHome = (homePath !== undefined && homePath !== null) ? homePath : env?.HOME;
+  return path.join(
+    requireAbsoluteDirectory(baseHome, 'Das Benutzerverzeichnis'),
+    '.config',
+    'chromium',
+    'External Extensions',
+    `${CHROMIUM_EXTENSION_ID}.json`
+  );
+}
+
+function prepareChromiumSystemWebClipper({
+  resourcesPath,
+  homePath,
+  platform = process.platform,
+  isPackaged = true,
+  env = process.env
+} = {}) {
+  if (platform !== 'linux') {
+    throw new Error('Die vorbereitete Web-Clipper-Installation unterstützt derzeit ausschließlich Linux.');
+  }
+
+  if (homePath !== undefined && homePath !== null && (typeof homePath !== 'string' || !path.isAbsolute(homePath))) {
+    throw new Error('Das Benutzerverzeichnis muss ein absoluter Pfad sein.');
+  }
+
+  const sourceCrxPath = resolveCrxSourcePath({ resourcesPath, isPackaged });
+  const crxMetadata = inspectCrxFile(sourceCrxPath);
+
+  const stableCrxPath = getChromiumSystemStableCrxPath({ homePath, env });
+  const registrationPath = getChromiumSystemRegistrationPath({ homePath, env });
+
+  if (!path.isAbsolute(stableCrxPath)) {
+    throw new Error('Der CRX-Ablagepfad muss ein absoluter Pfad sein.');
+  }
+  if (!path.isAbsolute(registrationPath)) {
+    throw new Error('Der Registrierungspfad muss ein absoluter Pfad sein.');
+  }
+
+  fs.mkdirSync(path.dirname(stableCrxPath), { recursive: true });
+  const crxUpdated = !filesHaveSameContent(sourceCrxPath, stableCrxPath);
+  if (crxUpdated) atomicCopyFileSync(sourceCrxPath, stableCrxPath);
+  fs.chmodSync(stableCrxPath, 0o644);
+
+  fs.mkdirSync(path.dirname(registrationPath), { recursive: true });
+  const registration = `${JSON.stringify({
+    external_crx: stableCrxPath,
+    external_version: CHROMIUM_EXTENSION_VERSION
+  }, null, 2)}\n`;
+  atomicWriteFileSync(registrationPath, registration, 'utf8');
+  fs.chmodSync(registrationPath, 0o644);
+
+  return {
+    prepared: true,
+    browser: 'chromium-system',
+    extensionId: CHROMIUM_EXTENSION_ID,
+    extensionVersion: CHROMIUM_EXTENSION_VERSION,
+    crxPath: stableCrxPath,
+    registrationPath,
+    crxUpdated,
+    browserRestartRequired: true,
+    crxSha256: crxMetadata.sha256
+  };
+}
+
 const { detectBrowsers: defaultDetectBrowsers } = require('./webclip-browser-detection');
 
 function registerWebClipperDistributionIpc({
@@ -553,9 +651,16 @@ function registerWebClipperDistributionIpc({
   homePath,
   platform = process.platform,
   isPackaged = true,
-  detectBrowsers = defaultDetectBrowsers
+  detectBrowsers = defaultDetectBrowsers,
+  prepareChromiumSystem = prepareChromiumSystemWebClipper
 }) {
   ipcMain.handle('webclip:installBrave', () => installBraveWebClipper({
+    resourcesPath,
+    homePath,
+    platform,
+    isPackaged
+  }));
+  ipcMain.handle('webclip:prepareChromiumSystem', () => prepareChromiumSystem({
     resourcesPath,
     homePath,
     platform,
@@ -579,8 +684,11 @@ module.exports = {
   getStableCrxPath,
   getBraveRegistrationPath,
   getBraveFlatpakOverridesPath,
+  getChromiumSystemStableCrxPath,
+  getChromiumSystemRegistrationPath,
   inspectCrxFile,
   installBraveWebClipper,
+  prepareChromiumSystemWebClipper,
   getBraveFlatpakPermissionStatus,
   grantBraveFlatpakHostPermission,
   revokeBraveFlatpakHostPermission,

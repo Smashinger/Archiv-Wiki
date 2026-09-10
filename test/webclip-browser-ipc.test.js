@@ -10,9 +10,20 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const vm = require('vm');
+const { spawnSync } = require('child_process');
 
-const { registerWebClipperDistributionIpc } = require('../main/webclip-distribution');
+const {
+  registerWebClipperDistributionIpc,
+  prepareChromiumSystemWebClipper,
+  getChromiumSystemStableCrxPath,
+  getChromiumSystemRegistrationPath,
+  CHROMIUM_EXTENSION_ID,
+  CHROMIUM_EXTENSION_VERSION,
+  CRX_FILENAME,
+  inspectCrxFile
+} = require('../main/webclip-distribution');
 
 // ── Hilfsfunktionen für IPC- und Renderer-Mocks ───────────────────────────
 
@@ -75,7 +86,8 @@ function loadWireDetectedBrowserActions(customSandbox = {}) {
           getBraveFlatpakPermissionStatus: async () => ({ supported: true, installed: true, granted: false }),
           grantBraveFlatpakPermission: async () => ({ success: true }),
           revokeBraveFlatpakPermission: async () => ({ success: true }),
-          installBrave: async () => ({ prepared: true })
+          installBrave: async () => ({ prepared: true }),
+          prepareChromiumSystem: async () => ({ prepared: true })
         }
       }
     },
@@ -172,6 +184,7 @@ test('6. Die vorhandenen Web-Clipper-Kanäle werden weiterhin vollständig regis
   const channels = ipcMain.getChannels();
   const expectedChannels = [
     'webclip:installBrave',
+    'webclip:prepareChromiumSystem',
     'webclip:getBraveFlatpakPermissionStatus',
     'webclip:grantBraveFlatpakPermission',
     'webclip:revokeBraveFlatpakPermission',
@@ -181,7 +194,7 @@ test('6. Die vorhandenen Web-Clipper-Kanäle werden weiterhin vollständig regis
   for (const channel of expectedChannels) {
     assert.ok(channels.includes(channel), `Kanal ${channel} muss registriert sein`);
   }
-  assert.equal(channels.length, expectedChannels.length, 'Genau die 5 erwarteten Kanäle registriert');
+  assert.equal(channels.length, expectedChannels.length, 'Genau die 6 erwarteten Kanäle registriert');
 });
 
 test('7. preload.js exponiert genau die benannte Methode unter webClipper.detectBrowsers', () => {
@@ -347,8 +360,8 @@ test('B3-04. Brave system erhält keine Einrichtungsaktion', () => {
   assert.ok(!html.includes('stOpenFirefoxAmo'));
 });
 
-// 5. Chromium system: Keine Einrichtungsaktion
-test('B3-05. Chromium system erhält keine Einrichtungsaktion', () => {
+// 5. Chromium system: Vorbereiten-Aktion
+test('B3-05. Chromium system erhält die Vorbereiten-Aktion', () => {
   const render = loadRenderDetectedBrowsersHtml();
   const html = render({
     result: {
@@ -361,9 +374,13 @@ test('B3-05. Chromium system erhält keine Einrichtungsaktion', () => {
 
   assert.ok(html.includes('Chromium'));
   assert.ok(html.includes('Systeminstallation erkannt'));
-  assert.ok(html.includes('Einrichtung für diese Installationsart noch nicht verfügbar.'));
+  assert.ok(html.includes('stPrepareChromiumSystemWebClipper'), 'Chromium-Vorbereiten-Button muss existieren');
+  assert.ok(html.includes('Vorbereiten'));
+  assert.ok(html.includes('stChromiumSystemFeedback'), 'Chromium-Feedback-Element muss existieren');
+  assert.ok(html.includes('Bereitet die mitgelieferte Erweiterung ohne Entwicklermodus vor. Wirkt nach einem vollständigen Neustart von Chromium.'));
   assert.ok(!html.includes('stInstallBraveWebClipper'));
   assert.ok(!html.includes('stOpenFirefoxAmo'));
+  assert.ok(!html.includes('Einrichtung für diese Installationsart noch nicht verfügbar.'));
 });
 
 // 6. Chromium Flatpak: Keine Einrichtungsaktion
@@ -423,8 +440,8 @@ test('B3-08. Google Chrome Flatpak erhält keine Einrichtungsaktion', () => {
   assert.ok(!html.includes('stOpenFirefoxAmo'));
 });
 
-// 9. Vivaldi system: Keine Einrichtungsaktion
-test('B3-09. Vivaldi system erhält keine Einrichtungsaktion', () => {
+// 9. Vivaldi system: Vivaldi support was removed — falls back to "not available"
+test('B3-09. Vivaldi system erhält keine Einrichtungsaktion mehr (Support entfernt)', () => {
   const render = loadRenderDetectedBrowsersHtml();
   const html = render({
     result: {
@@ -436,14 +453,14 @@ test('B3-09. Vivaldi system erhält keine Einrichtungsaktion', () => {
   });
 
   assert.ok(html.includes('Vivaldi'));
-  assert.ok(html.includes('Systeminstallation erkannt'));
   assert.ok(html.includes('Einrichtung für diese Installationsart noch nicht verfügbar.'));
+  assert.ok(!html.includes('stPrepareVivaldiSystemWebClipper'));
   assert.ok(!html.includes('stInstallBraveWebClipper'));
   assert.ok(!html.includes('stOpenFirefoxAmo'));
 });
 
-// 10. Vivaldi Flatpak: Keine Einrichtungsaktion
-test('B3-10. Vivaldi Flatpak erhält keine Einrichtungsaktion', () => {
+// 10. Vivaldi Flatpak: Vivaldi support was removed — falls back to "not available"
+test('B3-10. Vivaldi Flatpak erhält keine Einrichtungsaktion mehr (Support entfernt)', () => {
   const render = loadRenderDetectedBrowsersHtml();
   const html = render({
     result: {
@@ -455,9 +472,8 @@ test('B3-10. Vivaldi Flatpak erhält keine Einrichtungsaktion', () => {
   });
 
   assert.ok(html.includes('Vivaldi'));
-  assert.ok(html.includes('Flatpak erkannt'));
   assert.ok(html.includes('Einrichtung für diese Installationsart noch nicht verfügbar.'));
-  assert.ok(!html.includes('stInstallBraveWebClipper'));
+  assert.ok(!html.includes('stInstallVivaldiFlatpakWebClipper'));
   assert.ok(!html.includes('stOpenFirefoxAmo'));
 });
 
@@ -502,15 +518,17 @@ test('B3-12. Gemischte Erkennungsergebnisse erzeugen exakt die passenden Aktione
   assert.ok(html.includes('stOpenFirefoxAmo'));
   assert.ok(html.includes('Brave Flatpak'));
   assert.ok(html.includes('stInstallBraveWebClipper'));
+  assert.ok(html.includes('Chromium'));
+  assert.ok(html.includes('stPrepareChromiumSystemWebClipper'));
   assert.ok(html.includes('Firefox Flatpak'));
   assert.ok(html.includes('Brave System'));
-  assert.ok(html.includes('Chromium'));
 
-  // Genau 1x Firefox-Aktion und 1x Brave-Aktion
+  // Genau 1x Firefox-Aktion, 1x Brave-Aktion und 1x Chromium-Aktion
   assert.equal(html.split('stOpenFirefoxAmo').length - 1, 1);
   assert.equal(html.split('stInstallBraveWebClipper').length - 1, 1);
-  // Genau 3x Hinweis auf Nichtverfügbarkeit
-  assert.equal(html.split('Einrichtung für diese Installationsart noch nicht verfügbar.').length - 1, 3);
+  assert.equal(html.split('stPrepareChromiumSystemWebClipper').length - 1, 1);
+  // Genau 2x Hinweis auf Nichtverfügbarkeit (Firefox Flatpak, Brave System)
+  assert.equal(html.split('Einrichtung für diese Installationsart noch nicht verfügbar.').length - 1, 2);
 });
 
 // 13. Duplicate rendering or status updates do not accumulate action handlers
@@ -814,4 +832,864 @@ test('B3-20. Die alten bedingungslosen generischen Setup-Aktionen sind aus dem s
   assert.doesNotMatch(clipperFn, /row\('Brave \/ Chromium'/);
   assert.ok(clipperFn.includes("group('Browser-Erweiterung',"));
   assert.ok(clipperFn.includes('<div id="stDetectedBrowsers">'));
+});
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// TEIL 3: Chromium System-Vorbereitung (Web-Clipper Block 4, Anforderungen 1–25)
+// ════════════════════════════════════════════════════════════════════════════
+
+function createTempDir(prefix = 'aw-chrom-test-') {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+// 1. Linux system-Chromium preparation succeeds.
+test('B4-01. Linux system-Chromium preparation succeeds', () => {
+  const tempHome = createTempDir('b4-01-');
+  try {
+    const result = prepareChromiumSystemWebClipper({
+      homePath: tempHome,
+      platform: 'linux',
+      isPackaged: false,
+      env: {}
+    });
+
+    assert.equal(result.prepared, true);
+    assert.equal(result.browser, 'chromium-system');
+    assert.equal(result.extensionId, CHROMIUM_EXTENSION_ID);
+    assert.equal(result.extensionVersion, CHROMIUM_EXTENSION_VERSION);
+    assert.equal(result.browserRestartRequired, true);
+    assert.equal(result.crxUpdated, true);
+    assert.ok(result.crxSha256);
+    assert.equal(result.crxPath, path.join(tempHome, '.local', 'share', 'archiv-wiki', 'web-clipper', 'chromium', CRX_FILENAME));
+    assert.equal(result.registrationPath, path.join(tempHome, '.config', 'chromium', 'External Extensions', `${CHROMIUM_EXTENSION_ID}.json`));
+
+    assert.ok(fs.existsSync(result.crxPath), 'Stable CRX must exist');
+    assert.equal(fs.statSync(result.crxPath).mode & 0o777, 0o644, 'CRX permissions must be 0644');
+    assert.ok(fs.existsSync(result.registrationPath), 'Registration file must exist');
+    assert.equal(fs.statSync(result.registrationPath).mode & 0o777, 0o644, 'Registration file permissions must be 0644');
+  } finally {
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  }
+});
+
+// 2. Non-Linux platforms are rejected before persistent writes.
+test('B4-02. Non-Linux platforms are rejected before persistent writes', () => {
+  const tempHome = createTempDir('b4-02-');
+  try {
+    assert.throws(
+      () => prepareChromiumSystemWebClipper({
+        homePath: tempHome,
+        platform: 'win32',
+        isPackaged: false,
+        env: {}
+      }),
+      /ausschließlich Linux/
+    );
+    assert.equal(fs.readdirSync(tempHome).length, 0, 'No files or directories should be created on non-Linux');
+  } finally {
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  }
+});
+
+// 3. The existing full CRX validation runs before persistent writes.
+test('B4-03. The existing full CRX validation runs before persistent writes', () => {
+  const tempHome = createTempDir('b4-03-home-');
+  const tempRes = createTempDir('b4-03-res-');
+  try {
+    const invalidCrxDir = path.join(tempRes, 'web-clipper', 'chromium');
+    fs.mkdirSync(invalidCrxDir, { recursive: true });
+    fs.writeFileSync(path.join(invalidCrxDir, CRX_FILENAME), 'NOT_A_VALID_CRX_FILE');
+
+    assert.throws(
+      () => prepareChromiumSystemWebClipper({
+        resourcesPath: tempRes,
+        homePath: tempHome,
+        platform: 'linux',
+        isPackaged: true,
+        env: {}
+      }),
+      /CRX/
+    );
+    assert.equal(fs.readdirSync(tempHome).length, 0, 'No persistent writes on invalid CRX');
+  } finally {
+    fs.rmSync(tempHome, { recursive: true, force: true });
+    fs.rmSync(tempRes, { recursive: true, force: true });
+  }
+});
+
+// 4. Invalid CRX input leaves no registration file.
+test('B4-04. Invalid CRX input leaves no registration file', () => {
+  const tempHome = createTempDir('b4-04-home-');
+  const tempRes = createTempDir('b4-04-res-');
+  try {
+    const invalidCrxDir = path.join(tempRes, 'web-clipper', 'chromium');
+    fs.mkdirSync(invalidCrxDir, { recursive: true });
+    // Cr24 header but truncated
+    fs.writeFileSync(path.join(invalidCrxDir, CRX_FILENAME), Buffer.from('Cr24\x03\x00\x00\x00\x00\x00\x00\x00', 'binary'));
+
+    assert.throws(
+      () => prepareChromiumSystemWebClipper({
+        resourcesPath: tempRes,
+        homePath: tempHome,
+        platform: 'linux',
+        isPackaged: true,
+        env: {}
+      }),
+      /CRX/
+    );
+    const regPath = getChromiumSystemRegistrationPath({ homePath: tempHome, env: {} });
+    assert.equal(fs.existsSync(regPath), false, 'Registration file must not exist');
+  } finally {
+    fs.rmSync(tempHome, { recursive: true, force: true });
+    fs.rmSync(tempRes, { recursive: true, force: true });
+  }
+});
+
+// 5. The stable CRX path uses absolute XDG_DATA_HOME when supplied.
+test('B4-05. The stable CRX path uses absolute XDG_DATA_HOME when supplied', () => {
+  const tempDir = createTempDir('b4-05-');
+  try {
+    const customData = path.join(tempDir, 'custom-data');
+    const resultPath = getChromiumSystemStableCrxPath({
+      homePath: path.join(tempDir, 'fallback-home'),
+      env: { XDG_DATA_HOME: customData }
+    });
+    assert.equal(resultPath, path.join(customData, 'archiv-wiki', 'web-clipper', 'chromium', CRX_FILENAME));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// 6. Missing or relative XDG_DATA_HOME falls back safely under absolute homePath.
+test('B4-06. Missing or relative XDG_DATA_HOME falls back safely under absolute homePath', () => {
+  const tempDir = createTempDir('b4-06-');
+  try {
+    const absHome = path.join(tempDir, 'abs-home');
+    const expected = path.join(absHome, '.local', 'share', 'archiv-wiki', 'web-clipper', 'chromium', CRX_FILENAME);
+
+    // Relative XDG_DATA_HOME
+    assert.equal(getChromiumSystemStableCrxPath({ homePath: absHome, env: { XDG_DATA_HOME: 'relative/path' } }), expected);
+    // Empty XDG_DATA_HOME
+    assert.equal(getChromiumSystemStableCrxPath({ homePath: absHome, env: { XDG_DATA_HOME: '   ' } }), expected);
+    // Missing XDG_DATA_HOME
+    assert.equal(getChromiumSystemStableCrxPath({ homePath: absHome, env: {} }), expected);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// 7. The registration path uses absolute XDG_CONFIG_HOME when supplied.
+test('B4-07. The registration path uses absolute XDG_CONFIG_HOME when supplied', () => {
+  const tempDir = createTempDir('b4-07-');
+  try {
+    const customConfig = path.join(tempDir, 'custom-config');
+    const resultPath = getChromiumSystemRegistrationPath({
+      homePath: path.join(tempDir, 'fallback-home'),
+      env: { XDG_CONFIG_HOME: customConfig }
+    });
+    assert.equal(resultPath, path.join(customConfig, 'chromium', 'External Extensions', `${CHROMIUM_EXTENSION_ID}.json`));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// 8. Missing or relative XDG_CONFIG_HOME falls back safely under absolute homePath.
+test('B4-08. Missing or relative XDG_CONFIG_HOME falls back safely under absolute homePath', () => {
+  const tempDir = createTempDir('b4-08-');
+  try {
+    const absHome = path.join(tempDir, 'abs-home');
+    const expected = path.join(absHome, '.config', 'chromium', 'External Extensions', `${CHROMIUM_EXTENSION_ID}.json`);
+
+    // Relative XDG_CONFIG_HOME
+    assert.equal(getChromiumSystemRegistrationPath({ homePath: absHome, env: { XDG_CONFIG_HOME: 'relative/config' } }), expected);
+    // Empty XDG_CONFIG_HOME
+    assert.equal(getChromiumSystemRegistrationPath({ homePath: absHome, env: { XDG_CONFIG_HOME: '' } }), expected);
+    // Missing XDG_CONFIG_HOME
+    assert.equal(getChromiumSystemRegistrationPath({ homePath: absHome, env: {} }), expected);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// 9. Relative or missing homePath is rejected when required.
+test('B4-09. Relative or missing homePath is rejected when required', () => {
+  assert.throws(() => getChromiumSystemStableCrxPath({ homePath: 'relative/home', env: {} }), /Pfad sein/);
+  assert.throws(() => getChromiumSystemRegistrationPath({ homePath: 'relative/home', env: {} }), /Pfad sein/);
+  assert.throws(() => getChromiumSystemStableCrxPath({ env: {} }), /Pfad sein/);
+  assert.throws(() => getChromiumSystemRegistrationPath({ env: {} }), /Pfad sein/);
+  assert.throws(() => prepareChromiumSystemWebClipper({ homePath: 'relative/home', platform: 'linux', isPackaged: false, env: {} }), /Pfad sein/);
+  assert.throws(() => prepareChromiumSystemWebClipper({ platform: 'linux', isPackaged: false, env: {} }), /Pfad sein/);
+});
+
+// 10. The exact extension ID and version are written.
+test('B4-10. The exact extension ID and version are written', () => {
+  const tempHome = createTempDir('b4-10-');
+  try {
+    const result = prepareChromiumSystemWebClipper({
+      homePath: tempHome,
+      platform: 'linux',
+      isPackaged: false,
+      env: {}
+    });
+
+    assert.equal(path.basename(result.registrationPath), `${CHROMIUM_EXTENSION_ID}.json`);
+    const parsed = JSON.parse(fs.readFileSync(result.registrationPath, 'utf8'));
+    assert.equal(parsed.external_version, CHROMIUM_EXTENSION_VERSION);
+    assert.equal(parsed.external_version, '0.2.1');
+    assert.equal(result.extensionId, 'dengpgfllpkndkgkbikigaejieogndbp');
+  } finally {
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  }
+});
+
+// 11. The JSON contains external_crx and external_version and no unrelated fields.
+test('B4-11. The JSON contains external_crx and external_version and no unrelated fields', () => {
+  const tempHome = createTempDir('b4-11-');
+  try {
+    const result = prepareChromiumSystemWebClipper({
+      homePath: tempHome,
+      platform: 'linux',
+      isPackaged: false,
+      env: {}
+    });
+
+    const raw = fs.readFileSync(result.registrationPath, 'utf8');
+    assert.ok(raw.endsWith('\n'), 'JSON must end with a newline');
+    const parsed = JSON.parse(raw);
+    const keys = Object.keys(parsed).sort();
+    assert.deepEqual(keys, ['external_crx', 'external_version']);
+    assert.equal(parsed.external_crx, result.crxPath);
+    assert.equal(parsed.external_version, '0.2.1');
+  } finally {
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  }
+});
+
+// 12. The CRX is not recopied when its content is unchanged.
+test('B4-12. The CRX is not recopied when its content is unchanged', () => {
+  const tempHome = createTempDir('b4-12-');
+  try {
+    const res1 = prepareChromiumSystemWebClipper({
+      homePath: tempHome,
+      platform: 'linux',
+      isPackaged: false,
+      env: {}
+    });
+    assert.equal(res1.crxUpdated, true);
+
+    const stat1 = fs.statSync(res1.crxPath);
+
+    const res2 = prepareChromiumSystemWebClipper({
+      homePath: tempHome,
+      platform: 'linux',
+      isPackaged: false,
+      env: {}
+    });
+    assert.equal(res2.crxUpdated, false, 'CRX should not be recopied if identical');
+
+    const stat2 = fs.statSync(res2.crxPath);
+    assert.equal(stat1.mtimeMs, stat2.mtimeMs, 'File modification time should not change');
+  } finally {
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  }
+});
+
+// 13. The CRX is atomically updated when its content differs.
+test('B4-13. The CRX is atomically updated when its content differs', () => {
+  const tempHome = createTempDir('b4-13-');
+  try {
+    const res1 = prepareChromiumSystemWebClipper({
+      homePath: tempHome,
+      platform: 'linux',
+      isPackaged: false,
+      env: {}
+    });
+    assert.equal(res1.crxUpdated, true);
+
+    // Overwrite target CRX with different dummy content
+    fs.writeFileSync(res1.crxPath, 'different-dummy-content-1234');
+
+    const res2 = prepareChromiumSystemWebClipper({
+      homePath: tempHome,
+      platform: 'linux',
+      isPackaged: false,
+      env: {}
+    });
+    assert.equal(res2.crxUpdated, true, 'CRX must be updated when content differs');
+
+    // Verify it is restored to valid CRX content
+    const verified = inspectCrxFile(res2.crxPath);
+    assert.equal(verified.extensionId, CHROMIUM_EXTENSION_ID);
+  } finally {
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  }
+});
+
+// 14. Required directories are created, but unrelated files are preserved.
+test('B4-14. Required directories are created, but unrelated files are preserved', () => {
+  const tempHome = createTempDir('b4-14-');
+  try {
+    const extDir = path.join(tempHome, '.config', 'chromium', 'External Extensions');
+    fs.mkdirSync(extDir, { recursive: true });
+    const unrelatedFile = path.join(extDir, 'other-extension.json');
+    fs.writeFileSync(unrelatedFile, '{"unrelated": true}');
+
+    const result = prepareChromiumSystemWebClipper({
+      homePath: tempHome,
+      platform: 'linux',
+      isPackaged: false,
+      env: {}
+    });
+
+    assert.ok(fs.existsSync(result.registrationPath), 'Registration file exists');
+    assert.ok(fs.existsSync(unrelatedFile), 'Unrelated file must be preserved');
+    assert.equal(fs.readFileSync(unrelatedFile, 'utf8'), '{"unrelated": true}');
+  } finally {
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  }
+});
+
+// 15. The fixed IPC handler is registered.
+test('B4-15. The fixed IPC handler is registered', () => {
+  const ipcMain = createMockIpcMain();
+  registerWebClipperDistributionIpc({ ipcMain });
+  assert.equal(ipcMain.hasHandler('webclip:prepareChromiumSystem'), true);
+});
+
+// 16. The IPC handler accepts no renderer-controlled browser or path argument.
+test('B4-16. The IPC handler accepts no renderer-controlled browser or path argument', async () => {
+  const ipcMain = createMockIpcMain();
+  let receivedArgs = null;
+  const mockPrepare = async (...args) => {
+    receivedArgs = args;
+    return { prepared: true };
+  };
+
+  registerWebClipperDistributionIpc({
+    ipcMain,
+    resourcesPath: '/app/resources',
+    homePath: '/home/user',
+    platform: 'linux',
+    isPackaged: true,
+    prepareChromiumSystem: mockPrepare
+  });
+
+  const handler = ipcMain.getHandler('webclip:prepareChromiumSystem');
+  await handler({ sender: {} }, 'malicious-browser', '/etc/shadow', { inject: true });
+
+  assert.equal(receivedArgs.length, 1);
+  assert.deepEqual(receivedArgs[0], {
+    resourcesPath: '/app/resources',
+    homePath: '/home/user',
+    platform: 'linux',
+    isPackaged: true
+  });
+});
+
+// 17. The preload method invokes only the fixed channel and passes no arguments.
+test('B4-17. The preload method invokes only the fixed channel and passes no arguments', () => {
+  const preloadSource = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf8');
+  assert.match(
+    preloadSource,
+    /prepareChromiumSystem:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('webclip:prepareChromiumSystem'\)/
+  );
+  const match = preloadSource.match(/prepareChromiumSystem:\s*(\([^)]*\))\s*=>\s*ipcRenderer\.invoke\(([^)]+)\)/);
+  assert.ok(match);
+  assert.equal(match[1].trim(), '()', 'prepareChromiumSystem must have no parameters');
+  assert.equal(match[2].trim(), "'webclip:prepareChromiumSystem'", 'invoke must pass exactly the fixed channel');
+});
+
+// 18. Only chromium/system gets the new UI action.
+test('B4-18. Only chromium/system gets the new UI action', () => {
+  const render = loadRenderDetectedBrowsersHtml();
+  const html = render({
+    result: {
+      platform: 'linux',
+      supported: true,
+      flatpakStatus: 'ok',
+      browsers: [{ id: 'chromium', name: 'Chromium', installType: 'system' }]
+    }
+  });
+
+  assert.ok(html.includes('Chromium'));
+  assert.ok(html.includes('Systeminstallation erkannt'));
+  assert.ok(html.includes('stPrepareChromiumSystemWebClipper'));
+  assert.ok(html.includes('Vorbereiten'));
+  assert.ok(html.includes('stChromiumSystemFeedback'));
+  assert.ok(html.includes('Bereitet die mitgelieferte Erweiterung ohne Entwicklermodus vor. Wirkt nach einem vollständigen Neustart von Chromium.'));
+  assert.ok(!html.includes('Einrichtung für diese Installationsart noch nicht verfügbar.'));
+});
+
+// 19. Chromium Flatpak does not get the action.
+test('B4-19. Chromium Flatpak does not get the action', () => {
+  const render = loadRenderDetectedBrowsersHtml();
+  const html = render({
+    result: {
+      platform: 'linux',
+      supported: true,
+      flatpakStatus: 'ok',
+      browsers: [{ id: 'chromium', name: 'Chromium', installType: 'flatpak' }]
+    }
+  });
+
+  assert.ok(html.includes('Chromium'));
+  assert.ok(html.includes('Flatpak erkannt'));
+  assert.ok(html.includes('Einrichtung für diese Installationsart noch nicht verfügbar.'));
+  assert.ok(!html.includes('stPrepareChromiumSystemWebClipper'));
+});
+
+// 20. Google Chrome and Brave system do not get the Chromium action.
+test('B4-20. Google Chrome and Brave system do not get the action', () => {
+  const render = loadRenderDetectedBrowsersHtml();
+  const otherBrowsers = [
+    { id: 'google-chrome', name: 'Google Chrome', installType: 'system' },
+    { id: 'google-chrome', name: 'Google Chrome', installType: 'flatpak' },
+    { id: 'brave', name: 'Brave', installType: 'system' }
+  ];
+
+  for (const b of otherBrowsers) {
+    const html = render({
+      result: { platform: 'linux', supported: true, flatpakStatus: 'ok', browsers: [b] }
+    });
+    assert.ok(html.includes('Einrichtung für diese Installationsart noch nicht verfügbar.'));
+    assert.ok(!html.includes('stPrepareChromiumSystemWebClipper'));
+  }
+});
+
+// 21. Firefox system behavior remains unchanged.
+test('B4-21. Firefox system behavior remains unchanged', () => {
+  const render = loadRenderDetectedBrowsersHtml();
+  const html = render({
+    result: {
+      platform: 'linux',
+      supported: true,
+      flatpakStatus: 'ok',
+      browsers: [{ id: 'firefox', name: 'Firefox', installType: 'system' }]
+    }
+  });
+
+  assert.ok(html.includes('stOpenFirefoxAmo'));
+  assert.ok(html.includes('Installieren'));
+  assert.ok(html.includes('Öffnet die Erweiterung bei Mozilla Add-ons.'));
+  assert.ok(!html.includes('stPrepareChromiumSystemWebClipper'));
+});
+
+// 22. Brave Flatpak behavior remains unchanged.
+test('B4-22. Brave Flatpak behavior remains unchanged', () => {
+  const render = loadRenderDetectedBrowsersHtml();
+  const html = render({
+    result: {
+      platform: 'linux',
+      supported: true,
+      flatpakStatus: 'ok',
+      browsers: [{ id: 'brave', name: 'Brave', installType: 'flatpak' }]
+    }
+  });
+
+  assert.ok(html.includes('stInstallBraveWebClipper'));
+  assert.ok(html.includes('Vorbereiten'));
+  assert.ok(html.includes('stBraveFeedback'));
+  assert.ok(html.includes('stRevokeBraveWrap'));
+  assert.ok(!html.includes('stPrepareChromiumSystemWebClipper'));
+});
+
+// 23. Preparation errors remain visible in the UI.
+test('B4-23. Preparation errors remain visible in the UI', async () => {
+  const chromButton = {
+    id: 'stPrepareChromiumSystemWebClipper',
+    disabled: false,
+    textContent: 'Vorbereiten',
+    _listeners: new Map(),
+    addEventListener(e, fn) { (this._listeners.get(e) || (this._listeners.set(e, []), this._listeners.get(e))).push(fn); },
+    click() {
+      const fns = this._listeners.get('click') || [];
+      return Promise.all(fns.map(fn => fn({ currentTarget: this })));
+    }
+  };
+  const feedback = { id: 'stChromiumSystemFeedback', textContent: '' };
+  const container = {
+    elements: {
+      '#stPrepareChromiumSystemWebClipper': chromButton,
+      '#stChromiumSystemFeedback': feedback
+    },
+    querySelector(sel) { return this.elements[sel] || null; }
+  };
+
+  const { wireDetectedBrowserActions } = loadWireDetectedBrowserActions({
+    console: { error: () => {}, log: () => {} },
+    window: {
+      archivAPI: {
+        webClipper: {
+          prepareChromiumSystem: async () => {
+            throw new Error('Test preparation error: disk full');
+          }
+        }
+      }
+    }
+  });
+
+  wireDetectedBrowserActions(container, { isCurrent: () => true });
+  await chromButton.click();
+
+  assert.equal(feedback.textContent, 'Test preparation error: disk full');
+  assert.equal(chromButton.textContent, 'Erneut versuchen');
+  assert.equal(chromButton.disabled, false);
+});
+
+// 24. The detected browser row remains visible before and after action handling.
+test('B4-24. The detected browser row remains visible before and after action handling', async () => {
+  const chromButton = {
+    id: 'stPrepareChromiumSystemWebClipper',
+    disabled: false,
+    textContent: 'Vorbereiten',
+    _listeners: new Map(),
+    addEventListener(e, fn) { (this._listeners.get(e) || (this._listeners.set(e, []), this._listeners.get(e))).push(fn); },
+    click() {
+      const fns = this._listeners.get('click') || [];
+      return Promise.all(fns.map(fn => fn({ currentTarget: this })));
+    }
+  };
+  const feedback = { id: 'stChromiumSystemFeedback', textContent: '' };
+  const rowElement = { id: 'row-chromium-system', hidden: false };
+
+  const container = {
+    elements: {
+      '#row-chromium-system': rowElement,
+      '#stPrepareChromiumSystemWebClipper': chromButton,
+      '#stChromiumSystemFeedback': feedback
+    },
+    querySelector(sel) { return this.elements[sel] || null; }
+  };
+
+  let prepareCalls = 0;
+  const { wireDetectedBrowserActions } = loadWireDetectedBrowserActions({
+    window: {
+      archivAPI: {
+        webClipper: {
+          prepareChromiumSystem: async () => {
+            prepareCalls++;
+            return { prepared: true };
+          }
+        }
+      }
+    }
+  });
+
+  wireDetectedBrowserActions(container, { isCurrent: () => true });
+  assert.equal(rowElement.hidden, false, 'Row is visible initially');
+
+  await chromButton.click();
+
+  assert.equal(prepareCalls, 1);
+  assert.equal(rowElement.hidden, false, 'Row remains visible after preparation');
+  assert.equal(feedback.textContent, 'Vorbereitet. Chromium vollständig schließen und neu starten. Eine Rückfrage des Browsers zur Erweiterung gegebenenfalls bestätigen.');
+  assert.equal(chromButton.textContent, 'Erneut vorbereiten');
+  assert.equal(chromButton.disabled, false);
+});
+
+// 25. No Chrome Web Store URL or Store wording is introduced.
+test('B4-25. No Chrome Web Store URL or Store wording is introduced', () => {
+  const filesToCheck = [
+    path.join(__dirname, '..', 'main', 'webclip-distribution.js'),
+    path.join(__dirname, '..', 'preload.js'),
+    path.join(__dirname, '..', 'renderer', 'js', 'settings-window.js')
+  ];
+
+  for (const filePath of filesToCheck) {
+    const content = fs.readFileSync(filePath, 'utf8');
+    assert.doesNotMatch(content, /chrome\.google\.com\/webstore/i, `No Web Store URL in ${path.basename(filePath)}`);
+    assert.doesNotMatch(content, /chromewebstore/i, `No chromewebstore in ${path.basename(filePath)}`);
+    assert.doesNotMatch(content, /Chrome Web Store/i, `No Chrome Web Store wording in ${path.basename(filePath)}`);
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// TEIL 4: install-native-host.sh — system-Chromium XDG_CONFIG_HOME path
+// alignment correction (fixes a split between the Native Messaging manifest
+// directory and the extension-registration directory used by
+// main/webclip-distribution.js for normal system Chromium).
+//
+// Every test below runs the real installer script as a subprocess with a
+// fully isolated, temporary environment (HOME, XDG_CONFIG_HOME,
+// XDG_DATA_HOME, PATH). Nothing under the real HOME, the real
+// XDG_CONFIG_HOME, ~/.config, ~/.mozilla, ~/.var/app, ~/snap, a real
+// Chromium/Brave profile, or the real Archiv-Wiki wiki is ever touched.
+// A stub "flatpak" binary that always fails is prepended to PATH so no real
+// Flatpak installation is ever queried or acted upon. The AppImage passed to
+// the installer is a dummy file that is only ever referenced by path — it is
+// never executed, which each test verifies via an execution marker.
+// ════════════════════════════════════════════════════════════════════════════
+
+const INSTALLER_SCRIPT = path.join(__dirname, '..', 'extension', 'native-host', 'install-native-host.sh');
+const NATIVE_HOST_MANIFEST_NAME = 'de.smashii.archivwiki.webclip.json';
+const NATIVE_MESSAGING_CHROMIUM_EXTENSION_ORIGIN = 'chrome-extension://dengpgfllpkndkgkbikigaejieogndbp/';
+
+// Creates an isolated run directory containing:
+//  - bin/flatpak       a stub that always reports failure (non-success status)
+//  - dummy.AppImage    an absolute, executable file that is never invoked by
+//                       the installer itself; if it were ever executed, it
+//                       would create EXECUTED_MARKER next to itself.
+function createIsolatedRun(prefix) {
+  const runDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const binDir = path.join(runDir, 'bin');
+  fs.mkdirSync(binDir);
+
+  const flatpakStub = path.join(binDir, 'flatpak');
+  fs.writeFileSync(flatpakStub, '#!/usr/bin/env bash\nexit 1\n');
+  fs.chmodSync(flatpakStub, 0o755);
+
+  const appImagePath = path.join(runDir, 'Archiv-Wiki-dummy.AppImage');
+  const markerPath = path.join(runDir, 'EXECUTED_MARKER');
+  fs.writeFileSync(
+    appImagePath,
+    `#!/usr/bin/env bash\ntouch "${markerPath}"\nexit 1\n`
+  );
+  fs.chmodSync(appImagePath, 0o755);
+
+  return { runDir, binDir, appImagePath, markerPath };
+}
+
+// Runs the real installer in --appimage mode against a fully isolated
+// environment. `home`/`xdgConfigHome`/`xdgDataHome` of `undefined` means the
+// corresponding variable is entirely absent from the child environment
+// (not merely empty) — spawnSync's `env` fully replaces the child's
+// environment, it does not merge with process.env.
+function runInstaller({ runInfo, home, xdgConfigHome, xdgDataHome, cwd }) {
+  const env = {
+    PATH: `${runInfo.binDir}:/usr/bin:/bin`
+  };
+  if (home !== undefined) env.HOME = home;
+  if (xdgConfigHome !== undefined) env.XDG_CONFIG_HOME = xdgConfigHome;
+  if (xdgDataHome !== undefined) env.XDG_DATA_HOME = xdgDataHome;
+
+  return spawnSync('bash', [INSTALLER_SCRIPT, '--appimage', runInfo.appImagePath], {
+    env,
+    cwd: cwd || runInfo.runDir,
+    encoding: 'utf8',
+    timeout: 15000
+  });
+}
+
+function cleanupRun(runInfo) {
+  fs.rmSync(runInfo.runDir, { recursive: true, force: true });
+}
+
+function assertAppImageNeverExecuted(runInfo) {
+  assert.equal(fs.existsSync(runInfo.markerPath), false, 'Dummy AppImage must never be executed');
+}
+
+// 26. Absolute XDG_CONFIG_HOME: manifest lands under XDG_CONFIG_HOME, not under HOME/.config.
+test('B4-26. Absolute XDG_CONFIG_HOME places the Chromium manifest under XDG_CONFIG_HOME, never under HOME/.config', () => {
+  const runInfo = createIsolatedRun('aw-xdg-abs-');
+  try {
+    const home = path.join(runInfo.runDir, 'home');
+    const xdgConfigHome = path.join(runInfo.runDir, 'custom-config');
+    const xdgDataHome = path.join(runInfo.runDir, 'custom-data');
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(xdgConfigHome, { recursive: true });
+    fs.mkdirSync(xdgDataHome, { recursive: true });
+
+    const result = runInstaller({ runInfo, home, xdgConfigHome, xdgDataHome });
+
+    assert.equal(result.status, 0, `Installer must succeed. stderr: ${result.stderr}`);
+
+    const expectedManifest = path.join(xdgConfigHome, 'chromium', 'NativeMessagingHosts', NATIVE_HOST_MANIFEST_NAME);
+    const legacyManifest = path.join(home, '.config', 'chromium', 'NativeMessagingHosts', NATIVE_HOST_MANIFEST_NAME);
+
+    assert.ok(fs.existsSync(expectedManifest), `Manifest must exist under XDG_CONFIG_HOME: ${expectedManifest}`);
+    assert.equal(fs.existsSync(legacyManifest), false, 'No Chromium manifest must exist under HOME/.config when XDG_CONFIG_HOME is absolute');
+
+    assertAppImageNeverExecuted(runInfo);
+  } finally {
+    cleanupRun(runInfo);
+  }
+});
+
+// 27. Missing XDG_CONFIG_HOME: HOME/.config fallback is used.
+test('B4-27. Missing XDG_CONFIG_HOME falls back to HOME/.config for the Chromium manifest', () => {
+  const runInfo = createIsolatedRun('aw-xdg-missing-');
+  try {
+    const home = path.join(runInfo.runDir, 'home');
+    const xdgDataHome = path.join(runInfo.runDir, 'custom-data');
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(xdgDataHome, { recursive: true });
+
+    const result = runInstaller({ runInfo, home, xdgConfigHome: undefined, xdgDataHome });
+
+    assert.equal(result.status, 0, `Installer must succeed. stderr: ${result.stderr}`);
+
+    const expectedManifest = path.join(home, '.config', 'chromium', 'NativeMessagingHosts', NATIVE_HOST_MANIFEST_NAME);
+    assert.ok(fs.existsSync(expectedManifest), `Manifest must exist under HOME/.config: ${expectedManifest}`);
+
+    assertAppImageNeverExecuted(runInfo);
+  } finally {
+    cleanupRun(runInfo);
+  }
+});
+
+// 28. Empty XDG_CONFIG_HOME: same HOME/.config fallback is used.
+test('B4-28. Empty XDG_CONFIG_HOME falls back to HOME/.config for the Chromium manifest', () => {
+  const runInfo = createIsolatedRun('aw-xdg-empty-');
+  try {
+    const home = path.join(runInfo.runDir, 'home');
+    const xdgDataHome = path.join(runInfo.runDir, 'custom-data');
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(xdgDataHome, { recursive: true });
+
+    const result = runInstaller({ runInfo, home, xdgConfigHome: '', xdgDataHome });
+
+    assert.equal(result.status, 0, `Installer must succeed. stderr: ${result.stderr}`);
+
+    const expectedManifest = path.join(home, '.config', 'chromium', 'NativeMessagingHosts', NATIVE_HOST_MANIFEST_NAME);
+    assert.ok(fs.existsSync(expectedManifest), `Manifest must exist under HOME/.config: ${expectedManifest}`);
+
+    assertAppImageNeverExecuted(runInfo);
+  } finally {
+    cleanupRun(runInfo);
+  }
+});
+
+// 29. Relative XDG_CONFIG_HOME: ignored; HOME/.config fallback is used; nothing relative is written.
+test('B4-29. Relative XDG_CONFIG_HOME is ignored; HOME/.config fallback is used and nothing relative is written', () => {
+  const runInfo = createIsolatedRun('aw-xdg-relative-');
+  try {
+    const home = path.join(runInfo.runDir, 'home');
+    const xdgDataHome = path.join(runInfo.runDir, 'custom-data');
+    const cwd = path.join(runInfo.runDir, 'cwd-marker');
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(xdgDataHome, { recursive: true });
+    fs.mkdirSync(cwd, { recursive: true });
+
+    const result = runInstaller({ runInfo, home, xdgConfigHome: 'relative/config-dir', xdgDataHome, cwd });
+
+    assert.equal(result.status, 0, `Installer must succeed. stderr: ${result.stderr}`);
+
+    const expectedManifest = path.join(home, '.config', 'chromium', 'NativeMessagingHosts', NATIVE_HOST_MANIFEST_NAME);
+    assert.ok(fs.existsSync(expectedManifest), `Manifest must exist under HOME/.config: ${expectedManifest}`);
+
+    // Nothing must have been written relative to the process cwd.
+    const relativeTarget = path.join(cwd, 'relative', 'config-dir');
+    assert.equal(fs.existsSync(relativeTarget), false, 'No relative XDG_CONFIG_HOME target must be created');
+    assert.deepEqual(fs.readdirSync(cwd), [], 'cwd must remain untouched');
+
+    assertAppImageNeverExecuted(runInfo);
+  } finally {
+    cleanupRun(runInfo);
+  }
+});
+
+// 30. Missing or relative HOME when the fallback is required: fail clearly, write nothing.
+test('B4-30. Missing or relative HOME fails clearly when the HOME/.config fallback is required, writing no Chromium manifest', () => {
+  const runInfo = createIsolatedRun('aw-home-invalid-');
+  try {
+    const xdgDataHome = path.join(runInfo.runDir, 'custom-data');
+    fs.mkdirSync(xdgDataHome, { recursive: true });
+
+    // Sub-case A: HOME entirely absent from the environment.
+    const cwdA = path.join(runInfo.runDir, 'cwd-a');
+    fs.mkdirSync(cwdA, { recursive: true });
+    const resultA = runInstaller({ runInfo, home: undefined, xdgConfigHome: undefined, xdgDataHome, cwd: cwdA });
+    assert.notEqual(resultA.status, 0, 'Installer must fail when HOME is missing and XDG_CONFIG_HOME is missing');
+    assert.match(resultA.stderr, /Chromium-Konfigurationswurzel/, 'Installer must report a clear error');
+    assert.deepEqual(fs.readdirSync(cwdA), [], 'No files must be created when HOME is missing');
+
+    // Sub-case B: HOME set to a relative value.
+    const cwdB = path.join(runInfo.runDir, 'cwd-b');
+    fs.mkdirSync(cwdB, { recursive: true });
+    const resultB = runInstaller({ runInfo, home: 'relative-home-dir', xdgConfigHome: undefined, xdgDataHome, cwd: cwdB });
+    assert.notEqual(resultB.status, 0, 'Installer must fail when HOME is relative and XDG_CONFIG_HOME is missing');
+    assert.match(resultB.stderr, /Chromium-Konfigurationswurzel/, 'Installer must report a clear error');
+    assert.deepEqual(fs.readdirSync(cwdB), [], 'No files must be created when HOME is relative');
+    assert.equal(fs.existsSync(path.join(cwdB, 'relative-home-dir')), false, 'No relative HOME target must be created');
+
+    assertAppImageNeverExecuted(runInfo);
+  } finally {
+    cleanupRun(runInfo);
+  }
+});
+
+// 31. Manifest integrity: filename, allowed_origins, and the stable host path.
+test('B4-31. Manifest integrity: filename, allowed_origins, and stable host path are exact', () => {
+  const runInfo = createIsolatedRun('aw-integrity-');
+  try {
+    const home = path.join(runInfo.runDir, 'home');
+    const xdgConfigHome = path.join(runInfo.runDir, 'custom-config');
+    const xdgDataHome = path.join(runInfo.runDir, 'custom-data');
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(xdgConfigHome, { recursive: true });
+    fs.mkdirSync(xdgDataHome, { recursive: true });
+
+    const result = runInstaller({ runInfo, home, xdgConfigHome, xdgDataHome });
+    assert.equal(result.status, 0, `Installer must succeed. stderr: ${result.stderr}`);
+
+    const manifestPath = path.join(xdgConfigHome, 'chromium', 'NativeMessagingHosts', NATIVE_HOST_MANIFEST_NAME);
+    assert.ok(fs.existsSync(manifestPath));
+    assert.equal(path.basename(manifestPath), NATIVE_HOST_MANIFEST_NAME);
+
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    assert.equal(parsed.name, 'de.smashii.archivwiki.webclip');
+    assert.deepEqual(parsed.allowed_origins, [NATIVE_MESSAGING_CHROMIUM_EXTENSION_ORIGIN]);
+
+    const expectedStableHostPath = path.join(
+      xdgDataHome, 'archiv-wiki', 'native-host', 'extension', 'native-host', 'archiv-wiki-native-host'
+    );
+    assert.equal(parsed.path, expectedStableHostPath, 'Manifest must point to the stable generated Native Messaging host');
+    assert.ok(fs.existsSync(expectedStableHostPath), 'The stable generated host file must actually exist');
+
+    assertAppImageNeverExecuted(runInfo);
+  } finally {
+    cleanupRun(runInfo);
+  }
+});
+
+// 32. Existing browser boundaries: Firefox, Brave Flatpak, Google Chrome, and Brave system are unchanged.
+test('B4-32. Existing Firefox, Brave Flatpak, Google Chrome, and Brave system paths are unchanged by this correction', () => {
+  const runInfo = createIsolatedRun('aw-boundaries-');
+  try {
+    const home = path.join(runInfo.runDir, 'home');
+    const xdgConfigHome = path.join(runInfo.runDir, 'custom-config');
+    const xdgDataHome = path.join(runInfo.runDir, 'custom-data');
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(xdgConfigHome, { recursive: true });
+    fs.mkdirSync(xdgDataHome, { recursive: true });
+
+    const result = runInstaller({ runInfo, home, xdgConfigHome, xdgDataHome });
+    assert.equal(result.status, 0, `Installer must succeed. stderr: ${result.stderr}`);
+
+    // Firefox: unrelated to XDG_CONFIG_HOME, still under HOME/.mozilla.
+    const firefoxManifest = path.join(home, '.mozilla', 'native-messaging-hosts', NATIVE_HOST_MANIFEST_NAME);
+    assert.ok(fs.existsSync(firefoxManifest), 'Firefox manifest path must remain unchanged');
+
+    // Google Chrome, Brave (system): still under HOME/.config, NOT under XDG_CONFIG_HOME.
+    const chromeManifest = path.join(home, '.config', 'google-chrome', 'NativeMessagingHosts', NATIVE_HOST_MANIFEST_NAME);
+    const braveManifest = path.join(home, '.config', 'BraveSoftware', 'Brave-Browser', 'NativeMessagingHosts', NATIVE_HOST_MANIFEST_NAME);
+    assert.ok(fs.existsSync(chromeManifest), 'Google Chrome manifest path must remain unchanged (HOME/.config)');
+    assert.ok(fs.existsSync(braveManifest), 'Brave system manifest path must remain unchanged (HOME/.config)');
+
+    const chromeUnderXdg = path.join(xdgConfigHome, 'google-chrome', 'NativeMessagingHosts', NATIVE_HOST_MANIFEST_NAME);
+    const braveUnderXdg = path.join(xdgConfigHome, 'BraveSoftware', 'Brave-Browser', 'NativeMessagingHosts', NATIVE_HOST_MANIFEST_NAME);
+    assert.equal(fs.existsSync(chromeUnderXdg), false, 'Google Chrome must not follow the new XDG_CONFIG_HOME rule');
+    assert.equal(fs.existsSync(braveUnderXdg), false, 'Brave system must not follow the new XDG_CONFIG_HOME rule');
+
+    // Vivaldi support was removed: no vivaldi config directory of any kind
+    // must be created by the installer.
+    assert.equal(fs.existsSync(path.join(home, '.config', 'vivaldi')), false, 'No Vivaldi config directory must be created');
+    assert.equal(fs.existsSync(path.join(xdgConfigHome, 'vivaldi')), false, 'No Vivaldi config directory must be created under XDG_CONFIG_HOME');
+    assert.equal(fs.existsSync(path.join(home, '.var', 'app', 'com.vivaldi.Vivaldi')), false, 'No Vivaldi Flatpak directory must be created');
+
+    // Brave Flatpak: our stubbed `flatpak` reports failure, so no Brave Flatpak
+    // registration must be attempted or created at all (proves the real
+    // Flatpak installation, if any exists on this machine, was never queried
+    // for a result that mattered, and nothing was written under it).
+    const braveFlatpakManifest = path.join(
+      home, '.var', 'app', 'com.brave.Browser', 'config', 'BraveSoftware', 'Brave-Browser', 'NativeMessagingHosts', NATIVE_HOST_MANIFEST_NAME
+    );
+    assert.equal(fs.existsSync(braveFlatpakManifest), false, 'Brave Flatpak must not be touched when flatpak reports failure');
+    assert.equal(fs.existsSync(path.join(home, '.var')), false, 'No .var/app directory must be created when flatpak reports failure');
+
+    assertAppImageNeverExecuted(runInfo);
+  } finally {
+    cleanupRun(runInfo);
+  }
 });
