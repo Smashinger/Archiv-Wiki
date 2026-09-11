@@ -12,7 +12,8 @@ Archiv-Wiki ist eine vollständig funktionsfähige, im täglichen Gebrauch befin
 
 ## Fertiggestellte Hauptbereiche
 
-- **Editor** (Layout, Werkzeugleiste, Schreibkomfort, Vorschau-Rendering, Navigation, Performance, Einstellungen, visuelle Feinabstimmung) — in Classic vollständig überarbeitet und final poliert
+- **Editor** (Layout, Werkzeugleiste, Schreibkomfort, Vorschau-Rendering, Navigation, Performance, Einstellungen, visuelle Feinabstimmung) — in Classic vollständig überarbeitet und final poliert. Die Werkzeugleiste erreicht seit dem 05.09.2026 auch Inline-Quelltext, horizontale Linie, Mathe-Block, „Formatierung entfernen", „Suchen und Ersetzen" sowie das Einfügen von Bildern; diese Funktionen waren zuvor ausschließlich über Rechtsklick-Menü, Anwendungsmenü oder Tastenkürzel erreichbar. Die Leiste ruft dabei dieselben Funktionen auf wie die bestehenden Wege, es gibt keine zweite Umsetzung.
+- **Bilder in Notizen** (Einfügen per Werkzeugleisten-Knopf, Ziehen aus dem Dateimanager und aus der Zwischenablage; gemeinsamer Speicherweg über `.attachments/` mit dem projektinternen `attachment:`-Präfix)
 - **Vorschau-Rendering** (Markdown-Darstellung, Callouts, Wikilinks, Bilder, Tabellen, Codeblöcke, KaTeX, Lesebreite, Druckansicht)
 - **Sidebar/Navigation** (Kategorie-Baum, Ein-/Ausklappen, Größenänderung, aktive Kategorie-Hervorhebung)
 - **Dashboard** (Statistiken, angeheftete/zuletzt bearbeitete Notizen, Sperr-/Umsortier-Funktion)
@@ -33,6 +34,8 @@ Archiv-Wiki ist eine vollständig funktionsfähige, im täglichen Gebrauch befin
 ## AI_CONTEXT-Wissensbasis
 
 Die `AI_CONTEXT`-Wissensbasis ist vollständig aufgebaut, strukturiert und fachlich bereinigt. Ihre kanonischen Zuständigkeiten sind festgelegt; sie dient als einsatzbereiter Projektkontext für zukünftige Entwicklungsarbeit.
+
+Die Nummerierung endet bei `16_WEB_CLIPPER.md`. Die frühere Datei `17_MODELL_STRATEGIE.md` wurde am 05.09.2026 entfernt, weil sie vollständig auf das nicht mehr genutzte Werkzeug OpenCode zugeschnitten war und auf eine andere Testumgebung verwies; sie war in `README.md` nicht gelistet und von keiner anderen Datei referenziert. Die Lücke ist beabsichtigt, es fehlt kein Inhalt.
 
 Aktuell befindet sich die visuelle Design2-Angleichung als laufender Arbeitsstrang in Bearbeitung (siehe „Aktuelle Priorität"); kein anderer Hauptbereich ist aktiv in Überarbeitung.
 
@@ -61,6 +64,7 @@ Der nächste Design2-Block ist noch nicht ausgewählt. Er wird aus einem aktuell
 - **Tabellen-Bearbeitungsfenster** bietet keine Zell-zu-Zell-Navigation per Pfeiltasten (nur Standard-Tab-Fokuswechsel) und ist ausschließlich per Mausklick (Doppelklick in der Vorschau) erreichbar, nicht über die Tastatur.
 - **Bild-Größen-Wrapper** passt seine eigene Breite nicht automatisch an, wenn ein Bild prozentual verkleinert wird — der umschließende Rahmen bleibt bei der ursprünglichen Breite stehen, auch wenn das sichtbare Bild selbst kleiner ist.
 - **Vorschau-Rendering bei sehr großen Dokumenten** bleibt rechenintensiv; die Häufigkeit der Aktualisierung wurde entkoppelt (Entprellung), die zugrundeliegende Rendering-Dauer selbst ist unverändert hoch.
+- **Breite der Editor-Werkzeugleiste**: Die Leiste läuft seit der Erweiterung vom 05.09.2026 in Classic bereits ab 1440 px Fensterbreite seitlich über (gemessen 150 px, vorher 6 px Rest), in Design2 ab 1440 px um 99 px. Unterhalb von 1440 px scrollte sie bereits zuvor; `overflow-x:auto` in `components.css` ist die dafür vorgesehene Absicherung. Dieser Zustand ist ausdrücklich als Kompromiss akzeptiert und **kein offener Fehler**: Ohne Ausblenden der Gruppenbeschriftungen in Classic — eine Designänderung — lässt sich 1440 px nicht halten. Ein späterer Umbau bräuchte eine neue Entscheidung, keine Fehlerbehebung.
 
 
 ## Technische Grundlagen des aktuellen Stands
@@ -70,4 +74,6 @@ Der nächste Design2-Block ist noch nicht ausgewählt. Er wird aus einem aktuell
 - Der atomare Schreibhelfer sowie die Anbindung von Notizen, Projektkonfiguration und App-State wurden mit Erfolg und simuliertem Übernahmefehler geprüft. JavaScript-Syntax und Lockdatei-Metadaten wurden erfolgreich validiert.
 - WebDAV wurde vom Nutzer im realen Betrieb als zuverlässig bestätigt. Die Downloadpfade übernehmen lokale Dateien erst nach vollständig abgeschlossenem Download atomar.
 - Bekannte Einschränkung der isolierten Build-Umgebung: `npm ci` konnte hier nicht vollständig ausgeführt werden, weil die bereitgestellte npm-Paketquelle benötigte Pakete mit HTTP 404 nicht auslieferte. Ein lokaler `npm ci`-Test mit normalem npm-Registry-Zugriff bleibt vor Veröffentlichung erforderlich.
+- Stand der lokalen Werkzeugkette (05.09.2026): Node 20.20.2 mit npm 10.8.2 aus den Fedora-Paketquellen. Die Version ist bewusst gewählt, weil sie zu electron-builder 24.13.3 und der vorhandenen `package-lock.json` passt; kritisch ist dabei der `postinstall`-Schritt `electron-builder install-app-deps`. `npm install` und `npm run dist` liefen an diesem Tag lokal mit echtem Registry-Zugriff fehlerfrei durch, `package.json` und `package-lock.json` blieben dabei unverändert. Der oben geforderte `npm ci`-Test ist damit **nicht** erledigt und steht weiterhin aus.
+- Der Testbefehl lautet `node --test test/*.test.js`. Das Sternchen wird bewusst von der Shell aufgelöst: Ein Glob-Muster in Anführungszeichen versteht der eingebaute Testrunner erst ab Node 21, eine reine Verzeichnisangabe bricht ab Node 25 mit `MODULE_NOT_FOUND` ab. Die Schreibweise ist real gegen Node 20.20.2 und Node 25.5.0 geprüft. Sie erfasst keine Unterordner von `test/`.
 - Der echte AppImage-zu-AppImage-End-to-End-Test bleibt der abschließende manuelle technische Release-Test.
