@@ -4,172 +4,121 @@
 
 **Ein persönliches Markdown-Wiki für den Linux-Desktop – für Notizen, Anleitungen, Setups und Checklisten.**
 
-Archiv-Wiki speichert dein Wissen lokal in einem eigenen Projektordner. Es benötigt keinen Account, sendet keine Telemetriedaten und funktioniert ohne Cloud. Eine optionale WebDAV-Synchronisierung kann bei Bedarf zusätzlich eingerichtet werden.
+Archiv-Wiki speichert dein Wissen lokal in einem frei wählbaren Ordner als verständliche Markdown-Dateien. Die Anwendung benötigt keinen Account, sendet keinerlei Telemetriedaten und arbeitet vollständig offline. Eine optionale WebDAV-Synchronisierung kann bei Bedarf für den Abgleich mit einer eigenen Nextcloud oder einem WebDAV-Server eingerichtet werden.
 
-## Kurzüberblick
+---
 
-- **Local First:** Deine Notizen bleiben als Markdown-Dateien in deinem eigenen Ordner.
-- **Struktur statt Dateichaos:** Hauptkategorien, Unterkategorien, Tags und interne Verlinkungen schaffen Übersicht.
-- **Schreiben und Lesen in einer Ansicht:** Markdown-Editor, Split-Ansicht und gerenderte Vorschau sind direkt integriert.
-- **Schnell wiederfinden:** Die Volltextsuche durchsucht Titel, Inhalte, Tags und Kategorien.
-- **Daten absichern:** Lokale Backups, Papierkorb und Exporte schützen vor versehentlichem Verlust.
-- **Webinhalte sammeln:** Der Web Clipper übergibt URLs, markierten Text, sichtbaren Seitentext und gezielt ausgewählte Bilder lokal an den Eingang.
-- **Optional synchronisieren:** WebDAV kann für den Abgleich mit einem eigenen Cloud-Speicher verwendet werden.
+## Auf einen Blick
 
-## Dashboard
+- **Local First:** Notizen liegen als lesbare `.md`-Dateien in deinem Dateisystem – volle Kontrolle ohne Vendor-Lock-in.
+- **Zweigeteilter Editor:** Leistungsfähige Split-Ansicht mit synchronem Scrollen, Live-Vorschau und moderner Werkzeugleiste.
+- **Struktur & Hierarchie:** Haupt- und Unterkategorien mit eigenen Icons, Tags, Backlinks und Favoriten.
+- **Web Clipper:** Schnelles Sammeln von Web-Artikeln, Codeblöcken und Bildern aus Firefox, Brave und Chromium direkt in den Eingang.
+- **Volltextsuche & Wissenspflege:** Schnelles Finden nach Begriffen, Tags oder Kategorien sowie automatische Erkennung verwaister oder defekter Links.
+- **Datensicherheit:** Automatische und manuelle ZIP-Backups, Papierkorb mit Wiederherstellung und optionaler Passwortschutz.
 
-![Dashboard von Archiv-Wiki](docs/screenshots/dashboard-aktuell.png)
+---
 
-Das Dashboard bündelt zuletzt bearbeitete, angepinnte und vorhandene Notizen. Statistiken und dezente Bedienhinweise geben Orientierung, ohne den persönlichen Arbeitsbereich zu überladen.
+## Einblicke
 
-## Was ist Archiv-Wiki?
+### Schreiben mit Live-Vorschau (Split-Ansicht)
 
-Archiv-Wiki ist eine Desktop-Anwendung für Wissen, das dauerhaft auffindbar bleiben soll: Installationsanleitungen, Problemlösungen, persönliche Dokumentationen, Ideen oder wiederkehrende Checklisten.
-
-Statt Informationen über einzelne Textdateien, Haftnotizen, Browser-Lesezeichen und Chatverläufe zu verteilen, werden sie in einem lokalen Wiki gesammelt. Die Anwendung verbindet die Offenheit von Markdown mit einer festen, übersichtlichen Oberfläche – ohne Plugin-Pflicht und ohne Bindung an einen Online-Dienst.
-
-## Die Anwendung
-
-### Schreiben mit direkter Vorschau
+Der Editor verbindet direktes Markdown-Schreiben mit einer synchronen Vorschau. Codeblöcke mit Syntaxhervorhebung, mathematische Formeln (KaTeX), Hinweisblöcke (Callouts), Tabellen und interne Wiki-Links (`[[Notiz]]`) werden in Echtzeit gerendert.
 
 ![Editor mit Sidebar und Split-Ansicht](docs/screenshots/editor-split.png)
 
-Der Editor bietet Quelltext, Vorschau oder eine frei einstellbare Split-Ansicht. Werkzeugleiste, Kontextmenü und direkte Markdown-Syntax unterstützen unterschiedliche Arbeitsweisen.
+### Zentrales Dashboard
 
-### Wissen übersichtlich organisieren
+Das Dashboard bietet beim Programmstart einen schnellen Überblick über kürzlich bearbeitete Seiten, angepinnte Favoriten, Wiki-Statistiken und die Notizstruktur.
 
-<p align="center">
-  <img src="docs/screenshots/kategorie.png" alt="Hauptkategorie in Archiv-Wiki" width="48%">
-  <img src="docs/screenshots/unterkategorie.png" alt="Unterkategorie in Archiv-Wiki" width="48%">
-</p>
+![Dashboard von Archiv-Wiki](docs/screenshots/dashboard-aktuell.png)
 
-Haupt- und Unterkategorien bilden eine klare Baumstruktur für Notizen. Eigene Icons und die sichtbare Hierarchie erleichtern die Orientierung auch in umfangreicheren Wikis.
+### Anpassbare Oberfläche & Einstellungen
 
-### Inhalte schnell wiederfinden
-
-<p align="center">
-  <img src="docs/screenshots/suche.png" alt="Volltextsuche in Archiv-Wiki" width="460">
-</p>
-
-Die Suche zeigt Titel, Textausschnitte, Tags und Kategoriepfade. Treffer werden hervorgehoben und lassen sich vollständig per Tastatur bedienen.
-
-### Einstellungen an einem Ort
+Über das zentrale Einstellungsfenster lassen sich Akzentfarben, Modus (Dunkel/Hell), Sidebar-Größe, Lesebreite, Backups, Updates und Web-Clipper-Anbindungen bequem anpassen.
 
 ![Einstellungsfenster von Archiv-Wiki](docs/screenshots/einstellungen.png)
 
-Allgemein, Darstellung, Editor, Backup, Updates, Web Clipper und Sicherheit sind in einem gemeinsamen Einstellungsfenster zusammengefasst.
+### Alternatives Oberflächendesign (Design 2 Vorschau)
 
-Unter Darstellung lässt sich zwischen **Classic**, dem etablierten Standard-Erscheinungsbild, und **Design 2**, einer optionalen Vorschau auf ein alternatives Design, wechseln; Design 2 gilt noch nicht als visuell final.
+Neben dem bewährten und produktionsreifen **Classic**-Design enthält Archiv-Wiki eine optionale Vorschau auf ein alternatives Oberflächenkonzept (**Design 2**). Es bietet eine neu gestaltete Kopf- und Themenleiste und kann in den Einstellungen jederzeit ausgewählt werden:
 
-### Lokale Backups
+![Vorschau auf das alternative Design 2](docs/screenshots/design2-preview.png)
 
-![Backup-Einstellungen von Archiv-Wiki](docs/screenshots/backup.png)
-
-Backups können automatisch nach einem gewählten Zeitplan oder jederzeit manuell erstellt werden. Status, Speicherort und Hinweise zur Wiederherstellung bleiben direkt in der Anwendung sichtbar.
-
-### Fokus-Modus
-
-![Fokus-Modus von Archiv-Wiki](docs/screenshots/focus-modus.png)
-
-Der Fokus-Modus ist bei geöffneter Notiz verfügbar. Er blendet die Sidebar vollständig aus, vergrößert den Arbeitsbereich und wechselt vorübergehend zur Editoransicht, ohne diese Auswahl projektweit zu speichern. Kopfbereich, Werkzeugleiste und Statusbereich bleiben sichtbar und bedienbar; ein zurückhaltender neutraler Schatten hebt den Arbeitsbereich räumlich hervor.
+---
 
 ## Funktionen
 
-### Schreiben und Darstellen
+### Schreiben und Gestalten
+- **Flexible Ansichten:** Wähle zwischen reinem Editor, synchroner Split-Ansicht oder voller Vorschau.
+- **Formatierung:** Schneller Zugriff über Werkzeugleiste, Kontextmenü oder gewohnte Markdown-Syntax.
+- **Erweiterte Elemente:** Tabellen (mit interaktivem Raster einfügen), Checklisten, KaTeX-Formeln, Callouts (`> [!TIP]`, `> [!NOTE]`) und Bilder.
+- **Bilder unkompliziert einfügen:** Bilder direkt aus der Zwischenablage per `Strg+V` oder über den Dateidialog einbetten.
+- **Code mit Komfort:** Syntaxhervorhebung für gängige Sprachen mit praktischer Kopieren-Schaltfläche.
+- **Fokus-Modus:** Blendet die Navigation für ablenkungsfreies Arbeiten vollständig aus (`Strg+Umschalt+F`).
 
-- Markdown-Editor mit Editor-, Split- und Vorschauansicht
-- frei verstellbare Split-Breite und optionale Lesebreite
-- Formatierung über Werkzeugleiste, Kontextmenü oder Markdown-Syntax
-- Tabellen, Checklisten, Bilder, Codeblöcke, Formeln und Hinweisblöcke
-- Syntaxhervorhebung und Kopieren-Schaltfläche für Code
-- eigene Notizvorlagen für wiederkehrende Inhalte
-- Fokus-Modus für konzentriertes Schreiben und Lesen
+### Struktur und Wissensvernetzung
+- **Kategorienbaum:** Haupt- und Unterkategorien mit anpassbaren Icons für eine saubere Themenstruktur.
+- **Wiki-Links:** Notizen mit doppelten eckigen Klammern `[[Zielnotiz]]` vernetzen; eingehende Verlinkungen (Backlinks) werden automatisch am Notizkopf angezeigt.
+- **Tags & Favoriten:** Verschlagwortung über Tags sowie Anpinnen wichtiger Seiten direkt auf das Dashboard.
+- **Wissenspflege:** Findet defekte Verlinkungen, Notizen ohne Tags oder leere Einträge mit direktem Korrektursprung.
+- **Eingang:** Lokaler Zwischenspeicher für Web-Clips, Notizen und Textfragmente, die erst später einsortiert werden sollen.
 
-### Organisieren
+### Suchen und Finden
+- **Echtzeit-Volltextsuche:** Durchsucht blitzschnell Titel, Textinhalte, Kategorien und Tags.
+- **Hervorgehobene Fundstellen:** Zeigt gefundene Textausschnitte mit Markierung an.
+- **Tastaturfokus:** Vollständig per Tastatur bedienbar (`Strg+K`).
 
-- Hauptkategorien, Unterkategorien und Notizen in einer festen Baumstruktur
-- Tags für bereichsübergreifende Zuordnung
-- interne Wikilinks mit `[[Notizname]]`
-- angepinnte und zuletzt bearbeitete Notizen im Dashboard
-- kuratierte Icons für Kategorien und Notizen
-- Papierkorb mit Wiederherstellung vor dem endgültigen Löschen
-- eigener Eingang für noch nicht verarbeitete Texte, Dateien, Bilder und Web-Clips, einschließlich Mehrfachauswahl und gemeinsamem Löschen
-- gesammelte Inhalte lassen sich später gezielt zu normalen Notizen verarbeiten
+### Datensicherheit und Privatsphäre
+- **Eigene Dateien:** Notizen bleiben ganz normale `.md`-Dateien auf deiner Festplatte.
+- **Backups:** Automatische Zeitplan-Backups oder manuelle ZIP-Archive mit Prüfsummenvalidierung.
+- **Papierkorb:** Gelöschte Notizen landen im Papierkorb und können jederzeit wiederhergestellt werden.
+- **Optionales App-Passwort:** Schützt das Öffnen der Anwendung mit sicherem Argon2id-Hash.
+- **Optionale Cloud-Synchronisation:** WebDAV-Integration für eigene Nextcloud-, ownCloud- oder Server-Instanzen.
 
-### Suchen und Navigieren
-
-- Volltextsuche über Titel, Inhalt, Tags und Kategorien
-- verständliche Treffergründe und hervorgehobene Fundstellen
-- Suche innerhalb einer geöffneten Notiz
-- Wissenspflege zum Auffinden defekter Wikilinks, von Notizen ohne Tags und von leeren Notizen mit direktem Sprung zur betroffenen Notiz
-- Kontextmenüs sowie umfassende Tastaturbedienung
-- zentrale Übersicht der verfügbaren Tastenkürzel
-
-### Daten und Sicherheit
-
-- lokale Markdown-Dateien im frei gewählten Projektordner
-- automatische und manuelle ZIP-Backups
-- überprüfte Backup-Archive und sichere temporäre Speicherung
-- Export als Markdown, HTML, PDF oder ZIP
-- optionales App-Passwort
-- verständliche Fehler- und Statusmeldungen
-
-### Desktop-Komfort
-
-- zentrale Einstellungen in den Bereichen Allgemein, Darstellung, Editor, Backup, Updates, Web Clipper und Sicherheit
-- anpassbare Akzentfarbe, Sidebar-Größe und Editor-Schriftgröße
-- lokaler Web Clipper für URLs, markierten Text, sichtbaren Seitentext und ausgewählte Bilder
-- System-Tray mit wählbarem Verhalten beim Schließen
-- integrierte Update-Prüfung mit Downloadfortschritt und Neustart
-- optionale WebDAV-Synchronisierung mit einem eigenen Server oder Nextcloud
-- ruhige Animationen und Unterstützung für reduzierte Bewegung
+---
 
 ## Installation
 
-Archiv-Wiki wird aktuell für **Linux** als AppImage bereitgestellt und auf **Fedora** getestet.
+Archiv-Wiki wird für **Linux** als transportables AppImage bereitgestellt und auf **Fedora** entwickelt und getestet.
 
 1. Öffne die [Releases](../../releases).
-2. Lade die neueste Datei mit der Endung `.AppImage` herunter.
-3. Markiere die Datei einmalig als ausführbar.
-4. Starte Archiv-Wiki per Doppelklick.
+2. Lade die neueste `.AppImage`-Datei herunter.
+3. Mache die Datei ausführbar und starte sie.
 
 ### Ausführbar machen – grafisch
-
-1. Rechtsklick auf die heruntergeladene Datei
-2. **Eigenschaften** öffnen
-3. Unter **Berechtigungen** die Ausführung als Programm erlauben
-4. Datei per Doppelklick starten
+1. Rechtsklick auf die Datei `Archiv-Wiki-*.AppImage` → **Eigenschaften**.
+2. Im Reiter **Berechtigungen** die Option *„Ausführen der Datei als Programm erlauben“* aktivieren.
+3. Datei per Doppelklick starten.
 
 ### Ausführbar machen – Terminal
-
 ```bash
 chmod +x Archiv-Wiki-*.AppImage
 ./Archiv-Wiki-*.AppImage
 ```
 
-Beim ersten Start führt ein Einrichtungsassistent durch Projektordner, Wiki-Name und grundlegende Optionen. WebDAV ist optional; Archiv-Wiki kann vollständig lokal verwendet werden.
+Beim ersten Start führt ein kompakter Einrichtungsassistent durch die Auswahl des Wiki-Speicherorts und grundlegende Optionen.
 
-![Einrichtungsassistent mit optionaler Cloud-Synchronisierung](docs/screenshots/cloud.png)
+---
 
-### Web Clipper in Firefox
+## Web Clipper
 
-Der Archiv-Wiki Web Clipper ist offiziell über [Mozilla Add-ons](https://addons.mozilla.org/de/firefox/addon/archiv-wiki-web-clipper/) verfügbar. Archiv-Wiki muss geöffnet sein, damit Firefox gesammelte Inhalte lokal an den Eingang übergeben kann.
+Mit dem Web Clipper lassen sich Webseiten, markierte Absätze oder Bilder direkt vom Browser lokal in den Eingang von Archiv-Wiki übergeben:
 
-### Web Clipper in Brave (Flatpak)
+- **Firefox:** Offiziell über [Mozilla Add-ons](https://addons.mozilla.org/de/firefox/addon/archiv-wiki-web-clipper/) verfügbar.
+- **Brave (Flatpak):** Lässt sich unter **Einstellungen → Web Clipper** mit einem Klick für Brave als Linux-Flatpak registrieren – ganz ohne Administratorrechte.
+- **Chromium (System):** Ebenfalls unter **Einstellungen → Web Clipper** für systemweit installierte Chromium-Browser vorkonfigurierbar.
 
-Die mitgelieferte, signierte Browser-Erweiterung lässt sich unter **Einstellungen → Web Clipper** mit **„Brave“** benutzerbezogen für Brave als Linux-Flatpak vorbereiten. Dafür sind weder Entwicklermodus noch Administrator- oder Root-Rechte erforderlich. Danach muss Brave vollständig geschlossen und neu gestartet werden.
+*Hinweis: Archiv-Wiki muss geöffnet sein, um Clips aus dem Browser lokal zu empfangen.*
 
-Eine bewusste Entfernung der Erweiterung in Brave wird respektiert und nicht automatisch rückgängig gemacht.
-
-### Web Clipper in Chromium (System)
-
-Die mitgelieferte, signierte Browser-Erweiterung lässt sich unter **Einstellungen → Web Clipper** mit **„Chromium“** benutzerbezogen für eine normal installierte System-Version von Chromium vorbereiten. Dafür sind weder Entwicklermodus noch Administrator- oder Root-Rechte erforderlich. Danach muss Chromium vollständig geschlossen und neu gestartet werden.
+---
 
 ## Dokumentation
 
-Weiterführende Anleitungen zur Einrichtung und Bedienung befinden sich im [GitHub-Wiki](../../wiki).
+- Ausführliche Anleitungen zur Einrichtung und Bedienung findest du im [GitHub-Wiki](../../wiki).
+- Neuigkeiten und Änderungsprotokolle einzelner Versionen sind in den [Releases](../../releases) zu finden.
 
-Änderungen und Downloads einzelner Versionen sind unter [Releases](../../releases) dokumentiert.
+---
 
 ## Entwicklung mit KI-Unterstützung
 
