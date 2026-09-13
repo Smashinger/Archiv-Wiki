@@ -151,7 +151,7 @@ Eine UUID wird dann als allgemeine Architekturentscheidung umgesetzt und nicht a
 
 ## Web Clipper
 
-- Firefox und Chromium/Brave verwenden eine gemeinsame Extension-Codebasis mit Manifest V3. Die aktuelle Extension-Version ist `0.2.0`.
+- Firefox und Chromium/Brave verwenden eine gemeinsame Extension-Codebasis mit Manifest V3. Die aktuelle Extension-Version ist `0.2.1`.
 - Native Messaging ist der lokale Transport zwischen Browser-Erweiterung und Archiv-Wiki. Gesammelte Inhalte werden in den Eingang übernommen.
 - Unterstützte Sammelarten sind URL, Textauswahl, vollständige Seite und Bilder.
 - Private Browserfenster beziehungsweise Inkognito sind im Manifest mit `"incognito": "not_allowed"` gesperrt.

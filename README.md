@@ -59,6 +59,8 @@ Die Suche zeigt Titel, Textausschnitte, Tags und Kategoriepfade. Treffer werden 
 
 Allgemein, Darstellung, Editor, Backup, Updates, Web Clipper und Sicherheit sind in einem gemeinsamen Einstellungsfenster zusammengefasst.
 
+Unter Darstellung lässt sich zwischen **Classic**, dem etablierten Standard-Erscheinungsbild, und **Design 2**, einer optionalen Vorschau auf ein alternatives Design, wechseln; Design 2 gilt noch nicht als visuell final.
+
 ### Lokale Backups
 
 ![Backup-Einstellungen von Archiv-Wiki](docs/screenshots/backup.png)
@@ -155,9 +157,13 @@ Der Archiv-Wiki Web Clipper ist offiziell über [Mozilla Add-ons](https://addons
 
 ### Web Clipper in Brave (Flatpak)
 
-Die mitgelieferte, signierte Browser-Erweiterung lässt sich unter **Einstellungen → Web Clipper** mit **„Brave / Chromium“** benutzerbezogen für Brave als Linux-Flatpak vorbereiten. Dafür sind weder Entwicklermodus noch Administrator- oder Root-Rechte erforderlich. Danach muss Brave vollständig geschlossen und neu gestartet werden.
+Die mitgelieferte, signierte Browser-Erweiterung lässt sich unter **Einstellungen → Web Clipper** mit **„Brave“** benutzerbezogen für Brave als Linux-Flatpak vorbereiten. Dafür sind weder Entwicklermodus noch Administrator- oder Root-Rechte erforderlich. Danach muss Brave vollständig geschlossen und neu gestartet werden.
 
 Eine bewusste Entfernung der Erweiterung in Brave wird respektiert und nicht automatisch rückgängig gemacht.
+
+### Web Clipper in Chromium (System)
+
+Die mitgelieferte, signierte Browser-Erweiterung lässt sich unter **Einstellungen → Web Clipper** mit **„Chromium“** benutzerbezogen für eine normal installierte System-Version von Chromium vorbereiten. Dafür sind weder Entwicklermodus noch Administrator- oder Root-Rechte erforderlich. Danach muss Chromium vollständig geschlossen und neu gestartet werden.
 
 ## Dokumentation
 

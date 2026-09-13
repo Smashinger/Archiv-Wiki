@@ -37,7 +37,7 @@ Archiv-Wiki muss beim Clip-Vorgang laufen und ein Projekt geöffnet haben.
 ## Signierte Chromium-/Brave-Ausgabe
 
 - Endgültige Erweiterungs-ID: `dengpgfllpkndkgkbikigaejieogndbp`
-- Aktuelle CRX-Version: `0.2.0`
+- Aktuelle CRX-Version: `0.2.1`
 - Die signierte CRX ist ein öffentlich verteilbares Laufzeitartefakt und wird beim AppImage-Build außerhalb von `app.asar` eingebunden.
 - Der private Chromium-Signierschlüssel gehört ausschließlich zum externen Release-Material. Er ist weder Bestandteil des Projekts noch des AppImage und wird von Archiv-Wiki zur Laufzeit nicht benötigt.
 - Für einen lokalen AppImage-Build wird die bereits signierte CRX unter `extension/distribution/chromium/archiv-wiki-web-clipper.crx` bereitgestellt. Der Build prüft Format, ID und Version vor dem Paketieren.

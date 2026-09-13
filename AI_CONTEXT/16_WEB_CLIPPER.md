@@ -45,7 +45,7 @@ Firefox und Chromium/Brave verwenden dieselbe Extension-Codebasis. Browserunters
 Das gemeinsame Manifest verwendet:
 
 - Manifest V3
-- Web-Clipper-Version `0.2.0`
+- Web-Clipper-Version `0.2.1`
 - Chromium-ID `dengpgfllpkndkgkbikigaejieogndbp`
 - Firefox-Gecko-ID `webclip@archiv-wiki.smashii.de`
 - Native-Messaging-Host `de.smashii.archivwiki.webclip`
@@ -98,7 +98,7 @@ Der Installer selbst setzt dabei **keine** Flatpak-Berechtigung mehr. `flatpak-s
 
 ## Firefox
 
-Firefox-Unterstützung ist technisch in der gemeinsamen Extension vorhanden: Manifest V3, Gecko-ID `webclip@archiv-wiki.smashii.de`, Web-Clipper-Version `0.2.0`, Native Messaging und die Sperre privater Fenster sind implementiert. Der Native-Host-Installer registriert normal installiertes Firefox unter dem benutzerbezogenen Mozilla-Pfad.
+Firefox-Unterstützung ist technisch in der gemeinsamen Extension vorhanden: Manifest V3, Gecko-ID `webclip@archiv-wiki.smashii.de`, Web-Clipper-Version `0.2.1`, Native Messaging und die Sperre privater Fenster sind implementiert. Der Native-Host-Installer registriert normal installiertes Firefox unter dem benutzerbezogenen Mozilla-Pfad.
 
 Die Firefox-Ausgabe wurde von Mozilla freigegeben und ist öffentlich unter <https://addons.mozilla.org/de/firefox/addon/archiv-wiki-web-clipper/> verfügbar. Die aktive Schaltfläche „Firefox“ in den Einstellungen öffnet diese offizielle Add-on-Seite im System-Browser.
 
@@ -116,7 +116,7 @@ Aktiv unterstützt werden ausschließlich Chromium (System) und Brave (Flatpak),
 
 - prüft die mitgelieferte signierte CRX vor der Vorbereitung;
 - kopiert sie atomar in einen stabilen Pfad unter `XDG_DATA_HOME` (Fallback `~/.local/share`);
-- schreibt dort benutzerbezogen eine `External Extensions`-Registrierung für die feste Chromium-ID und Version `0.2.0` unter `XDG_CONFIG_HOME` (Fallback `~/.config`), also derselben Konfigurationswurzel, die auch der Native-Host-Installer für Chromium verwendet (siehe „Native-Host-Registrierung“);
+- schreibt dort benutzerbezogen eine `External Extensions`-Registrierung für die feste Chromium-ID und Version `0.2.1` unter `XDG_CONFIG_HOME` (Fallback `~/.config`), also derselben Konfigurationswurzel, die auch der Native-Host-Installer für Chromium verwendet (siehe „Native-Host-Registrierung“);
 - benötigt weder Root-Rechte noch Chromium-Entwicklermodus;
 - erfordert anschließend einen vollständigen Chromium-Neustart.
 
@@ -125,7 +125,7 @@ Aktiv unterstützt werden ausschließlich Chromium (System) und Brave (Flatpak),
 - verlangt den vorhandenen Brave-Flatpak-Benutzerbereich `com.brave.Browser`;
 - prüft die mitgelieferte signierte CRX vor der Vorbereitung;
 - kopiert sie atomar in einen stabilen Pfad innerhalb des Brave-Flatpak-Datenbereichs;
-- schreibt dort benutzerbezogen eine `External Extensions`-Registrierung für die feste Chromium-ID und Version `0.2.0`;
+- schreibt dort benutzerbezogen eine `External Extensions`-Registrierung für die feste Chromium-ID und Version `0.2.1`;
 - benötigt weder Root-Rechte noch Chromium-Entwicklermodus;
 - erfordert anschließend einen vollständigen Brave-Neustart.
 
@@ -149,13 +149,13 @@ Die aktive signierte Chromium-CRX liegt im Entwicklungsbaum unter:
 
 `extension/distribution/chromium/archiv-wiki-web-clipper.crx`
 
-Sie gehört zur festen Chromium-ID `dengpgfllpkndkgkbikigaejieogndbp` und zur Web-Clipper-Version `0.2.0`. Im gepackten AppImage-Ressourcenbereich liegt sie unter `web-clipper/chromium/archiv-wiki-web-clipper.crx`.
+Sie gehört zur festen Chromium-ID `dengpgfllpkndkgkbikigaejieogndbp` und zur Web-Clipper-Version `0.2.1`. Im gepackten AppImage-Ressourcenbereich liegt sie unter `web-clipper/chromium/archiv-wiki-web-clipper.crx`.
 
 Der öffentliche Manifest-Schlüssel dient der stabilen ID-Zuordnung. Der private Signierschlüssel gehört weder in das Repository noch in das App-Paket, AI_CONTEXT oder ein öffentliches Release-Artefakt. Zur Laufzeit wird ausschließlich die bereits signierte CRX benötigt.
 
 ## Release-Schutz
 
-`npm run dist` und `npm run release` führen vor `electron-builder` automatisch `build/verify-webclip-crx.mjs` aus. Die Prüfung muss fehlschlagen und damit Build beziehungsweise Release stoppen, wenn die CRX fehlt, nicht lesbar oder beschädigt ist, keine gültige CRX3-Struktur besitzt, ihre kryptografische CRX3-Signatur nicht gegen den signierten Kopf- und Archivinhalt verifiziert, keinen zur signierten Extension-ID gehörenden verifizierten Schlüssel enthält, einer anderen signierten beziehungsweise aus dem Manifest-Schlüssel abgeleiteten ID zugeordnet ist oder nicht Version `0.2.0` enthält. Build- und Laufzeitprüfung (`main/webclip-distribution.js`, `installBraveWebClipper()`) verwenden dieselbe `inspectCrxFile()`-Funktion und damit denselben Sicherheitsmaßstab.
+`npm run dist` und `npm run release` führen vor `electron-builder` automatisch `build/verify-webclip-crx.mjs` aus. Die Prüfung muss fehlschlagen und damit Build beziehungsweise Release stoppen, wenn die CRX fehlt, nicht lesbar oder beschädigt ist, keine gültige CRX3-Struktur besitzt, ihre kryptografische CRX3-Signatur nicht gegen den signierten Kopf- und Archivinhalt verifiziert, keinen zur signierten Extension-ID gehörenden verifizierten Schlüssel enthält, einer anderen signierten beziehungsweise aus dem Manifest-Schlüssel abgeleiteten ID zugeordnet ist oder nicht Version `0.2.1` enthält. Build- und Laufzeitprüfung (`main/webclip-distribution.js`, `installBraveWebClipper()`) verwenden dieselbe `inspectCrxFile()`-Funktion und damit denselben Sicherheitsmaßstab.
 
 `electron-builder` paketiert die geprüfte CRX als `extraResource`. Der vollständige Release-Ablauf und seine manuellen Prüfungen stehen in `04_RELEASE_WORKFLOW.md`.
 
