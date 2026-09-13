@@ -5,6 +5,45 @@
 // ausschließlich den Datensatz, dessen Version der installierten App entspricht.
 
 export const RELEASE_NOTES_BY_VERSION = Object.freeze({
+  '2.3.0': Object.freeze({
+    intro: 'Dieses Update erweitert die Editor-Werkzeugleiste um neue Formatierungs- und Bildfunktionen, verbessert den Einrichtungsassistenten und bringt automatische Browsererkennung sowie Unterstützung für System-Chromium in den Web Clipper.',
+    sections: Object.freeze([
+      Object.freeze({
+        title: '✨ NEU',
+        items: Object.freeze([
+          'Erweiterte Editor-Werkzeugleiste: Neue Schaltflächen für Inline-Code, Horizontale Linie, Mathe-Blöcke, Suchen & Ersetzen, Formatierung entfernen sowie das direkte Einfügen von Bildern.',
+          'Bilder einfügen & Zwischenablage: Bilder können jetzt per Schaltfläche aus dem Dateimanager gewählt oder direkt per Strg+V aus der Zwischenablage in Notizen eingefügt werden.',
+          'Tabellen per Raster einfügen: Neues interaktives Raster zum schnellen Auswählen von Spalten und Zeilen beim Erstellen neuer Tabellen.',
+          'Web Clipper für System-Chromium: Neben Firefox und Brave (Flatpak) lässt sich der Web Clipper nun auch für normal installiertes System-Chromium mit einem Klick in den Einstellungen vorbereiten.',
+          'Dynamische Browsererkennung: Die Web-Clipper-Einstellungen erkennen installierte Browser auf dem System automatisch und bieten nur passende Aktionen an.',
+          'Mehrfachauswahl im Papierkorb: Gelöschte Notizen können im Papierkorb gesammelt markiert und in einem Schritt gemeinsam wiederhergestellt oder endgültig gelöscht werden.'
+        ])
+      }),
+      Object.freeze({
+        title: '✅ GEMACHT',
+        items: Object.freeze([
+          'Einrichtungsassistent überarbeitet: Klar strukturierter Ablauf in drei übersichtlichen Schritten mit deutlicher Warnung bei nicht-leeren Zielordnern.',
+          'Zuverlässigerer Passwortschutz & ehrlicherer Verbindungsstatus: Verbesserte Absicherung des optionalen App-Passworts und genaue Anzeige, ob die WebDAV-Verbindung tatsächlich erfolgreich geprüft wurde.',
+          'Klickbarer Titel für zuletzt bearbeitete Notizen: Der Titel der zuletzt geöffneten Notiz auf dem Dashboard lässt sich direkt anklicken, um sofort zur Notiz zu springen.',
+          'Klarere Symbole in der Werkzeugleiste: Einheitliche, scharfe Vektorsymbole für Links, Tabellen, Callouts und Icons in Classic und Design 2.',
+          'Schlankeres Anwendungspaket: Überflüssige Grafikdateien wurden aus dem ausgelieferten AppImage entfernt.'
+        ])
+      }),
+      Object.freeze({
+        title: '🐛 BEHOBEN',
+        items: Object.freeze([
+          'Konfigurationspfade für Chromium korrigiert: Der Web Clipper steuert die Erweiterungs- und Native-Messaging-Pfade unter Linux nun auch bei angepassten Benutzerumgebungen zuverlässig im selben Ordner an.',
+          'Absicherung gegen inkonsistente Sync-Daten: Fehlerhafte oder unvollständige Eingaben im Einrichtungsassistenten hinterlassen keine beschädigten Konfigurationsdateien mehr.'
+        ])
+      }),
+      Object.freeze({
+        title: '📝 SONSTIGES',
+        items: Object.freeze([
+          'Gezielte Führung in den Web-Clipper-Einstellungen: Nicht unterstützte Browser erhalten keine irreführenden Aktionen; Firefox verlinkt direkt auf die offizielle Mozilla-Add-on-Seite.'
+        ])
+      })
+    ])
+  }),
   '2.2.0': Object.freeze({
     intro: 'Dieses Update führt das neue Design2, eine integrierte Titelleiste, Mehrfachauswahl für Notizen, den Eingangsbereich sowie erweiterte Werkzeuge zur Wissenspflege ein.',
     sections: Object.freeze([
