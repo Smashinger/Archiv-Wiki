@@ -18,3 +18,5 @@ extension/distribution/chromium/*.key
 CLAUDE.md
 AGENTS.md
 AI_CONTEXT/
+.ai/
+.saath/
