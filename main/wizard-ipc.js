@@ -258,21 +258,14 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
     const editor = resolveEditorConfig(editorConfig);
 
-    const config = {
-      version: '1.0.0',
-      created: new Date().toISOString(),
-      wikiName: (wikiName || '').trim(),
-      accentKey: accentKey || 'orange',
+    const config = buildNewProjectConfig({
+      wikiName,
+      accentKey,
+      customAccentColor,
       appLock,
       editor,
       backupPath: resolvedBackupPath
-    };
-    // Eigene (freie) Akzentfarbe nur speichern, wenn accentKey='custom' UND ein
-    // gültiger Hex-Wert vorliegt — dieselbe Form wie im Einstellungsfenster
-    // (config.customAccentColor, siehe resolveAccentForActiveDesign in app.js).
-    if (config.accentKey === 'custom' && /^#[0-9a-fA-F]{6}$/.test(String(customAccentColor || ''))) {
-      config.customAccentColor = customAccentColor;
-    }
+    });
 
     // Commit-Punkt: Zugangsdaten werden nur für eine echte Sync-Konfiguration
     // gespeichert und bei einem fehlgeschlagenen Config-Commit zurückgerollt.
@@ -293,8 +286,35 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
   });
 }
 
+// Baut die Projektkonfiguration eines neu eingerichteten Wikis. Als eigene
+// Funktion herausgelöst, damit der Inhalt ohne Electron testbar ist.
+function buildNewProjectConfig({ wikiName, accentKey, customAccentColor, appLock, editor, backupPath }) {
+  const config = {
+    version: '1.0.0',
+    created: new Date().toISOString(),
+    wikiName: (wikiName || '').trim(),
+    // Neue Wikis starten im aktuellen Zieldesign. Bewusst nur beim Anlegen
+    // gesetzt: Die Rückfallregel "fehlender Wert → Classic" (ui-design.js,
+    // 12_KNOWN_DECISIONS) bleibt für bestehende Wikis unverändert, und
+    // Einstellungen → Darstellung schaltet weiterhin frei um.
+    uiDesign: 'design2',
+    accentKey: accentKey || 'orange',
+    appLock,
+    editor,
+    backupPath
+  };
+  // Eigene (freie) Akzentfarbe nur speichern, wenn accentKey='custom' UND ein
+  // gültiger Hex-Wert vorliegt — dieselbe Form wie im Einstellungsfenster
+  // (config.customAccentColor, siehe resolveAccentForActiveDesign in app.js).
+  if (config.accentKey === 'custom' && /^#[0-9a-fA-F]{6}$/.test(String(customAccentColor || ''))) {
+    config.customAccentColor = customAccentColor;
+  }
+  return config;
+}
+
 module.exports = {
   registerWizardIpc,
+  buildNewProjectConfig,
   buildAppLock,
   resolveEditorConfig,
   sanitizeSyncConfig,

@@ -76,6 +76,18 @@ test('Editor-Standardwerte: Tab 2, Auto-Save 30 bleiben die Vorgaben', () => {
   assert.deepEqual(wiz.resolveEditorConfig({ autoSave: 0 }), { tabSize: 2, autoSave: 0 });
 });
 
+// --- Neue Projektkonfiguration ------------------------------------------------
+
+test('Neues Wiki startet in Design2, eigene Akzentfarbe nur mit gültigem Hex', () => {
+  const base = { wikiName: '  Test  ', appLock: { enabled: false }, editor: { tabSize: 2, autoSave: 30 }, backupPath: '/tmp/b' };
+  const config = wiz.buildNewProjectConfig({ ...base, accentKey: 'custom', customAccentColor: '#12aB9f' });
+  assert.equal(config.uiDesign, 'design2');
+  assert.equal(config.wikiName, 'Test');
+  assert.equal(config.customAccentColor, '#12aB9f');
+  assert.equal(wiz.buildNewProjectConfig({ ...base }).accentKey, 'orange');
+  assert.equal('customAccentColor' in wiz.buildNewProjectConfig({ ...base, accentKey: 'custom', customAccentColor: 'rot' }), false);
+});
+
 // --- Sync-Sanitisierung: Auto-Sync nur mit sicher gespeicherten Zugangsdaten -
 
 test('sanitizeSyncConfig: ohne URL → deaktiviert', () => {
