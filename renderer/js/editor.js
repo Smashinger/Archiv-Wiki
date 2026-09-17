@@ -221,9 +221,16 @@ export async function openNoteInEditor({
   onSaveError,
   getNoteIndex,
   projectPath,
-  onSlashCommand
+  onSlashCommand,
+  shouldMount
 }) {
   const note = await readNote(relPath);
+  // Während des Lesens kann bereits ein neueres Rendern (andere Route oder
+  // dieselbe Notiz erneut) begonnen haben. Ein veraltetes Rendern darf dann
+  // keinen Editor mehr montieren: sonst übernähme es den globalen
+  // Editorzustand mit einem inzwischen überholten Dateistand und alter
+  // Dateiversion — genau das erzeugte später falsche NOTE_CONFLICT-Fehler.
+  if (typeof shouldMount === 'function' && !shouldMount()) return null;
   mountEditorDocument({
     doc: note.body,
     relPath,
@@ -463,6 +470,44 @@ export function focusEditor() {
   currentEditor?.focus();
 }
 
+// Wechsel vom Titelfeld in den Text per Enter: Wurde im Editor noch keine
+// Position gewählt (Cursor am Dokumentanfang), soll nicht vor die
+// "# Titel"-Überschrift geschrieben werden, sondern in die Zeile darunter.
+// Eine bereits bewusst gesetzte Cursorposition bleibt unverändert.
+export function placeCursorBelowLeadingHeading() {
+  if (!currentEditor) return;
+  const { anchor, head } = currentEditor.getSelection();
+  if (anchor !== 0 || head !== 0) return;
+  const content = currentEditor.getContent();
+  if (!/^#{1,6}\s/.test(content)) return;
+  const lineBreak = content.indexOf('\n');
+  currentEditor.setSelection(lineBreak === -1 ? content.length : lineBreak + 1);
+}
+
+export function editorHasFocus() {
+  return Boolean(currentEditor?.hasFocus());
+}
+
+// Auswahl der zuletzt geschlossenen Editor-Instanz. Ein Neuaufbau derselben
+// Notiz (Umbenennen, Verschieben, Baum-Aktualisierung) zerstört die
+// CodeMirror-Instanz; ohne diesen Merker stünde der Cursor danach immer am
+// Dokumentanfang. Gemerkt wird erst in closeEditor(), also nach allen bis
+// dahin verarbeiteten Klicks und Eingaben.
+let lastClosedViewState = null;
+
+// Stellt Cursor/Auswahl und optional den Fokus wieder her, sofern gerade
+// wieder dieselbe Notiz offen ist, die zuletzt geschlossen wurde. Liefert
+// true, wenn der Editor anschließend den Fokus besitzen soll bzw. besitzt.
+export function restoreEditorViewState({ focus = false } = {}) {
+  if (!currentEditor || !currentRelPath) return false;
+  const saved = lastClosedViewState;
+  if (saved && saved.relPath === currentRelPath) {
+    currentEditor.setSelection(saved.selection.anchor, saved.selection.head);
+  }
+  if (focus) currentEditor.focus();
+  return focus;
+}
+
 // Brücke von der Header-Suche zum Editor: springt zur ersten Fundstelle der
 // übergebenen Suchanfrage, über dieselbe CodeMirror-Suchmechanik wie die
 // manuelle Editor-Suche (kein zweites, separates Hervorhebungssystem).
@@ -475,6 +520,9 @@ export function closeEditor() {
   clearTimeout(previewDebounceTimer);
   editorGeneration += 1;
   pendingSaveGeneration = null;
+  if (currentEditor && currentRelPath) {
+    lastClosedViewState = { relPath: currentRelPath, selection: currentEditor.getSelection() };
+  }
   if (currentEditor) currentEditor.destroy();
   currentEditor = null;
   clearPreviewSearchHighlights();

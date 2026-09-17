@@ -480,6 +480,20 @@ export function createMarkdownEditor({ parent, doc = '', tabSize = 2, readOnly =
     },
     openSearch: () => openSearchPanel(view),
     focus: () => view.focus(),
+    hasFocus: () => view.hasFocus,
+    // Auswahl als reine Zahlen lesen/setzen, damit renderer/js/editor.js die
+    // Cursorposition über einen Neuaufbau derselben Notiz (z. B. nach dem
+    // Umbenennen) tragen kann. Positionen werden auf die aktuelle Dokumentlänge
+    // begrenzt, damit ein abweichender Dateistand nie eine RangeError auslöst.
+    getSelection: () => {
+      const { anchor, head } = view.state.selection.main;
+      return { anchor, head };
+    },
+    setSelection: (anchor, head = anchor) => {
+      const length = view.state.doc.length;
+      const clamp = (value) => Math.max(0, Math.min(Number(value) || 0, length));
+      view.dispatch({ selection: { anchor: clamp(anchor), head: clamp(head) }, scrollIntoView: true });
+    },
     // Wird von renderer/js/editor.js aufgerufen, sobald sich der zentrale
     // Hell/Dunkel-Modus ändert (siehe theme.js applyThemeMode), während DIESE
     // Notiz bereits offen ist. dispatch() mit reconfigure-Effekten auf den

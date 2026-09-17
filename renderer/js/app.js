@@ -28,7 +28,7 @@ import { showDiagnosticsDialog } from './diagnostics-ui.js';
 import { animateIn, animateOut } from './motion.js';
 import { manageModalDialog, closeManagedDialogs, showMessageDialog, showConfirmDialog } from './dialog.js';
 import { initEllipsisTooltips } from './tooltip.js';
-import { openNoteInEditor, openIncomingInEditor, openNoteDraftInEditor, saveNow, saveUntilClean, isDirty, getOpenRelPath, retargetOpenNote, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, renderMarkdownForExport, setEditorContent, jumpToMatchInEditor, focusEditor, setSyncScrollEnabled, setAutoSaveSeconds, openDocumentSearch } from './editor.js';
+import { openNoteInEditor, openIncomingInEditor, openNoteDraftInEditor, saveNow, saveUntilClean, isDirty, getOpenRelPath, retargetOpenNote, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, renderMarkdownForExport, setEditorContent, jumpToMatchInEditor, focusEditor, editorHasFocus, restoreEditorViewState, placeCursorBelowLeadingHeading, setSyncScrollEnabled, setAutoSaveSeconds, openDocumentSearch } from './editor.js';
 import { rebuildIndex, getSearchState, search as searchNotes, searchWithDetails, getFilterOptions, SEARCH_SCOPES } from './search.js';
 import { buildKnowledgeCareViewModel } from './knowledge-care-data.js';
 import { buildStatsViewModel } from './stats-data.js';
@@ -2725,7 +2725,7 @@ async function refreshAll() {
     isInitialLoad = false;
   }
   renderNavTree();
-  render(); // aktuelle Route neu zeichnen (Baum kann sich geändert haben)
+  await renderCurrentRouteAfterDataChange(); // aktuelle Route neu zeichnen (Baum kann sich geändert haben)
   if (!currentRouteLoadsIncomingList()) void refreshIncomingSidebarCount();
   const indexRebuild = rebuildIndex();
   refreshSearchDropdownForCurrentQuery();
@@ -2738,6 +2738,25 @@ async function refreshAll() {
       refreshSearchDropdownForCurrentQuery();
     });
   updateTrashBadge();
+}
+
+// Eine Datenänderung zeichnet die aktuelle Route neu. Ist das eine offene
+// Notiz, bedeutet Neuzeichnen: Editor zerstören und den Inhalt frisch von der
+// Platte lesen. Mit ungespeicherten Änderungen gingen dabei Eingaben verloren;
+// lief parallel ein Save (z. B. vom Routenwechsel nach "+ Notiz"), entstand
+// ein Editor mit überholtem Inhalt und alter Dateiversion, dessen nächster
+// Save als NOTE_CONFLICT scheiterte und die Navigation blockierte (Audit P1-A).
+// Deshalb wird die offene Notiz vorher über dieselbe Save-Kette wie beim
+// Verlassen gesichert; gelingt das nicht, bleibt der Editor unangetastet und
+// nur Baum/Sidebar werden aktualisiert. Das Rendern wird abgewartet, damit
+// nachfolgende Navigationen nicht mit diesem Rendern konkurrieren.
+async function renderCurrentRouteAfterDataChange() {
+  const openRelPath = getOpenRelPath();
+  if (openRelPath && isDirty() && currentSlug() === 'note/' + openRelPath) {
+    const saved = await saveUntilClean(currentOnSaved, currentOnSaveError);
+    if (!saved || isDirty()) return;
+  }
+  await render();
 }
 
 // Dezente Anzahl-Anzeige am Papierkorb-Symbol — nutzt dasselbe Badge-Muster
@@ -3576,10 +3595,17 @@ els.btnAddNote.addEventListener('click', async () => {
   const template = await showTemplatePickerModal();
   if (!template) return; // Abbrechen im Vorlagen-Dialog bricht das Anlegen komplett ab
 
+  // Die offene Notiz wird VOR dem Anlegen über den zentralen Leave-Vertrag
+  // gesichert (Audit P1-A). Vorher liefen Datei-Anlage, Neuaufbau der alten
+  // Notiz und deren Save gleichzeitig; der Editor blieb danach mit überholtem
+  // Stand auf der alten Notiz stehen. Scheitert das Sichern und der Nutzer
+  // bleibt lieber auf der Notiz, wird auch keine neue Datei angelegt.
+  if (!await canLeaveCurrentRoute()) return;
+
   try {
     const created = await fs.createNote(targetRelPath, title, template.body);
     await refreshAll();
-    void navigateTo('#note/' + encodeURIComponent(created.relPath));
+    await navigateTo('#note/' + encodeURIComponent(created.relPath));
   } catch (err) {
     await showMessageDialog({ title: 'Notiz konnte nicht angelegt werden', message: err.message });
     console.error('[Archiv Wiki] fs.createNote fehlgeschlagen für Ziel', targetRelPath, err);
@@ -4668,6 +4694,40 @@ async function performEntryPathMutation({ sourceRelPath, actionLabel, mutate, af
   }
 }
 
+// Fängt Tastatureingaben ab, die während einer gesperrten Dateioperation an
+// der offenen Notiz (inert + Neuaufbau des Editors) sonst ins Leere gingen.
+// Erfasst werden nur Eingaben ohne anderes Ziel (Body) oder aus dem
+// Notizbereich selbst; Dialoge und andere Eingabefelder bleiben unberührt.
+// stop() entfernt den Listener und liefert den gesammelten Text.
+function startEditorInputBuffer() {
+  const chunks = [];
+  const onKeydown = (event) => {
+    if (event.defaultPrevented || event.isComposing) return;
+    const target = event.target;
+    if (target && target !== document.body && !els.contentScroll.contains(target)) return;
+    const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+    if (event.key === 'Enter' && plain) {
+      chunks.push('\n');
+    } else if (event.key === 'Backspace' && plain) {
+      if (!chunks.length) return;
+      chunks.pop();
+    } else if (event.key.length === 1 && (plain || event.getModifierState('AltGraph'))) {
+      chunks.push(event.key);
+    } else {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  window.addEventListener('keydown', onKeydown, true);
+  return {
+    stop() {
+      window.removeEventListener('keydown', onKeydown, true);
+      return chunks.join('');
+    }
+  };
+}
+
 function mutateEntryPath(options) {
   if (entryPathMutationPromise) {
     showQuickFeedback('Eine Dateioperation läuft bereits.');
@@ -4705,7 +4765,34 @@ async function canLeaveCurrentRoute() {
   }
 
   if (!getOpenRelPath() || !isDirty()) return true;
-  return saveUntilClean(currentOnSaved, currentOnSaveError);
+  if (await saveUntilClean(currentOnSaved, currentOnSaveError)) return true;
+  return resolveUnsavableOpenNote();
+}
+
+// Scheitert das Speichern beim Verlassen (Konflikt, Schreibfehler), blieb die
+// Oberfläche bisher stumm auf der Notiz stehen: Navigation, "+ Notiz" und das
+// Schließen des Fensters taten schlicht nichts (Audit P1-A). Die Entscheidung
+// liegt jetzt sichtbar beim Nutzer — hierbleiben (Standard, Enter löst bei
+// destruktiven Dialogen nichts aus) oder die ungespeicherten Änderungen
+// bewusst verwerfen. Ein zweiter Weg, Änderungen zu sichern, entsteht dabei
+// nicht; die bestehende Konfliktschutz-Logik bleibt unverändert.
+async function resolveUnsavableOpenNote() {
+  const openRelPath = getOpenRelPath();
+  // saveUntilClean() liefert auch false, wenn inzwischen ein anderer Editor
+  // offen ist — dann gibt es nichts mehr zu entscheiden.
+  if (!openRelPath || !isDirty()) return true;
+  const title = fs.findNode(state.tree, openRelPath)?.frontmatter?.title
+    || openRelPath.split('/').pop().replace(/\.md$/, '');
+  const discard = await showConfirmDialog({
+    title: 'Änderungen konnten nicht gespeichert werden',
+    message: `Die Notiz „${title}“ konnte nicht gespeichert werden, zum Beispiel weil sie außerhalb von Archiv-Wiki geändert wurde. Wenn du fortfährst, gehen die ungespeicherten Änderungen verloren. Kopiere wichtigen Text vorher, falls du ihn behalten möchtest.`,
+    confirmLabel: 'Änderungen verwerfen',
+    cancelLabel: 'Hier bleiben',
+    danger: true
+  });
+  if (!discard) return false;
+  if (getOpenRelPath() === openRelPath) closeEditor();
+  return true;
 }
 
 async function commitNavigation({ targetHash, replace }) {
@@ -4864,7 +4951,13 @@ function prepareClassicViewTransition(slug) {
   }
 }
 
+// Laufende Nummer jedes render()-Aufrufs. Asynchrone Renderer (renderNote)
+// prüfen damit nach ihren Wartepunkten, ob inzwischen ein neueres Rendern
+// begonnen hat, und montieren dann keinen veralteten Editor mehr.
+let renderSequence = 0;
+
 async function render() {
+  renderSequence += 1;
   renderedHash = normalizeRouteHash(location.hash);
   const slug = currentSlug();
   prepareClassicViewTransition(slug);
@@ -6538,8 +6631,15 @@ document.addEventListener('mouseup', () => {
 });
 
 async function renderNote(relPath) {
+  const renderId = renderSequence;
   const node = fs.findNode(state.tree, relPath);
   if (!node) { void navigateAfterEntryMutation('#home', { replace: true }); return; }
+
+  // Wird dieselbe, bereits offene Notiz neu aufgebaut (Umbenennen, Verschieben,
+  // Baum-Aktualisierung), bleiben Cursorposition und Fokuszustand erhalten,
+  // statt den Cursor an den Dokumentanfang zu setzen oder Fokus zu stehlen.
+  const reopeningSameNote = getOpenRelPath() === relPath;
+  const editorHadFocus = reopeningSameNote && editorHasFocus();
 
   setActiveNav(relPath);
   const title = node.frontmatter?.title || node.name;
@@ -7052,8 +7152,9 @@ async function renderNote(relPath) {
   }
   currentOnSaveError = onSaveError;
 
-  const { frontmatter, body } = await openNoteInEditor({
+  const opened = await openNoteInEditor({
     relPath,
+    shouldMount: () => renderId === renderSequence,
     editorContainer: document.getElementById('editorContainer'),
     previewContainer: document.getElementById('previewContainer'),
     tabSize: state.project?.config?.editor?.tabSize ?? 2,
@@ -7083,14 +7184,21 @@ async function renderNote(relPath) {
     // Picker wie Werkzeugleiste/Rechtsklick-Menü, keine doppelte Logik.
     onSlashCommand: (command, pos) => { if (command === 'table') showTablePicker(pos); }
   });
+  // Ein neueres Rendern hat übernommen — dieses hier baut nichts weiter auf.
+  if (!opened) return;
+  const { frontmatter, body } = opened;
 
-  // Nach dem vollständigen Aufbau erhält der sichtbare Arbeitsbereich den
-  // Fokus. Editor und Split sind sofort schreibbereit; in der reinen
-  // Vorschau bleibt der wiederhergestellte Ansichtsmodus maßgeblich.
-  requestAnimationFrame(() => {
-    if (getOpenRelPath() !== relPath) return;
-    focusCurrentWritingArea();
-  });
+  if (reopeningSameNote) {
+    restoreEditorViewState({ focus: editorHadFocus });
+  } else {
+    // Nach dem vollständigen Aufbau erhält der sichtbare Arbeitsbereich den
+    // Fokus. Editor und Split sind sofort schreibbereit; in der reinen
+    // Vorschau bleibt der wiederhergestellte Ansichtsmodus maßgeblich.
+    requestAnimationFrame(() => {
+      if (getOpenRelPath() !== relPath) return;
+      focusCurrentWritingArea();
+    });
+  }
 
   await renderIncomingLinks(relPath, title);
 
@@ -7243,14 +7351,42 @@ async function renderNote(relPath) {
 
   renderBacklinkRow(frontmatter);
 
-  titleInput.addEventListener('blur', async () => {
+  // Enter im Titel bestätigt ihn und führt direkt in den Text — das Verlassen
+  // des Feldes löst dabei denselben Umbenennen-Ablauf aus wie ein Klick.
+  titleInput.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || event.isComposing) return;
+    event.preventDefault();
+    placeCursorBelowLeadingHeading();
+    focusEditor();
+  });
+
+  titleInput.addEventListener('blur', async (event) => {
     const newTitle = titleInput.value.trim();
     if (!newTitle || newTitle === title) return;
-    await mutateEntryPath({
-      sourceRelPath: relPath,
-      actionLabel: 'Umbenennen',
-      mutate: () => fs.renameEntry(relPath, newTitle)
-    });
+    // Führt der Fokuswechsel in den Editor, wird die Notiz während des
+    // Umbenennens gesperrt und neu aufgebaut (Audit P1-B). Eingaben aus dieser
+    // Zeit werden gepuffert und anschließend an der wiederhergestellten
+    // Cursorposition eingefügt, statt zu verpuffen oder am Dokumentanfang zu
+    // landen.
+    const continueInEditor = Boolean(event.relatedTarget?.closest?.('#editorContainer'));
+    const inputBuffer = continueInEditor ? startEditorInputBuffer() : null;
+    try {
+      await mutateEntryPath({
+        sourceRelPath: relPath,
+        actionLabel: 'Umbenennen',
+        mutate: () => fs.renameEntry(relPath, newTitle)
+      });
+    } finally {
+      if (inputBuffer) {
+        const pendingText = inputBuffer.stop();
+        const active = document.activeElement;
+        const focusIsFree = !active || active === document.body || els.contentScroll.contains(active);
+        if (focusIsFree && getOpenRelPath()) {
+          restoreEditorViewState({ focus: true });
+          if (pendingText) insertAtCursor(pendingText);
+        }
+      }
+    }
   });
 
   let committedTagsValue = (frontmatter?.tags || []).join(', ');
