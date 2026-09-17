@@ -16,6 +16,9 @@ let autosaveTimer = null;
 // autosaveTimer direkt darunter — Timer wird bei jeder Änderung
 // zurückgesetzt, löst erst nach einer kurzen Schreibpause tatsächlich aus.
 let previewDebounceTimer = null;
+// Vorgemerkte Absatztrennung an der Schreib-Startposition, siehe
+// placeCursorBelowLeadingHeading().
+let pendingParagraphBreak = null;
 let dirty = false;
 let contentRevision = 0;
 let editorGeneration = 0;
@@ -178,6 +181,10 @@ function mountEditorDocument({
 
   updatePreview(doc);
 
+  // Ein Mausklick in den Text ist immer eine bewusste Positionswahl — auch
+  // genau an den Absatzanfang. Die vorgemerkte Absatztrennung entfällt dann.
+  editorContainer?.addEventListener('mousedown', () => { pendingParagraphBreak = null; }, true);
+
   currentEditor = createMarkdownEditor({
     parent: editorContainer,
     doc,
@@ -185,13 +192,18 @@ function mountEditorDocument({
     readOnly,
     getNoteIndex,
     onChange: readOnly ? undefined : (text) => {
+      if (pendingParagraphBreak) applyPendingParagraphBreak(text);
       schedulePreviewUpdate(text);
       contentRevision += 1;
       dirty = true;
       onChange?.(true, text);
       scheduleAutosave(onSaved, onSaveError);
     },
-    onCursorActivity,
+    onCursorActivity: (pos) => {
+      // Cursor bewusst woandershin bewegt: keine automatische Absatztrennung.
+      if (pendingParagraphBreak && pos.offset !== pendingParagraphBreak.offset) pendingParagraphBreak = null;
+      onCursorActivity?.(pos);
+    },
     onSave: readOnly ? undefined : () => saveNow(onSaved, onSaveError),
     onSlashCommand: readOnly ? undefined : onSlashCommand,
     onSearchQueryChange: (spec) => {
@@ -489,7 +501,39 @@ function offsetBelowLeadingHeading(content) {
 
 export function placeCursorBelowLeadingHeading() {
   if (!currentEditor) return;
-  currentEditor.setSelection(offsetBelowLeadingHeading(currentEditor.getContent()));
+  const content = currentEditor.getContent();
+  const offset = offsetBelowLeadingHeading(content);
+  currentEditor.setSelection(offset);
+  // Beginnt an der Startposition direkt bestehender Text (z. B. "# Titel" und
+  // sofort darunter ein Absatz), klebte neu Getipptes bisher vorn an diesem
+  // Absatz ("MARKCErster Absatz"). Die Trennung wird erst bei der ersten
+  // Eingabe genau dort eingefügt — ein bloßes Enter im Titel verändert das
+  // Dokument nicht.
+  pendingParagraphBreak = offset > 0 && offset < content.length && content[offset] !== '\n'
+    ? { offset, length: content.length }
+    : null;
+}
+
+// Nach der ersten Änderung: Wurde zusammenhängend genau an der gemerkten
+// Startposition eingefügt, wird hinter dem neuen Text eine Leerzeile vor den
+// bestehenden Absatz gesetzt; der Cursor bleibt am Ende des neuen Texts. Jede
+// andere erste Änderung (Klick an eine andere Stelle) hebt die Vormerkung auf.
+function applyPendingParagraphBreak(text) {
+  const pending = pendingParagraphBreak;
+  pendingParagraphBreak = null;
+  if (!pending || !currentEditor) return;
+  const { head } = currentEditor.getSelection();
+  const inserted = text.length - pending.length;
+  const insertedAtStart = inserted > 0
+    && head === pending.offset + inserted
+    && !text.slice(pending.offset, head).includes('\n');
+  if (!insertedAtStart || text[head] === undefined || text[head] === '\n') return;
+  // CodeMirror erlaubt keine neue Transaktion innerhalb des laufenden Updates.
+  queueMicrotask(() => {
+    if (!currentEditor || currentEditor.getSelection().head !== head) return;
+    currentEditor.insertAtCursor('\n\n');
+    currentEditor.setSelection(head);
+  });
 }
 
 export function editorHasFocus() {
@@ -528,6 +572,7 @@ export function closeEditor() {
   clearTimeout(previewDebounceTimer);
   editorGeneration += 1;
   pendingSaveGeneration = null;
+  pendingParagraphBreak = null;
   if (currentEditor && currentRelPath) {
     lastClosedViewState = { relPath: currentRelPath, selection: currentEditor.getSelection() };
   }
