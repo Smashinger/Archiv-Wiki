@@ -2648,6 +2648,11 @@ els.homeLink.addEventListener('click', () => { void navigateTo('#home'); });
 els.incomingLink.addEventListener('click', () => { void navigateTo('#incoming'); });
 els.archiveLink.addEventListener('click', () => { void navigateTo('#archive'); });
 els.knowledgeCareLink.addEventListener('click', () => { void navigateTo('#knowledge-care'); });
+// Die festen Navigationspunkte sind <a> ohne href und waren dadurch per Tab
+// nicht erreichbar (Audit P3). Sie werden wie die Notiz-Links im Baum echte
+// Tastaturziele; Enter löst denselben Klick-Handler aus.
+[els.homeLink, els.incomingLink, els.archiveLink, els.knowledgeCareLink]
+  .forEach((link) => { if (link) makeKeyboardActivatable(link, { role: 'link' }); });
 // Tags/Statistik haben keinen eigenen Sidebar-Link mehr — Navigation dorthin
 // läuft jetzt über die Dashboard-Kacheln (siehe renderHome), Routen selbst
 // bleiben unverändert erreichbar (#tags, #stats).
@@ -3611,7 +3616,7 @@ els.btnAddNote.addEventListener('click', async () => {
     : await showCategoryPickerModal(subCategories, 'In welcher Unterkategorie?');
   if (!targetRelPath) return;
 
-  const title = await showPromptModal({ title: 'Titel der neuen Notiz', defaultValue: 'Neue Notiz' });
+  const title = await promptForUniqueNoteTitle('Neue Notiz');
   if (!title) return;
 
   const template = await showTemplatePickerModal();
@@ -3633,6 +3638,34 @@ els.btnAddNote.addEventListener('click', async () => {
     console.error('[Archiv Wiki] fs.createNote fehlgeschlagen für Ziel', targetRelPath, err);
   }
 });
+
+// Fragt den Titel einer neuen Notiz ab und warnt, wenn es bereits eine Notiz
+// mit demselben Titel gibt. Vorher entstand dann still eine zweite Datei
+// ("Name 2.md") mit identischer Sidebar-Beschriftung, und [[Name]] wurde
+// mehrdeutig (Audit P3). Der Nutzer kann bewusst trotzdem anlegen oder einen
+// anderen Titel wählen; ein leerer Titel bricht wie bisher ab.
+async function promptForUniqueNoteTitle(defaultValue) {
+  let proposal = defaultValue;
+  for (;;) {
+    const title = await showPromptModal({ title: 'Titel der neuen Notiz', defaultValue: proposal });
+    if (!title) return null;
+    const normalized = title.trim().toLocaleLowerCase('de');
+    const existing = fs.flattenNotes(state.tree).find((note) => {
+      const noteTitle = note.frontmatter?.title || note.name.replace(/\.md$/, '');
+      return noteTitle.trim().toLocaleLowerCase('de') === normalized;
+    });
+    if (!existing) return title;
+    const location = noteCategoryLabel(existing);
+    const createAnyway = await showConfirmDialog({
+      title: 'Titel bereits vorhanden',
+      message: `Es gibt bereits eine Notiz „${existing.frontmatter?.title || title}“${location ? ` in „${location}“` : ''}. Zwei gleich benannte Notizen sind in der Sidebar nicht zu unterscheiden, und Wikilinks auf diesen Titel werden mehrdeutig.`,
+      confirmLabel: 'Trotzdem anlegen',
+      cancelLabel: 'Anderen Titel wählen'
+    });
+    if (createAnyway) return title;
+    proposal = title;
+  }
+}
 
 function showCategoryPickerModal(categories, title = 'In welcher Kategorie?') {
   return new Promise((resolve) => {
@@ -5270,7 +5303,26 @@ function buildDashboardRow(note, excerpt, dateLabel, isRecent) {
   const checkbox = row.querySelector('.row-select-checkbox');
   if (checkbox) wireSelectionCheckbox(checkbox);
   row.addEventListener('click', () => { void navigateTo('#note/' + encodeURIComponent(note.relPath)); });
+  makeKeyboardActivatable(row, { label: `${title} öffnen` });
   return row;
+}
+
+// Macht ein nur per Klick bedienbares Element (Zeile, <a> ohne href) per
+// Tastatur erreichbar und auslösbar: Tab-Stopp, Rolle, Enter (bei Buttons
+// zusätzlich Leertaste). Dasselbe Muster wie die Wissenspflege-Zeilen; die
+// Aktion bleibt der bestehende Klick-Handler, es entsteht kein zweiter Weg.
+// Tasten aus inneren Bedienelementen (z. B. Auswahl-Checkbox) lösen nichts aus.
+function makeKeyboardActivatable(element, { label, role = 'button' } = {}) {
+  element.tabIndex = 0;
+  element.setAttribute('role', role);
+  if (label) element.setAttribute('aria-label', label);
+  element.addEventListener('keydown', (event) => {
+    if (event.target !== element) return;
+    const activates = event.key === 'Enter' || (role === 'button' && event.key === ' ');
+    if (!activates) return;
+    event.preventDefault();
+    element.click();
+  });
 }
 
 // --- Home: zweigeteiltes Dashboard ("Zuletzt bearbeitet" + "Alle Notizen") ---
@@ -5993,10 +6045,10 @@ async function renderHomeDesign2() {
   const enabledKeys = dashboardSections.filter(s => s.enabled).map(s => s.key);
   const statsLineHtml = enabledKeys.includes('stats') ? `
     <div class="d2-dash-stats">
-      <span><strong>${notes.length}</strong> Notizen</span> ·
+      <span><strong>${notes.length}</strong> ${notes.length === 1 ? 'Notiz' : 'Notizen'}</span> ·
       <span><strong class="accent" style="color:var(--d2-mark)">${editedThisWeek}</strong> diese Woche bearbeitet</span> ·
-      <span><strong>${categoryCount}</strong> Themen</span> ·
-      <span><strong>${tagCount}</strong> Tags</span>
+      <span><strong>${categoryCount}</strong> ${categoryCount === 1 ? 'Thema' : 'Themen'}</span> ·
+      <span><strong>${tagCount}</strong> ${tagCount === 1 ? 'Tag' : 'Tags'}</span>
     </div>` : '';
 
   // Block C3: Der Bereich "Angeheftete Notizen" erscheint unter Design2
@@ -6300,6 +6352,7 @@ function buildDashboardRowDesign2(note, excerpt, dateLabel, highlighted) {
   const checkbox = row.querySelector('.row-select-checkbox');
   if (checkbox) wireSelectionCheckbox(checkbox);
   row.addEventListener('click', () => { void navigateTo('#note/' + encodeURIComponent(note.relPath)); });
+  makeKeyboardActivatable(row, { label: `${title} öffnen` });
   return row;
 }
 
@@ -7097,7 +7150,11 @@ async function renderNote(relPath) {
     e.stopPropagation();
     const currentCategoryRelPath = relPath.includes('/') ? relPath.split('/').slice(0, -1).join('/') : '';
     const options = collectSubCategories(state.tree).filter(c => c.relPath !== currentCategoryRelPath);
-    if (options.length === 0) return;
+    if (options.length === 0) {
+      // Vorher passierte beim Klick schlicht nichts (Audit P3).
+      showQuickFeedback('Keine andere Unterkategorie vorhanden – lege zuerst eine weitere an („+ Unter“).');
+      return;
+    }
     showCategoryMoveMenu(categoryBadge, options, async (targetRelPath) => {
       const moved = await mutateEntryPath({
         sourceRelPath: relPath,

@@ -159,7 +159,7 @@ h3{ font-size: 1.5rem; line-height:1.3; margin: 1em 0 .5em; font-weight:700; }
 ::selection{ background: var(--accent-soft); color: var(--accent-color); }
 a{ color: var(--accent-color); text-decoration: none; }
 a:hover{ text-decoration: underline; }
-:focus-visible{ outline: 2px solid var(--cyan); outline-offset: 2px; border-radius: var(--radius-sm); }
+:focus-visible{ outline: 2px solid var(--accent-color); outline-offset: 2px; border-radius: var(--radius-sm); }
 button{ font: inherit; }
 input{ font: inherit; }
 
