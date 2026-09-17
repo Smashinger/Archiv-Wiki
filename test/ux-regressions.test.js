@@ -107,3 +107,67 @@ test('C: Schmales Suchfeld blendet „Ctrl K“ samt Platzreserve aus, Kürzel b
   assert.match(block[2], /search-wrap input\{ padding-right:12px; \}/);
   assert.match(read('renderer/index.html'), /id="navSearch"[^>]*aria-keyshortcuts="Control\+K"/);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 3 – Kategorie-Beschriftungen (D) und leere Eingaben (E)
+// ---------------------------------------------------------------------------
+
+function showPromptModalSource() {
+  const app = read('renderer/js/app.js');
+  const start = app.indexOf('function showPromptModal(');
+  const end = app.indexOf('\nfunction ', start + 10);
+  assert.ok(start > 0 && end > start, 'showPromptModal() nicht gefunden');
+  return app.slice(start, end);
+}
+
+test('E: showPromptModal deaktiviert OK bei leerer bzw. nur aus Leerzeichen bestehender Eingabe', () => {
+  const src = showPromptModalSource();
+  assert.match(src, /const isEmpty = \(\) => !input\.value\.trim\(\);/);
+  assert.match(src, /okButton\.disabled = empty;/);
+  assert.match(src, /input\.addEventListener\('input', \(\) => syncValidity/);
+  assert.match(src, /syncValidity\(\);\s*\n\s*overlay\.querySelector\('\[data-action="cancel"\]'\)/, 'Anfangszustand muss geprüft werden (leerer Vorschlagswert)');
+});
+
+test('E: Enter und Mausklick umgehen die Validierung nicht, Abbrechen bleibt möglich', () => {
+  const src = showPromptModalSource();
+  // Enter läuft über manageModalDialog → primaryAction.click(); der Handler prüft zusätzlich selbst
+  assert.match(src, /okButton\.addEventListener\('click', \(\) => \{ if \(!isEmpty\(\)\) close\(input\.value\); \}\);/);
+  assert.match(src, /enterActivatesPrimary: true/);
+  // Klick auf deaktiviertes OK darf den Fokus nicht aus dem Feld ziehen
+  assert.match(src, /okButton\.addEventListener\('pointerdown'[\s\S]*?event\.preventDefault\(\);[\s\S]*?input\.focus/);
+  assert.match(src, /data-action="cancel"\]'\)\.addEventListener\('click', \(\) => close\(null\)\)/);
+  assert.match(src, /onRequestClose: \(\) => close\(null\)/, 'Escape/Schließen liefern weiterhin null');
+});
+
+test('E: Keine zweite Eingabedialog-Implementierung, alle Aufrufer behandeln leer als Abbruch', () => {
+  const app = read('renderer/js/app.js');
+  assert.equal((app.match(/function showPromptModal\(/g) || []).length, 1);
+  // Jede Aufrufstelle prüft das Ergebnis mit einem Falsy-Check – leere Eingaben waren nie gewollt.
+  const calls = [...app.matchAll(/const (\w+) = await showPromptModal\(/g)].map(m => m[1]);
+  assert.ok(calls.length >= 8, `unerwartet wenige Aufrufstellen: ${calls.length}`);
+  for (const variable of new Set(calls)) {
+    // negativ (`if (!name) return`) oder positiv (`if (url) …`, `if (newName && …)`)
+    assert.match(app, new RegExp(`if \\(!?${variable}\\b`), `Aufrufer mit „${variable}“ prüft das Ergebnis nicht`);
+  }
+});
+
+test('D: „+ Haupt“ / „+ Unter“ / „+ Notiz“ tragen erklärende Beschriftungen', () => {
+  const html = read('renderer/index.html');
+  for (const [id, text] of [['segAddMain', 'Hauptkategorie'], ['segAddSub', 'Unterkategorie'], ['btnAddNote', 'Notiz']]) {
+    const tag = html.match(new RegExp(`<button[^>]*id="${id}"[^>]*>`));
+    assert.ok(tag, `${id} fehlt`);
+    assert.match(tag[0], new RegExp(`title="[^"]*${text}[^"]*"`), `${id}: title fehlt`);
+    assert.match(tag[0], new RegExp(`aria-label="[^"]*${text}[^"]*"`), `${id}: aria-label fehlt`);
+  }
+});
+
+test('D: Einheitliche Begriffe – keine „Hauptthema“/„Unterthema“-Vorschläge, Leerzustände nennen die echten Knöpfe', () => {
+  const app = read('renderer/js/app.js');
+  assert.doesNotMatch(app, /Neues (Haupt|Unter)thema/);
+  assert.doesNotMatch(app, /Erstelle zuerst ein Thema/);
+  assert.doesNotMatch(app, /Erstelle Themen,/);
+  assert.match(app, /defaultValue: 'Neue Hauptkategorie'/);
+  assert.match(app, /defaultValue: 'Neue Unterkategorie'/);
+  // Bereichsüberschrift „Themen“ bleibt bewusst erhalten
+  assert.match(read('renderer/index.html'), /<span class="ssl-text">Themen<\/span>/);
+});

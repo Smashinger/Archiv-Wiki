@@ -1459,7 +1459,14 @@ function showWikiLinkModal(prefillDisplay = '') {
   });
 }
 
-function showPromptModal({ title, defaultValue = '', okLabel = 'OK' }) {
+// Leere oder nur aus Leerzeichen bestehende Eingaben schlossen den Dialog
+// früher kommentarlos (Ergebnis null wie bei "Abbrechen"). Jetzt bleibt OK
+// deaktiviert, solange die Eingabe leer ist; Enter kann das nicht umgehen, weil
+// manageModalDialog() nur primaryAction.click() auslöst und ein deaktivierter
+// Knopf keinen Klick annimmt. Ein Enter-Versuch zeigt stattdessen den Hinweis.
+// Alle Aufrufer behandeln leer ohnehin als "nichts tun" — optionale leere
+// Eingaben gibt es hier nicht. Abbrechen/Escape liefern weiterhin null.
+function showPromptModal({ title, defaultValue = '', okLabel = 'OK', description = '', emptyHint = 'Bitte gib einen Wert ein – das Feld darf nicht leer sein.' }) {
   return new Promise((resolve) => {
     closeManagedDialogs('.prompt-overlay', { restoreFocus: false });
     const overlay = document.createElement('div');
@@ -1467,7 +1474,9 @@ function showPromptModal({ title, defaultValue = '', okLabel = 'OK' }) {
     overlay.innerHTML = `
       <div class="prompt-modal">
         <div class="prompt-title">${escapeHtml(title)}</div>
-        <input type="text" class="prompt-input" autocomplete="off">
+        ${description ? `<p class="dialog-message prompt-description">${escapeHtml(description)}</p>` : ''}
+        <input type="text" class="prompt-input" autocomplete="off" aria-required="true">
+        <div class="prompt-empty-hint" role="status" aria-live="polite" hidden>${escapeHtml(emptyHint)}</div>
         <div class="prompt-actions">
           <button type="button" class="btn" data-action="cancel">Abbrechen</button>
           <button type="button" class="btn primary" data-action="ok">${escapeHtml(okLabel)}</button>
@@ -1475,6 +1484,7 @@ function showPromptModal({ title, defaultValue = '', okLabel = 'OK' }) {
       </div>`;
     document.body.appendChild(overlay);
     const input = overlay.querySelector('.prompt-input');
+    const hint = overlay.querySelector('.prompt-empty-hint');
     input.value = defaultValue;
 
     let done = false;
@@ -1485,8 +1495,30 @@ function showPromptModal({ title, defaultValue = '', okLabel = 'OK' }) {
       resolve(value && value.trim() ? value.trim() : null);
     }
     const okButton = overlay.querySelector('[data-action="ok"]');
+    const isEmpty = () => !input.value.trim();
+    function syncValidity({ showHint = false } = {}) {
+      const empty = isEmpty();
+      okButton.disabled = empty;
+      input.setAttribute('aria-invalid', empty ? 'true' : 'false');
+      if (!empty) hint.hidden = true;
+      else if (showHint) hint.hidden = false;
+    }
+    input.addEventListener('input', () => syncValidity({ showHint: true }));
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.isComposing && isEmpty()) syncValidity({ showHint: true });
+    });
+    // Klick auf das deaktivierte OK: Chromium liefert dafür noch pointerdown und
+    // würde den Fokus auf die Dialogfläche ziehen — Weitertippen liefe dann ins
+    // Leere. Fokus bleibt im Feld, der Hinweis erklärt den Grund.
+    okButton.addEventListener('pointerdown', (event) => {
+      if (!okButton.disabled) return;
+      event.preventDefault();
+      syncValidity({ showHint: true });
+      input.focus({ preventScroll: true });
+    });
+    syncValidity();
     overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => close(null));
-    okButton.addEventListener('click', () => close(input.value));
+    okButton.addEventListener('click', () => { if (!isEmpty()) close(input.value); });
     const dialogController = manageModalDialog({
       overlay,
       dialog: overlay.querySelector('.prompt-modal'),
@@ -3412,7 +3444,12 @@ function collectSubCategories(tree) {
 // Neue Hauptkategorie (immer oberste Ebene)
 // ---------------------------------------------------------------------------
 async function createMainCategoryFlow() {
-  const name = await showPromptModal({ title: 'Name der neuen Hauptkategorie', defaultValue: 'Neues Hauptthema' });
+  const name = await showPromptModal({
+    title: 'Name der neuen Hauptkategorie',
+    description: 'Hauptkategorien bilden die oberste Ebene unter „Themen“, z. B. „Arbeit“ oder „Linux“. Darin legst du Unterkategorien für deine Notizen an.',
+    defaultValue: 'Neue Hauptkategorie',
+    emptyHint: 'Bitte gib einen Namen für die Hauptkategorie ein.'
+  });
   if (!name) return;
   try {
     await fs.createMainCategory(name);
@@ -3439,7 +3476,14 @@ async function createSubCategoryFlow() {
     : await showCategoryPickerModal(mainCategories, 'In welcher Hauptkategorie?');
   if (!mainCategoryRelPath) return;
 
-  const name = await showPromptModal({ title: 'Name der neuen Unterkategorie', defaultValue: 'Neues Unterthema' });
+  const mainCategoryName = mainCategories.find(c => c.relPath === mainCategoryRelPath)?.label
+    || mainCategoryRelPath.split('/').pop();
+  const name = await showPromptModal({
+    title: 'Name der neuen Unterkategorie',
+    description: `Unterkategorien gliedern eine Hauptkategorie – Notizen liegen immer in einer Unterkategorie. Wird angelegt in „${mainCategoryName}“.`,
+    defaultValue: 'Neue Unterkategorie',
+    emptyHint: 'Bitte gib einen Namen für die Unterkategorie ein.'
+  });
   if (!name) return;
   try {
     await fs.createSubCategory(mainCategoryRelPath, name);
@@ -5398,7 +5442,7 @@ const DASHBOARD_TIPS = [
     id: 'first-note',
     category: 'firstSteps',
     priority: 'high',
-    text: 'Erstelle zuerst ein Thema und darin deine erste Notiz.',
+    text: 'Lege mit „+ Haupt“ eine Hauptkategorie und darin mit „+ Unter“ eine Unterkategorie an – dort erstellst du mit „+ Notiz“ deine erste Notiz.',
     isRelevant: context => context.noteCount === 0
   },
   {
@@ -5717,7 +5761,7 @@ async function renderHome() {
         ${categoryCount === 0 ? `
           <span class="stat-empty-hint">
             <strong>Noch keine Themen vorhanden.</strong>
-            <span>Erstelle Themen,<br>um deine Notizen zu organisieren.</span>
+            <span>Lege mit „+ Haupt“ eine Hauptkategorie an,<br>um deine Notizen zu ordnen.</span>
           </span>` : ''}
       </button>
       <button type="button" class="stat-chip${tagCount === 0 ? ' is-empty' : ''}" id="statChipTags">

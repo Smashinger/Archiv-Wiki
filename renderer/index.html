@@ -167,9 +167,11 @@
       </div>
 
       <div class="action-row">
-        <button type="button" class="action-btn" id="segAddMain" data-segment="main">+ Haupt</button>
-        <button type="button" class="action-btn" id="segAddSub" data-segment="sub">+ Unter</button>
-        <button type="button" class="action-btn action-btn-primary" id="btnAddNote">+ Notiz</button>
+        <!-- Kurzbeschriftungen passen in jede Sidebar-Breite; was "Haupt" und
+             "Unter" bedeuten, erklären title (Maus) und aria-label (Screenreader). -->
+        <button type="button" class="action-btn" id="segAddMain" data-segment="main" title="Neue Hauptkategorie anlegen – oberste Ebene unter „Themen“, z. B. „Arbeit“" aria-label="Neue Hauptkategorie anlegen">+ Haupt</button>
+        <button type="button" class="action-btn" id="segAddSub" data-segment="sub" title="Neue Unterkategorie in einer Hauptkategorie anlegen – Notizen liegen immer in einer Unterkategorie" aria-label="Neue Unterkategorie anlegen">+ Unter</button>
+        <button type="button" class="action-btn action-btn-primary" id="btnAddNote" title="Neue Notiz in einer Unterkategorie anlegen" aria-label="Neue Notiz anlegen">+ Notiz</button>
       </div>
 
       <!-- D2 / Block 1: Mehrfachauswahl-Leiste — nur sichtbar im Auswahlmodus,
