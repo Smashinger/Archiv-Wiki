@@ -3635,15 +3635,36 @@ els.btnAddNote.addEventListener('click', async () => {
   // Notiz und deren Save gleichzeitig; der Editor blieb danach mit überholtem
   // Stand auf der alten Notiz stehen. Scheitert das Sichern und der Nutzer
   // bleibt lieber auf der Notiz, wird auch keine neue Datei angelegt.
-  if (!await canLeaveCurrentRoute()) return;
-
+  // Zwischen Vorlagenauswahl und dem fertig montierten Editor liegen Datei-
+  // Anlage, Baum-Aktualisierung und das Lesen der neuen Notiz — in dieser Zeit
+  // gibt es kein Fokusziel, sofort Getipptes ging verloren (Nachtest N2). Ein
+  // früheres Fokussieren ist nicht möglich, weil der Editor erst danach
+  // existiert; die Eingaben werden deshalb über denselben Puffer wie beim
+  // Umbenennen gesammelt und an der Startposition eingefügt. Erfasst werden
+  // auch Tasten auf Schaltflächen außerhalb von Dialogen, denn dorthin kehrt
+  // der Fokus nach dem Dialog zurück — ein Leerzeichen würde sonst erneut
+  // "+ Notiz" auslösen.
+  const inputBuffer = startEditorInputBuffer({
+    acceptTarget: (target) => isDefaultEditorBufferTarget(target) || target?.tagName === 'BUTTON'
+  });
+  let createdRelPath = null;
   try {
+    if (!await canLeaveCurrentRoute()) return;
     const created = await fs.createNote(targetRelPath, title, template.body);
+    createdRelPath = created.relPath;
     await refreshAll();
     await navigateTo('#note/' + encodeURIComponent(created.relPath));
   } catch (err) {
     await showMessageDialog({ title: 'Notiz konnte nicht angelegt werden', message: err.message });
     console.error('[Archiv Wiki] fs.createNote fehlgeschlagen für Ziel', targetRelPath, err);
+  } finally {
+    const pendingText = inputBuffer.stop();
+    // Nur in den Editor der neuen Notiz schreiben, und nur wenn er sichtbar
+    // ist — in der reinen Vorschau entstünde sonst unsichtbarer Text.
+    if (createdRelPath && getOpenRelPath() === createdRelPath && state.viewMode !== 'preview') {
+      focusEditor();
+      if (pendingText) insertAtCursor(pendingText);
+    }
   }
 });
 
@@ -4757,17 +4778,23 @@ async function performEntryPathMutation({ sourceRelPath, actionLabel, mutate, af
   }
 }
 
-// Fängt Tastatureingaben ab, die während einer gesperrten Dateioperation an
-// der offenen Notiz (inert + Neuaufbau des Editors) sonst ins Leere gingen.
-// Erfasst werden nur Eingaben ohne anderes Ziel (Body) oder aus dem
-// Notizbereich selbst; Dialoge und andere Eingabefelder bleiben unberührt.
+// Fängt Tastatureingaben ab, die in einem Zeitfenster ohne schreibbaren Editor
+// sonst ins Leere gingen: während einer gesperrten Dateioperation an der
+// offenen Notiz (inert + Neuaufbau) oder zwischen Vorlagenauswahl und dem
+// fertig montierten Editor einer neuen Notiz. Standardmäßig erfasst werden nur
+// Eingaben ohne anderes Ziel (Body) oder aus dem Notizbereich selbst;
+// acceptTarget erlaubt weitere Ziele. Dialoge bleiben immer unberührt.
 // stop() entfernt den Listener und liefert den gesammelten Text.
-function startEditorInputBuffer() {
+function isDefaultEditorBufferTarget(target) {
+  return !target || target === document.body || els.contentScroll.contains(target);
+}
+
+function startEditorInputBuffer({ acceptTarget = isDefaultEditorBufferTarget } = {}) {
   const chunks = [];
   const onKeydown = (event) => {
     if (event.defaultPrevented || event.isComposing) return;
     const target = event.target;
-    if (target && target !== document.body && !els.contentScroll.contains(target)) return;
+    if (target?.closest?.('[role="dialog"]') || !acceptTarget(target)) return;
     const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
     if (event.key === 'Enter' && plain) {
       chunks.push('\n');
