@@ -5665,7 +5665,7 @@ async function renderHome() {
         </div>
         <div class="empty-state">
           <div class="empty-state-title">Dein Archiv ist noch leer.</div>
-          <div class="empty-state-body">Erstelle deine erste Wissensseite, um dein persönliches Wiki aufzubauen — über „+ Thema" in der Sidebar eine Kategorie anlegen, dann „+ Notiz" darin.</div>
+          <div class="empty-state-body">Erstelle deine erste Wissensseite, um dein persönliches Wiki aufzubauen — in der Sidebar mit „+ Haupt" eine Hauptkategorie und mit „+ Unter" eine Unterkategorie anlegen, dann „+ Notiz" darin.</div>
         </div>
       </div>`;
     bindDashboardTipButton({
@@ -6040,7 +6040,7 @@ async function renderHomeDesign2() {
           </div>
           <div class="empty-state">
             <div class="empty-state-title">Dein Archiv ist noch leer.</div>
-            <div class="empty-state-body">Erstelle deine erste Wissensseite, um dein persönliches Wiki aufzubauen — über „+ Thema" in der Sidebar eine Kategorie anlegen, dann „+ Notiz" darin.</div>
+            <div class="empty-state-body">Erstelle deine erste Wissensseite, um dein persönliches Wiki aufzubauen — in der Sidebar mit „+ Haupt" eine Hauptkategorie und mit „+ Unter" eine Unterkategorie anlegen, dann „+ Notiz" darin.</div>
           </div>
         </div>
       </div>`;
