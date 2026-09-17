@@ -872,6 +872,16 @@ function createMainWindow() {
     handleCloseRequest();
   });
 
+  // Hat der Renderer das Beenden per beforeunload wegen ungespeicherter
+  // Änderungen verhindert, brach Electron bisher stumm ab: Das Fenster blieb
+  // ohne jede Rückmeldung offen (Audit P2). Nur bei einem echten Beenden wird
+  // der Renderer benachrichtigt; andere Entlade-Vorgänge (z. B. Neuladen in
+  // der Entwicklung) behalten das Standardverhalten.
+  mainWindow.webContents.on('will-prevent-unload', () => {
+    if (!isQuitting) return;
+    mainWindow?.webContents.send('window:unsavedChangesBlockedQuit');
+  });
+
   // Entwicklertools dürfen bei aktivem App-Passwortschutz nie offen stehen: sie
   // liegen außerhalb des Renderer-Dokuments, wären vom Sperrbildschirm also
   // nicht abgedeckt und böten über die Preload-API einen Weg an der Sperre
@@ -1303,6 +1313,13 @@ function registerCoreIpc() {
     else mainWindow.maximize();
   });
   ipcMain.handle('window:close', () => mainWindow?.close());
+  // Der Nutzer bleibt nach einem durch ungespeicherte Änderungen blockierten
+  // Beenden in der App: Beenden-Zustand zurücksetzen, damit ein späterer
+  // X-Klick wieder regulär über handleCloseRequest() (Rückfrage/Tray) läuft.
+  ipcMain.handle('window:cancelQuit', () => {
+    isQuitting = false;
+    quitInProgress = false;
+  });
   ipcMain.handle('window:isMaximized', () => Boolean(mainWindow?.isMaximized()));
   // Öffnet EINES der vier bestehenden Menü-Objekte aus buildMenu() als
   // natives Popup an der von der Titelleiste übergebenen Fensterposition —

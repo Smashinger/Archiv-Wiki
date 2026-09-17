@@ -92,6 +92,7 @@ function applyPersistedProjectConfig(config) {
   const nextUiDesign = activeUiDesign();
   const nextThemeMode = config.themeMode === 'light' ? 'light' : 'dark';
   updateAppBranding();
+  updateTitlebarSync();
   if (nextUiDesign !== previousUiDesign) {
     applyUiDesign(nextUiDesign);
     applyAccentPalette(...resolveAccentForActiveDesign(state.project?.config));
@@ -970,19 +971,38 @@ document.addEventListener('keydown', (e) => {
 // Topbar global sichtbar ist, fiel das in Classic auf. Die CSS-Regeln tragen
 // ihre Fallbacks bereits selbst, deshalb genügt es, den Inline-Wert
 // wegzulassen.
-function updateTitlebarSync(state) {
+//
+// Die Anzeige war bisher fest auf "WEBDAV SYNCHRON" gesetzt und wurde nie
+// aktualisiert — auch ohne eingerichtetes WebDAV (Audit P2). Sie leitet sich
+// jetzt ausschließlich aus zwei vorhandenen Quellen ab: der Projektkonfiguration
+// (ist überhaupt eine WebDAV-URL eingetragen?) und dem Laufzeitstatus aus
+// sync-ipc.js, derselben Quelle wie applySyncStatus(). Ein Erfolg wird nur
+// behauptet, wenn tatsächlich ein erfolgreicher Abgleich belegt ist.
+let lastSyncRuntimeStatus = null;
+
+function updateTitlebarSync() {
   if (!els.titlebarSyncDot || !els.titlebarSyncText) return;
-  const map = {
-    normal: { cls: '', text: 'WEBDAV SYNCHRON' },
-    unsaved: { cls: 'is-amber', text: 'NICHT GESPEICHERT' },
-    syncing: { cls: 'is-pulse', text: 'SYNCHRONISIERT…' },
-    offline: { cls: 'is-faint', text: 'OFFLINE' }
-  };
-  const m = map[state] || map.normal;
-  els.titlebarSyncDot.className = 'app-titlebar-sync-dot' + (m.cls ? ' ' + m.cls : '');
-  els.titlebarSyncText.textContent = m.text;
+  const status = lastSyncRuntimeStatus || {};
+  const configured = Boolean(String(state.project?.config?.sync?.url || '').trim());
+  let view;
+  if (status.state === 'syncing') {
+    view = { cls: 'is-pulse', text: 'SYNCHRONISIERT…', title: 'Synchronisiere …' };
+  } else if (status.state === 'error') {
+    view = { cls: 'is-amber', text: 'SYNC-FEHLER', title: 'Letzte Synchronisation fehlgeschlagen' };
+  } else if (status.state === 'conflicts') {
+    view = { cls: 'is-amber', text: 'SYNC-KONFLIKT', title: 'Ungelöste Synchronisationskonflikte' };
+  } else if (!configured) {
+    view = { cls: 'is-faint', text: 'WEBDAV AUS', title: 'WebDAV ist nicht eingerichtet — Synchronisationseinstellungen öffnen' };
+  } else if (status.lastSyncAt) {
+    view = { cls: '', text: 'WEBDAV SYNCHRONISIERT', title: 'Zuletzt erfolgreich synchronisiert: ' + formatRelativeTime(status.lastSyncAt) };
+  } else {
+    view = { cls: 'is-faint', text: 'WEBDAV BEREIT', title: 'WebDAV ist eingerichtet, aber in dieser Sitzung noch nicht synchronisiert' };
+  }
+  els.titlebarSyncDot.className = 'app-titlebar-sync-dot' + (view.cls ? ' ' + view.cls : '');
+  els.titlebarSyncText.textContent = view.text;
+  els.titlebarSyncStatus.title = view.title;
 }
-updateTitlebarSync('normal');
+updateTitlebarSync();
 
 // Icon-Wert kann jetzt ZWEIERLEI sein: ein klassisches Emoji-Zeichen (wie
 // bisher, z. B. "📄") ODER eine ID aus der neuen Icon-Bibliothek (Format
@@ -2583,6 +2603,8 @@ els.btnSync.addEventListener('click', () => { openSyncSettingsModal(); });
 // vorliegen — unabhängig davon, ob das Modal gerade offen ist.
 // ---------------------------------------------------------------------------
 function applySyncStatus(status) {
+  lastSyncRuntimeStatus = status;
+  updateTitlebarSync();
   els.btnSync.classList.remove('sync-status-syncing', 'sync-status-error', 'sync-status-conflicts', 'sync-status-ok');
   els.globalStatusSync.classList.remove('is-active', 'is-ok', 'has-error');
   if (status.state === 'syncing') { els.btnSync.classList.add('sync-status-syncing'); els.btnSync.title = 'Synchronisiere …'; }
@@ -6560,7 +6582,7 @@ function wireSplitResizer() {
   // 50/50-Aufteilung.
   const savedWidth = state.project?.config?.splitEditorWidth;
   if (typeof savedWidth === 'number' && savedWidth > 0) {
-    editorPane.style.flex = `0 0 ${savedWidth}px`;
+    editorPane.style.flex = `0 1 ${savedWidth}px`;
     previewPane.style.flex = '1 1 0';
   }
   // Bugfix (B5, real getestet): eine gespeicherte/zuvor gezogene feste Breite
@@ -6584,11 +6606,12 @@ function wireSplitResizer() {
 // (siehe resize-Listener unten) — dieselbe Klemmung wie beim aktiven Ziehen,
 // nur ohne aktiven Mausvorgang. Eine feste Breite bleibt dadurch auch nach
 // dem Verkleinern des Fensters innerhalb des tatsächlich verfügbaren Platzes,
-// ohne die normale 50/50-Aufteilung (kein "0 0 …"-Inline-Stil) anzufassen.
+// ohne die normale 50/50-Aufteilung (kein "0 1 …"-Inline-Stil) anzufassen.
+// Die Mindestbreite der Vorschau selbst regelt components.css.
 function clampSplitEditorWidth() {
   const s = splitResizerState;
   if (!s.split || !s.editorPane || !s.resizer || s.dragging) return;
-  if (!s.editorPane.style.flex.startsWith('0 0')) return;
+  if (!s.editorPane.style.flex.startsWith('0 1')) return;
   const minWidth = 120;
   const rect = s.split.getBoundingClientRect();
   if (!rect.width) return;
@@ -6596,7 +6619,7 @@ function clampSplitEditorWidth() {
   const currentWidth = s.editorPane.getBoundingClientRect().width;
   const clampedWidth = Math.max(minWidth, Math.min(currentWidth, maxWidth));
   if (Math.abs(clampedWidth - currentWidth) > 0.5) {
-    s.editorPane.style.flex = `0 0 ${clampedWidth}px`;
+    s.editorPane.style.flex = `0 1 ${clampedWidth}px`;
   }
 }
 
@@ -6610,7 +6633,7 @@ document.addEventListener('mousemove', (e) => {
   const minWidth = 120;
   let editorWidth = e.clientX - rect.left;
   editorWidth = Math.max(minWidth, Math.min(editorWidth, rect.width - s.resizer.offsetWidth - minWidth));
-  s.editorPane.style.flex = `0 0 ${editorWidth}px`;
+  s.editorPane.style.flex = `0 1 ${editorWidth}px`;
   s.previewPane.style.flex = '1 1 0';
 });
 // Fenster verkleinert, ohne dass die Notiz neu geöffnet wird: dieselbe
@@ -8354,7 +8377,7 @@ function applyViewMode() {
       const savedWidth = state.project?.config?.splitEditorWidth;
       editorPane.style.flex =
         typeof savedWidth === 'number' && savedWidth > 0
-          ? `0 0 ${savedWidth}px`
+          ? `0 1 ${savedWidth}px`
           : '1 1 0';
       previewPane.style.flex = '1 1 0';
       // Bugfix (B5): dieselbe Klemmung wie in wireSplitResizer() — sonst kann
@@ -10851,6 +10874,22 @@ window.addEventListener('beforeunload', (e) => {
   if (isDirty()) { e.preventDefault(); e.returnValue = ''; }
 });
 
+// Ein Beenden wurde durch ungespeicherte Änderungen blockiert (siehe main.js,
+// 'will-prevent-unload'). Gesichert wird über denselben Leave-Vertrag wie bei
+// jeder Navigation — inklusive Rückfrage, falls das Speichern scheitert.
+// Danach wird das Beenden erneut angestoßen oder ausdrücklich abgebrochen.
+let blockedQuitInProgress = false;
+window.archivAPI.windowControls.onUnsavedChangesBlockedQuit?.(async () => {
+  if (blockedQuitInProgress) return;
+  blockedQuitInProgress = true;
+  try {
+    if (await canLeaveCurrentRoute()) await window.archivAPI.windowControls.close();
+    else await window.archivAPI.windowControls.cancelQuit();
+  } finally {
+    blockedQuitInProgress = false;
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Tastatur- und Rechtsklick-Öffnung für Sidebar-Einträge zentral delegieren.
 // Der Listener wird genau einmal registriert; renderNavTree() darf dadurch
@@ -11158,6 +11197,7 @@ function resolveAccentForActiveDesign(config) {
   // Der gespeicherte Wiki-Name erscheint in der globalen Topbar; ohne Namen
   // bleibt dort die neutrale Produktbezeichnung als Fallback sichtbar.
   updateAppBranding();
+  updateTitlebarSync();
 
   await refreshAll(); // ruft render() bereits selbst auf (Zeile 781) — ein
   // zweiter, direkter render()-Aufruf hier war überflüssig und hat beim

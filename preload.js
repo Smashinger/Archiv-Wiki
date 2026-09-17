@@ -231,7 +231,16 @@ contextBridge.exposeInMainWorld('archivAPI', {
       const listener = (_e, isMaximized) => callback(isMaximized);
       ipcRenderer.on('window:maximizedChanged', listener);
       return () => ipcRenderer.removeListener('window:maximizedChanged', listener);
-    }
+    },
+    // Ungespeicherte Änderungen haben ein Beenden blockiert (beforeunload).
+    // Der Renderer sichert sie über den bestehenden Leave-Vertrag und ruft
+    // danach close() erneut auf — oder cancelQuit(), wenn der Nutzer bleibt.
+    onUnsavedChangesBlockedQuit: (callback) => {
+      const listener = () => callback();
+      ipcRenderer.on('window:unsavedChangesBlockedQuit', listener);
+      return () => ipcRenderer.removeListener('window:unsavedChangesBlockedQuit', listener);
+    },
+    cancelQuit: () => ipcRenderer.invoke('window:cancelQuit')
   },
 
   // Rechtschreibprüfung (Nutzer-Feature) — An-/Abschalten der Wellenlinien

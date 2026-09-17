@@ -866,6 +866,13 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
 .split-resizer:hover::after, .split-resizer.dragging::after{ background: var(--accent-color); width:2px; }
 .note-split.mode-split .split-resizer{ display:block; }
 .note-split.mode-split .editor-pane, .note-split.mode-split .preview-pane{ flex: 1 1 0; min-width: 120px; }
+/* Die gespeicherte Editorbreite (splitEditorWidth, Pixel) stammt oft aus
+   einem breiteren Fenster. Bisher war sie unverkürzbar ("0 0 …px"): bei
+   1280 px blieb der Vorschau kaum Platz, bei schmaleren Fenstern wurde sie
+   rechts abgeschnitten (Audit P2). app.js setzt die Breite jetzt als
+   verkürzbare Basis ("0 1 …px"); diese Mindestbreite ist die einzige Stelle,
+   die den lesbaren Anteil der Vorschau festlegt — der Editor gibt nach. */
+.note-split.mode-split .preview-pane{ min-width: max(120px, 35%); }
 
 /* --- Wiki-Links [[Notizname]] in der Vorschau --- */
 .wiki-link{
