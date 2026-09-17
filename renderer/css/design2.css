@@ -2389,9 +2389,15 @@ body[data-ui-design="design2"]{
    Fix: Vorschau-Leiste muss immer über dem Text bleiben — sticky braucht
    isolierten Stacking-Context und undurchsichtigen Hintergrund, sonst
    erschien sie beim Scrollen kurz unter dem Inhalt. */
+/* Spalten: Die Beschriftung "Vorschau" behält immer ihre volle Breite
+   (max-content), die Lesezeit erhält nur den Restplatz (minmax(0, 1fr)) und
+   wird bei sehr schmaler Vorschau gekürzt. Vorher war die Lesezeit-Spalte
+   "auto" und damit nie kleiner als ihr Text; bei z. B. 480px-Sidebar und
+   1000px Fenster reichte der Platz nicht, und "VORSCHAU" lief in die
+   Lesezeit (Nachtest N5). */
 [data-ui-design="design2"] .note-split.mode-split .preview-pane{
   display:grid;
-  grid-template-columns:1fr auto;
+  grid-template-columns:max-content minmax(0, 1fr);
   grid-template-rows:26px auto;
   column-gap:0;
   row-gap:12px;
@@ -2430,6 +2436,15 @@ body[data-ui-design="design2"]{
   grid-row:1;
   margin-right:-22px;
   padding-right:14px;
+  padding-left:10px;
+  /* Block statt Flex, damit text-overflow greift; die Zeilenhöhe übernimmt
+     die vertikale Zentrierung in der 26px-Kopfzeile. */
+  display:block;
+  line-height:26px;
+  text-align:right;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
 }
 
 /* ---------------------------------------------------------------------------
