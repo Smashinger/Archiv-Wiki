@@ -8,6 +8,7 @@ import { buildSyncIntervalOptionsHtml } from './sync-shared.js';
 import { applyAccentPalette } from './theme.js';
 import { fetchUpdateStatus, onUpdateStatusChanged } from './update-check.js';
 import { showMessageDialog, showConfirmDialog } from './dialog.js';
+import { countLabel } from './count-label.js';
 
 const TOTAL_STEPS = 3;
 const STAGE_NAMES = ['Ordner', 'Wiki', 'Sync'];
@@ -410,7 +411,7 @@ function applyChecks(r) {
   } else if (r.empty) {
     setCheck('empty', true, 'leer');
   } else {
-    setCheck('empty', false, `${r.entryCount} Eintrag${r.entryCount === 1 ? '' : 'e'}`);
+    setCheck('empty', false, `${countLabel(r.entryCount, 'Eintrag', 'Einträge')}`);
   }
   if (r.freeBytes === null || r.freeBytes === undefined) {
     setCheck('free', null, 'unbekannt');

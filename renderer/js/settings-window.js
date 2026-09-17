@@ -26,6 +26,7 @@ import { getReleaseNotesForVersion } from './release-notes.js';
 import { showDiagnosticsDialog } from './diagnostics-ui.js';
 import * as fs from './filesystem.js';
 import { UI_DESIGNS, resolveUiDesign, applyUiDesign, UI_DESIGN_LABELS } from './ui-design.js';
+import { countLabel } from './count-label.js';
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -40,7 +41,7 @@ function formatRelative(isoString) {
   const hours = Math.round(mins / 60);
   if (hours < 24) return `vor ${hours} Std.`;
   const days = Math.round(hours / 24);
-  return `vor ${days} Tag${days === 1 ? '' : 'en'}`;
+  return `vor ${countLabel(days, 'Tag', 'Tagen')}`;
 }
 
 function formatFuture(date) {
@@ -49,7 +50,7 @@ function formatFuture(date) {
   if (diffMs <= 0) return 'jederzeit fällig';
   const days = Math.round(diffMs / 86400000);
   if (days < 1) return 'heute';
-  return `in ${days} Tag${days === 1 ? '' : 'en'}`;
+  return `in ${countLabel(days, 'Tag', 'Tagen')}`;
 }
 
 function formatDateTime(isoString) {

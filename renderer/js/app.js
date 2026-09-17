@@ -39,6 +39,7 @@ import { buildTagCloudViewModel, selectNotesForTag, buildTagEntriesViewModel } f
 import { buildDashboardViewModel, dashboardExcerptFor } from './dashboard-data.js';
 import { resolveUiDesign, applyUiDesign } from './ui-design.js';
 import { setupToolbarOverflow } from './toolbar-overflow.js';
+import { countLabel } from './count-label.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -295,8 +296,8 @@ function setSplitPaneHeadMeta(paneId, text) {
 }
 
 function setGlobalEditorCounts({ lines, words, readMinutes = null }) {
-  els.globalStatusWords.textContent = `${words} Wort${words === 1 ? '' : 'e'}`;
-  els.globalStatusLines.textContent = `${lines} Zeile${lines === 1 ? '' : 'n'}`;
+  els.globalStatusWords.textContent = `${countLabel(words, 'Wort', 'Worte')}`;
+  els.globalStatusLines.textContent = `${countLabel(lines, 'Zeile', 'Zeilen')}`;
   const readTimeLabel = Number.isFinite(readMinutes) && words > 0
     ? `${readMinutes} Min. Lesezeit`
     : '';
@@ -1146,7 +1147,7 @@ els.btnClearSelection.addEventListener('click', () => {
 // zweiten Backup-Engine.
 // ---------------------------------------------------------------------------
 function summarizeSelectionBatchResult(result, changedLabel) {
-  const lines = [`${result.changed} von ${result.total} Notiz${result.total === 1 ? '' : 'en'} ${changedLabel}.`];
+  const lines = [`${result.changed} von ${countLabel(result.total, 'Notiz', 'Notizen')} ${changedLabel}.`];
   if (result.skipped > 0) {
     const paths = result.results.filter(r => r.status === 'skipped').map(r => `– ${r.relPath}`).join('\n');
     lines.push(`${result.skipped} übersprungen – zwischenzeitlich geändert oder bereits im Zielzustand:\n${paths}`);
@@ -1177,7 +1178,7 @@ async function runSelectionBatchOperation({ confirmTitle, confirmMessage, confir
 
   const confirmed = await showConfirmDialog({
     title: confirmTitle,
-    message: `${confirmMessage}\n${relPaths.length} Notiz${relPaths.length === 1 ? '' : 'en'} ausgewählt.`,
+    message: `${confirmMessage}\n${countLabel(relPaths.length, 'Notiz', 'Notizen')} ausgewählt.`,
     confirmLabel,
     danger
   });
@@ -1237,7 +1238,7 @@ els.btnBatchMove.addEventListener('click', async () => {
   }
   const targetRelPath = await showCategoryPickerModal(
     subCategories,
-    `${selectedRelPaths.size} Notiz${selectedRelPaths.size === 1 ? '' : 'en'} verschieben nach`
+    `${countLabel(selectedRelPaths.size, 'Notiz', 'Notizen')} verschieben nach`
   );
   if (!targetRelPath) return; // Abbrechen -> Auswahl/Auswahlmodus bleiben unverändert
   const targetLabel = subCategories.find(c => c.relPath === targetRelPath)?.label || targetRelPath;
@@ -1987,6 +1988,12 @@ window.archivAPI.onMenuOpenProject(() => { void handleMenuOpenProjectRequest(); 
 // aufeinanderfolgende Zustände derselben Sache, keine drei gleichzeitigen
 // Meldungen), daher wird ein evtl. vorhandener Toast bei jedem neuen Aufruf
 // zuerst entfernt.
+// Sichtbarkeitsdauer vorübergehender Rückmeldungen mit Rückgängig-Knopf
+// (G3 aus dem Endbenutzer-Test): lang genug zum Lesen und Reagieren, pausiert
+// bei Maus/Fokus; nach dem Verlassen bleiben mindestens RESUME_MS.
+const TRANSIENT_TOAST_VISIBLE_MS = 12000;
+const TRANSIENT_TOAST_RESUME_MS = 4000;
+
 function showUpdateToast({
   message,
   primaryLabel,
@@ -1998,8 +2005,16 @@ function showUpdateToast({
   removeOnPrimary = true,
   primaryBusyLabel = null,
   ariaMode = null,
+  ariaLabel = null,
   details = null,
-  onDismiss = null
+  onDismiss = null,
+  // Vorübergehende Rückmeldungen (Rückgängig nach Verschieben/Tag-Änderung):
+  // verschwinden nach autoHideMs von selbst. Die Zeit pausiert, solange die
+  // Maus über der Meldung liegt, sie den Tastaturfokus hat oder ihre Aktion
+  // läuft. onClosed meldet ein Ende durch Schließen, Aktion oder Ablauf —
+  // nicht das Ersetzen durch eine neuere Meldung.
+  autoHideMs = 0,
+  onClosed = null
 }) {
   document.querySelectorAll('.update-toast').forEach(el => el.remove());
   const safePercent = Math.max(0, Math.min(100, Number(progress) || 0));
@@ -2007,7 +2022,7 @@ function showUpdateToast({
   toast.className = 'update-toast';
   if (ariaMode) {
     toast.setAttribute('role', 'region');
-    toast.setAttribute('aria-label', ariaMode === 'error' ? 'Update-Fehler' : 'Update-Status');
+    toast.setAttribute('aria-label', ariaLabel || (ariaMode === 'error' ? 'Update-Fehler' : 'Update-Status'));
   }
   toast.innerHTML = `
     <div class="update-toast-message"${ariaMode ? ` role="${ariaMode === 'error' ? 'alert' : 'status'}" aria-live="${ariaMode === 'error' ? 'assertive' : 'polite'}" aria-atomic="true"` : ''}>${escapeHtml(message)}</div>
@@ -2025,28 +2040,76 @@ function showUpdateToast({
     </div>` : ''}
   `;
   document.body.appendChild(toast);
+  const primaryButton = toast.querySelector('[data-action="primary"]');
+
+  let hideTimer = null;
+  let hideRemaining = autoHideMs;
+  let hideStartedAt = 0;
+  function closeToast(reason) {
+    clearTimeout(hideTimer);
+    if (!toast.isConnected) return;
+    toast.remove();
+    onClosed?.(reason);
+  }
+  const isToastInUse = () => toast.matches(':hover')
+    || toast.contains(document.activeElement)
+    || Boolean(primaryButton?.disabled);
+  function startHideTimer() {
+    if (!autoHideMs || !toast.isConnected) return;
+    clearTimeout(hideTimer);
+    hideStartedAt = Date.now();
+    hideTimer = setTimeout(() => {
+      hideTimer = null;
+      if (!toast.isConnected) return;
+      if (isToastInUse()) { hideRemaining = TRANSIENT_TOAST_RESUME_MS; startHideTimer(); return; }
+      closeToast('timeout');
+    }, hideRemaining);
+  }
+  function pauseHideTimer() {
+    if (!hideTimer) return;
+    clearTimeout(hideTimer);
+    hideTimer = null;
+    hideRemaining = Math.max(0, hideRemaining - (Date.now() - hideStartedAt));
+  }
+  function resumeHideTimer() {
+    if (!autoHideMs || hideTimer || isToastInUse()) return;
+    // Nach dem Verlassen noch genug Zeit zum erneuten Hinsehen lassen.
+    hideRemaining = Math.max(hideRemaining, TRANSIENT_TOAST_RESUME_MS);
+    startHideTimer();
+  }
+  if (autoHideMs) {
+    toast.dataset.transientToast = 'true';
+    toast.addEventListener('pointerenter', pauseHideTimer);
+    toast.addEventListener('pointerleave', resumeHideTimer);
+    toast.addEventListener('focusin', pauseHideTimer);
+    toast.addEventListener('focusout', () => setTimeout(resumeHideTimer, 0));
+    startHideTimer();
+  }
+
   toast.querySelector('[data-action="dismiss"]')?.addEventListener('click', () => {
     onDismiss?.();
-    toast.remove();
+    closeToast('dismiss');
   });
-  const primaryButton = toast.querySelector('[data-action="primary"]');
   if (primaryButton) {
     primaryButton.addEventListener('click', async () => {
       primaryButton.disabled = true;
+      pauseHideTimer();
       const originalLabel = primaryButton.textContent;
       if (primaryBusyLabel) primaryButton.textContent = primaryBusyLabel;
       try {
         const result = await onPrimary?.();
-        if (removeOnPrimary) toast.remove();
+        if (removeOnPrimary) closeToast('primary');
         else if (result?.started === false && toast.isConnected) {
           primaryButton.disabled = false;
           primaryButton.textContent = originalLabel;
+          resumeHideTimer();
         }
       } catch (error) {
         console.error('[Archiv Wiki] Update-Aktion fehlgeschlagen:', error);
         if (toast.isConnected) {
           primaryButton.disabled = false;
           primaryButton.textContent = originalLabel;
+          resumeHideTimer();
         }
       }
     });
@@ -2136,16 +2199,39 @@ async function showPendingDiagnosticNotice() {
 // bleibt (Nutzeranliegen: "aus Versehen verschoben, weiß nicht wohin").
 // Wiederverwendet die bestehende showUpdateToast() statt eine eigene
 // Toast-Variante extra dafür zu bauen.
+// Gemeinsame Rückgängig-Meldung für Verschieben, Mehrfach-Verschieben und
+// Tag-Änderungen. Früher blieb sie ohne Ablaufzeit stehen und verdrängte eine
+// gleichzeitig anstehende Update-Meldung dauerhaft (showUpdateToast zeigt
+// genau eine Meldung). Jetzt: Ablauf nach TRANSIENT_TOAST_VISIBLE_MS, eine
+// neuere Meldung ersetzt sie wie bisher, und nach ihrem Ende erscheint eine
+// noch anstehende Update-Meldung wieder aus dem zentralen Update-Status.
+function showUndoToast({ message, onUndo }) {
+  return showUpdateToast({
+    message,
+    primaryLabel: 'Rückgängig',
+    dismissLabel: 'Schließen',
+    onPrimary: onUndo,
+    ariaMode: 'status',
+    ariaLabel: 'Rückmeldung',
+    autoHideMs: TRANSIENT_TOAST_VISIBLE_MS,
+    onClosed: restoreUpdateToastAfterTransientToast
+  });
+}
+
+function restoreUpdateToastAfterTransientToast() {
+  if (document.querySelector('.update-toast') || !currentSidebarUpdateStatus) return;
+  lastRenderedUpdateToastKey = null;
+  void renderUpdateToastFromStatus(currentSidebarUpdateStatus);
+}
+
 function showMoveUndoToast(originalRelPath, moved) {
   const originalParent = originalRelPath.includes('/') ? originalRelPath.split('/').slice(0, -1).join('/') : '';
   const targetParent = moved.relPath.includes('/') ? moved.relPath.split('/').slice(0, -1).join('/') : '';
   const itemName = moved.relPath.split('/').pop().replace(/\.md$/, '');
   const targetName = targetParent.split('/').pop() || 'oberste Ebene';
-  showUpdateToast({
+  showUndoToast({
     message: `„${itemName}" nach „${targetName}" verschoben.`,
-    primaryLabel: 'Rückgängig',
-    dismissLabel: 'Schließen',
-    onPrimary: async () => {
+    onUndo: async () => {
       await mutateEntryPath({
         sourceRelPath: moved.relPath,
         actionLabel: 'Verschieben',
@@ -2162,7 +2248,7 @@ function showMoveUndoToast(originalRelPath, moved) {
 // fs.undoBatchMove() durchgereicht — main/notes-fs.js prüft darin pro Notiz
 // erneut die Frische, bevor tatsächlich zurückverschoben wird.
 function summarizeBatchMoveUndoResult(result) {
-  const lines = [`${result.restored} von ${result.total} Notiz${result.total === 1 ? '' : 'en'} zurückverschoben.`];
+  const lines = [`${result.restored} von ${countLabel(result.total, 'Notiz', 'Notizen')} zurückverschoben.`];
   if (result.skipped > 0) {
     const paths = result.results.filter(r => r.status === 'skipped').map(r => `– ${r.relPath}`).join('\n');
     lines.push(`${result.skipped} übersprungen – seit dem Batch erneut geändert:\n${paths}`);
@@ -2176,11 +2262,9 @@ function summarizeBatchMoveUndoResult(result) {
 
 function showBatchMoveUndoToast(changedEntries) {
   const count = changedEntries.length;
-  showUpdateToast({
-    message: `${count} Notiz${count === 1 ? '' : 'en'} verschoben.`,
-    primaryLabel: 'Rückgängig',
-    dismissLabel: 'Schließen',
-    onPrimary: async () => {
+  showUndoToast({
+    message: `${countLabel(count, 'Notiz', 'Notizen')} verschoben.`,
+    onUndo: async () => {
       let undoResult;
       try {
         undoResult = await fs.undoBatchMove(changedEntries);
@@ -2425,7 +2509,7 @@ async function openSyncSettingsModal() {
             if (!h.success) {
               return `<div class="sync-history-row sync-history-error"><img class="lib-icon shr-icon" src="assets/icon-library/security/alert-triangle.svg" alt=""><span class="shr-main">Fehlgeschlagen · ${escapeHtml(when)}</span><span class="shr-detail">${escapeHtml(h.error || 'Der Fehler konnte nicht genauer bestimmt werden.')}</span></div>`;
             }
-            return `<div class="sync-history-row"><span class="shr-icon">✓</span><span class="shr-main">${h.filesCount} Datei${h.filesCount === 1 ? '' : 'en'} · ${escapeHtml(when)}</span><span class="shr-detail">${duration}${h.warnings ? ` · ${h.warnings} Warnung${h.warnings === 1 ? '' : 'en'}` : ''}</span></div>`;
+            return `<div class="sync-history-row"><span class="shr-icon">✓</span><span class="shr-main">${countLabel(h.filesCount, 'Datei', 'Dateien')} · ${escapeHtml(when)}</span><span class="shr-detail">${duration}${h.warnings ? ` · ${countLabel(h.warnings, 'Warnung', 'Warnungen')}` : ''}</span></div>`;
           }).join('');
       listEl.style.display = 'block';
       e.target.replaceChildren(createDialogInlineIcon('docs/clipboard-list'), document.createTextNode('Verlauf ausblenden'));
@@ -2658,7 +2742,7 @@ function applySyncStatus(status) {
     els.globalStatusSync.textContent = 'WebDAV fehlgeschlagen';
     els.globalStatusSync.classList.add('has-error');
   } else if (status.state === 'conflicts') {
-    els.globalStatusSync.textContent = `WebDAV · ${status.conflictCount} Konflikt${status.conflictCount === 1 ? '' : 'e'}`;
+    els.globalStatusSync.textContent = `WebDAV · ${countLabel(status.conflictCount, 'Konflikt', 'Konflikte')}`;
     els.globalStatusSync.classList.add('has-error');
   } else if (status.state === 'idle' && status.lastSyncAt) {
     // lastSyncAt belegt nur den letzten erfolgreichen Lauf, nicht den
@@ -5670,8 +5754,8 @@ let dashboardRenderGeneration = 0;
 // inhaltlich doppelte Unterzeile.
 function dashboardSubLineText(editedThisWeek, totalNotes) {
   return editedThisWeek > 0
-    ? `Du hast diese Woche ${editedThisWeek} Seite${editedThisWeek === 1 ? '' : 'n'} bearbeitet.`
-    : `${totalNotes} Notiz${totalNotes === 1 ? '' : 'en'} insgesamt.`;
+    ? `Du hast diese Woche ${countLabel(editedThisWeek, 'Seite', 'Seiten')} bearbeitet.`
+    : `${countLabel(totalNotes, 'Notiz', 'Notizen')} insgesamt.`;
 }
 function dashboardContextLineText(lastEditedNote) {
   return lastEditedNote
@@ -6656,7 +6740,7 @@ async function renderIncomingLinks(relPath, currentTitle) {
       container.innerHTML = '';
     } else {
       container.innerHTML = `
-        <div class="incoming-links-label">🔗 Verlinkt von ${linkingNotes.length} Notiz${linkingNotes.length === 1 ? '' : 'en'}:</div>
+        <div class="incoming-links-label">🔗 Verlinkt von ${countLabel(linkingNotes.length, 'Notiz', 'Notizen')}:</div>
         <div class="incoming-links-list">
           ${linkingNotes.map(n => `<a href="#" class="incoming-link-item" data-relpath="${escapeHtml(n.relPath)}">${escapeHtml(n.title)}</a>`).join('')}
         </div>`;
@@ -7267,12 +7351,12 @@ async function renderNote(relPath) {
   function updateCounts(text) {
     const lines = text.length ? text.split('\n').length : 0;
     const words = text.trim().length ? text.trim().split(/\s+/).length : 0;
-    statLines.textContent = `${lines} Zeile${lines === 1 ? '' : 'n'}`;
+    statLines.textContent = `${countLabel(lines, 'Zeile', 'Zeilen')}`;
     // Lesezeit grob nach 200 Wörtern/Minute (üblicher Richtwert), aufgerundet
     // auf volle Minuten — unter einer Minute wird "< 1 Min." gezeigt statt "0 Min.".
     const readMinutes = Math.ceil(words / 200);
     const readLabel = words === 0 ? '' : ` · ${readMinutes} Min. Lesezeit`;
-    statWords.textContent = `${words} Wort${words === 1 ? '' : 'e'}${readLabel}`;
+    statWords.textContent = `${countLabel(words, 'Wort', 'Worte')}${readLabel}`;
     setGlobalEditorCounts({ lines, words, readMinutes });
   }
 
@@ -8954,8 +9038,8 @@ async function renderIncomingEntry(id) {
   const statCursor = document.getElementById('statCursor');
   const lines = body.length ? body.split('\n').length : 0;
   const words = body.trim() ? body.trim().split(/\s+/).length : 0;
-  statLines.textContent = `${lines} Zeile${lines === 1 ? '' : 'n'}`;
-  statWords.textContent = `${words} Wort${words === 1 ? '' : 'e'}`;
+  statLines.textContent = `${countLabel(lines, 'Zeile', 'Zeilen')}`;
+  statWords.textContent = `${countLabel(words, 'Wort', 'Worte')}`;
   setGlobalEditorCounts({ lines, words });
 
   openIncomingInEditor({
@@ -9261,8 +9345,8 @@ async function renderIncomingNoteDraft(id) {
   function updateDraftCounts(text) {
     const lines = text.length ? text.split('\n').length : 0;
     const words = text.trim() ? text.trim().split(/\s+/).length : 0;
-    statLines.textContent = `${lines} Zeile${lines === 1 ? '' : 'n'}`;
-    statWords.textContent = `${words} Wort${words === 1 ? '' : 'e'}`;
+    statLines.textContent = `${countLabel(lines, 'Zeile', 'Zeilen')}`;
+    statWords.textContent = `${countLabel(words, 'Wort', 'Worte')}`;
     setGlobalEditorCounts({ lines, words });
   }
 
@@ -10107,7 +10191,7 @@ async function renderArchive() {
 
   els.contentScroll.innerHTML = `
     <h1 class="home-heading">Archiv</h1>
-    <p class="home-sub">${archivedNotes.length} archivierte Notiz${archivedNotes.length === 1 ? '' : 'en'}.</p>
+    <p class="home-sub">${countLabel(archivedNotes.length, 'archivierte Notiz', 'archivierte Notizen')}.</p>
     <div class="dashboard-section all" style="max-height:70vh;">
       <div class="dashboard-list" id="archiveNotesList"></div>
     </div>
@@ -10174,7 +10258,7 @@ async function renderArchiveDesign2() {
   els.contentScroll.innerHTML = `
     <div class="archive-view-d2">
       <h1 class="home-heading">Archiv</h1>
-      <p class="home-sub">${archivedNotes.length} archivierte Notiz${archivedNotes.length === 1 ? '' : 'en'}.</p>
+      <p class="home-sub">${countLabel(archivedNotes.length, 'archivierte Notiz', 'archivierte Notizen')}.</p>
       <div class="d2-archive-list" id="archiveNotesList"></div>
     </div>
   `;
@@ -10237,7 +10321,7 @@ function buildArchiveRowDesign2(entry, dateLabel) {
 // bei mindestens einer Änderung "Rückgängig" anbieten.
 // ---------------------------------------------------------------------------
 function summarizeTagBatchResult(result) {
-  const lines = [`${result.changed} von ${result.total} Notiz${result.total === 1 ? '' : 'en'} geändert.`];
+  const lines = [`${result.changed} von ${countLabel(result.total, 'Notiz', 'Notizen')} geändert.`];
   if (result.skipped > 0) {
     const paths = result.results.filter(r => r.status === 'skipped').map(r => `– ${r.relPath}`).join('\n');
     lines.push(`${result.skipped} übersprungen – zwischenzeitlich geändert:\n${paths}`);
@@ -10276,7 +10360,7 @@ async function runBackupBeforeTagBatch() {
 }
 
 function summarizeUndoResult(result) {
-  const lines = [`${result.restored} von ${result.total} Notiz${result.total === 1 ? '' : 'en'} wiederhergestellt.`];
+  const lines = [`${result.restored} von ${countLabel(result.total, 'Notiz', 'Notizen')} wiederhergestellt.`];
   if (result.skipped > 0) {
     const paths = result.results.filter(r => r.status === 'skipped').map(r => `– ${r.relPath}`).join('\n');
     lines.push(`${result.skipped} übersprungen – seit dem Batch erneut geändert:\n${paths}`);
@@ -10295,11 +10379,9 @@ function summarizeUndoResult(result) {
 // (bewusst — "persistentes Undo über Neustarts" ist explizit nicht Teil von D4).
 function showTagUndoToast(undoEntries) {
   const count = undoEntries.length;
-  showUpdateToast({
-    message: `Tag-Änderung an ${count} Notiz${count === 1 ? '' : 'en'} durchgeführt.`,
-    primaryLabel: 'Rückgängig',
-    dismissLabel: 'Schließen',
-    onPrimary: async () => {
+  showUndoToast({
+    message: `Tag-Änderung an ${countLabel(count, 'Notiz', 'Notizen')} durchgeführt.`,
+    onUndo: async () => {
       let undoResult;
       try {
         undoResult = await fs.undoTagOperation(undoEntries);
@@ -10338,7 +10420,7 @@ async function runTagBatchOperation(operation, { confirmTitle, confirmMessage, c
 
   const confirmed = await showConfirmDialog({
     title: confirmTitle,
-    message: `${confirmMessage}\n${snapshot.length} Notiz${snapshot.length === 1 ? '' : 'en'} betroffen (inkl. archivierter).`,
+    message: `${confirmMessage}\n${countLabel(snapshot.length, 'Notiz', 'Notizen')} betroffen (inkl. archivierter).`,
     confirmLabel,
     danger
   });
@@ -10869,7 +10951,7 @@ async function renderTrash() {
     <div class="trash-header">
       <div>
         <h1 class="home-heading">Papierkorb</h1>
-        <p class="home-sub">${trash.totalCount} Eintrag${trash.totalCount === 1 ? '' : 'e'}</p>
+        <p class="home-sub">${countLabel(trash.totalCount, 'Eintrag', 'Einträge')}</p>
       </div>
       ${trash.totalCount ? '<button type="button" class="icon-btn danger" id="btnEmptyTrash" title="Papierkorb endgültig leeren" aria-label="Papierkorb endgültig leeren">🗑</button>' : ''}
     </div>
@@ -10934,7 +11016,7 @@ async function renderTrashDesign2() {
       <div class="trash-header">
         <div>
           <h1 class="home-heading">Papierkorb</h1>
-          <p class="home-sub">${trash.totalCount} Eintrag${trash.totalCount === 1 ? '' : 'e'}</p>
+          <p class="home-sub">${countLabel(trash.totalCount, 'Eintrag', 'Einträge')}</p>
         </div>
         ${trash.totalCount ? `<button type="button" class="d2-trash-empty-btn" id="btnEmptyTrash" title="Papierkorb endgültig leeren" aria-label="Papierkorb endgültig leeren"><img class="lib-icon" src="assets/icon-library/actions/trash.svg" alt=""></button>` : ''}
       </div>

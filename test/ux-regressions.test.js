@@ -171,3 +171,60 @@ test('D: Einheitliche Begriffe – keine „Hauptthema“/„Unterthema“-Vorsc
   // Bereichsüberschrift „Themen“ bleibt bewusst erhalten
   assert.match(read('renderer/index.html'), /<span class="ssl-text">Themen<\/span>/);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 4 – Mengenangaben (F) und Rückgängig-Meldung (G3)
+// ---------------------------------------------------------------------------
+
+test('F: countLabel bildet Singular nur bei genau 1 und schreibt Plurale vollständig aus', async () => {
+  const { countLabel, pluralWord } = await importRenderer('renderer/js/count-label.js');
+  assert.equal(countLabel(0, 'Eintrag', 'Einträge'), '0 Einträge');
+  assert.equal(countLabel(1, 'Eintrag', 'Einträge'), '1 Eintrag');
+  assert.equal(countLabel(2, 'Eintrag', 'Einträge'), '2 Einträge');
+  assert.equal(countLabel(1, 'archivierte Notiz', 'archivierte Notizen'), '1 archivierte Notiz');
+  assert.equal(pluralWord('1', 'Tag', 'Tagen'), 'Tag', 'Zahl als Zeichenkette');
+  assert.equal(pluralWord(21, 'Datei', 'Dateien'), 'Dateien');
+});
+
+test('F: Keine angehängten Plural-Endungen mehr (erzeugten "0 Eintrage")', () => {
+  const suffixPattern = /[A-Za-zÄÖÜäöüß]\$\{[^}]*===\s*1\s*\?\s*''\s*:\s*'[a-z]+'\}/;
+  const rendererDir = path.join(root, 'renderer/js');
+  for (const file of fs.readdirSync(rendererDir).filter(f => f.endsWith('.js'))) {
+    const lines = fs.readFileSync(path.join(rendererDir, file), 'utf8').split('\n');
+    lines.forEach((line, index) => {
+      if (/^\s*(\/\/|\*)/.test(line)) return; // Erklärkommentare dürfen das alte Muster zitieren
+      assert.doesNotMatch(line, suffixPattern, `${file}:${index + 1} hängt eine Endung an – countLabel() verwenden`);
+    });
+  }
+  const app = read('renderer/js/app.js');
+  assert.equal((app.match(/countLabel\(trash\.totalCount, 'Eintrag', 'Einträge'\)/g) || []).length, 2, 'Papierkorb Classic und Design2');
+  assert.match(read('renderer/js/wizard.js'), /countLabel\(r\.entryCount, 'Eintrag', 'Einträge'\)/);
+});
+
+test('G3: Rückgängig-Meldungen laufen über einen gemeinsamen, zeitlich begrenzten Toast', () => {
+  const app = read('renderer/js/app.js');
+  assert.equal((app.match(/(?<!function )showUndoToast\(\{/g) || []).length, 3, 'Verschieben, Mehrfach-Verschieben, Tags');
+  assert.doesNotMatch(app, /showUpdateToast\(\{\s*message:[^}]*\n\s*primaryLabel: 'Rückgängig'/, 'kein Rückgängig-Toast mehr ohne Ablaufzeit');
+  const helper = app.slice(app.indexOf('function showUndoToast('), app.indexOf('function restoreUpdateToastAfterTransientToast('));
+  assert.match(helper, /autoHideMs: TRANSIENT_TOAST_VISIBLE_MS/);
+  assert.match(helper, /onClosed: restoreUpdateToastAfterTransientToast/);
+  const visible = Number(app.match(/const TRANSIENT_TOAST_VISIBLE_MS = (\d+);/)[1]);
+  const resume = Number(app.match(/const TRANSIENT_TOAST_RESUME_MS = (\d+);/)[1]);
+  assert.ok(visible >= 8000 && visible <= 20000, `Sichtbarkeitsdauer ${visible} ms unplausibel`);
+  assert.ok(resume >= 3000 && resume < visible);
+});
+
+test('G3: Ablauf pausiert bei Maus/Fokus/laufender Aktion, verdrängte Update-Meldung kehrt zurück', () => {
+  const app = read('renderer/js/app.js');
+  const toastFn = app.slice(app.indexOf('function showUpdateToast({'), app.indexOf('function showQuickFeedback('));
+  assert.match(toastFn, /toast\.matches\(':hover'\)/);
+  assert.match(toastFn, /toast\.contains\(document\.activeElement\)/);
+  assert.match(toastFn, /Boolean\(primaryButton\?\.disabled\)/);
+  assert.match(toastFn, /addEventListener\('pointerenter', pauseHideTimer\)/);
+  assert.match(toastFn, /addEventListener\('focusin', pauseHideTimer\)/);
+  // Ersetzen durch eine neuere Meldung löst onClosed nicht aus (keine Endlosschleife mit der Update-Meldung)
+  assert.match(toastFn, /document\.querySelectorAll\('\.update-toast'\)\.forEach\(el => el\.remove\(\)\);/);
+  const restore = app.slice(app.indexOf('function restoreUpdateToastAfterTransientToast('), app.indexOf('function showMoveUndoToast('));
+  assert.match(restore, /if \(document\.querySelector\('\.update-toast'\) \|\| !currentSidebarUpdateStatus\) return;/);
+  assert.match(restore, /renderUpdateToastFromStatus\(currentSidebarUpdateStatus\)/);
+});
