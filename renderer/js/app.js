@@ -3603,6 +3603,14 @@ async function saveNoteAsTemplate() {
 }
 
 els.btnAddNote.addEventListener('click', async () => {
+  // Eine offene Notiz mit ungespeicherten Änderungen wird gesichert, BEVOR
+  // Kategorie, Titel und Vorlage abgefragt werden. Scheitert das Sichern und
+  // der Nutzer bleibt, gehen so keine bereits getroffenen Eingaben verloren
+  // (Nachtest N4). Ein Eingang-Entwurf (ohne Notizpfad) wird bewusst erst
+  // unten über den vollständigen Leave-Vertrag behandelt, damit ein Abbruch
+  // der Dialoge ihn nicht vorzeitig schließt.
+  if (getOpenRelPath() && isDirty() && !await canLeaveCurrentRoute()) return;
+
   const subCategories = collectSubCategories(state.tree);
   if (subCategories.length === 0) {
     await showMessageDialog({

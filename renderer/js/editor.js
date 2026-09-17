@@ -247,6 +247,10 @@ export async function openNoteInEditor({
     projectPath,
     onSlashCommand
   });
+  // Startposition für das Schreiben. Wird dieselbe Notiz nur neu aufgebaut,
+  // überschreibt app.js sie anschließend mit der gemerkten Auswahl
+  // (restoreEditorViewState).
+  placeCursorBelowLeadingHeading();
   return { frontmatter: note.frontmatter, body: note.body };
 }
 
@@ -470,18 +474,22 @@ export function focusEditor() {
   currentEditor?.focus();
 }
 
-// Wechsel vom Titelfeld in den Text per Enter: Wurde im Editor noch keine
-// Position gewählt (Cursor am Dokumentanfang), soll nicht vor die
-// "# Titel"-Überschrift geschrieben werden, sondern in die Zeile darunter.
-// Eine bereits bewusst gesetzte Cursorposition bleibt unverändert.
+// Einzige Definition der Schreib-Startposition einer Notiz: direkt nach einer
+// führenden "# Titel"-Überschriftszeile, sonst der Dokumentanfang. Sie gilt
+// beim Öffnen einer Notiz (auch direkt nach "+ Notiz") und beim Wechsel aus
+// dem Titelfeld per Enter. Vorher stand der Cursor beim Öffnen immer am
+// Dokumentanfang, sofort Getipptes landete vor der Überschrift, und Enter im
+// Titel korrigierte das nur, solange der Cursor noch genau dort stand
+// (Nachtest N1/N2).
+function offsetBelowLeadingHeading(content) {
+  if (!/^#{1,6}\s/.test(content)) return 0;
+  const lineBreak = content.indexOf('\n');
+  return lineBreak === -1 ? content.length : lineBreak + 1;
+}
+
 export function placeCursorBelowLeadingHeading() {
   if (!currentEditor) return;
-  const { anchor, head } = currentEditor.getSelection();
-  if (anchor !== 0 || head !== 0) return;
-  const content = currentEditor.getContent();
-  if (!/^#{1,6}\s/.test(content)) return;
-  const lineBreak = content.indexOf('\n');
-  currentEditor.setSelection(lineBreak === -1 ? content.length : lineBreak + 1);
+  currentEditor.setSelection(offsetBelowLeadingHeading(currentEditor.getContent()));
 }
 
 export function editorHasFocus() {
