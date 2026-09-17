@@ -430,6 +430,20 @@ body.app-locked #titlebarSettingsBtn{ display:none; }
   color: var(--text-faint); background:transparent;
   border:none; border-radius:0; padding:0;
 }
+/* Schmales Suchfeld (Fenster nahe der Mindestbreite): Das Feld schrumpft mit
+   (max-width:100%), die 50 px Reserve für "Ctrl K" blieben aber stehen. Der
+   Platzhalter wurde dadurch direkt neben dem Kürzel abgeschnitten ("DıCtrl K").
+   Unterhalb von 200 px Feldbreite entfällt der Kürzel-Hinweis samt Reserve;
+   das Kürzel bleibt über aria-keyshortcuts am Eingabefeld hinterlegt und
+   funktioniert unverändert. Gilt für Classic und Design2 (gleicher Slot);
+   [data-ui-design] hält die Spezifität der Design2-Regel oben, steht aber später. */
+.d2-titlebar-search-slot .search-wrap{ container-type:inline-size; }
+[data-ui-design] .app-titlebar-zone2 .d2-titlebar-search-slot .search-wrap input{ text-overflow:ellipsis; }
+@container (max-width: 199px){
+  [data-ui-design] .app-titlebar-zone2 .d2-titlebar-search-slot .search-wrap kbd{ display:none; }
+  [data-ui-design] .app-titlebar-zone2 .d2-titlebar-search-slot .search-wrap input{ padding-right:12px; }
+  [data-ui-design] .app-titlebar-zone2 .d2-titlebar-search-slot .search-wrap.has-value input{ padding-right:32px; }
+}
 /* Suchbereich: dieselbe eine Werteliste (#searchScope) — global als kompakte
    Pillen bedient, wie bisher unter Design2 bestätigt. Das echte <select>
    bleibt als gemeinsame Wertequelle im DOM, nur unsichtbar. */

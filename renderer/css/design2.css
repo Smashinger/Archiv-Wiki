@@ -2122,6 +2122,17 @@ body[data-ui-design="design2"]{
 [data-ui-design="design2"] .toolbar-document-group{
   margin-left:auto; padding-right:0;
 }
+/* "Weitere" (toolbar-overflow.js): gleiche Bauform, Flächen- und Textfarben
+   der Design2-Leiste; mittig statt unten ausgerichtet, da Design2 keine
+   Gruppenbeschriftungen über den Knöpfen trägt. */
+[data-ui-design="design2"] .note-toolbar > .toolbar-overflow-btn{
+  align-self:center; height:28px;
+  border-color:transparent; background:var(--d2-surface-2); color:var(--d2-muted);
+  font-family:var(--d2-font-body); font-size:12px;
+  box-shadow:-12px 0 10px -4px var(--d2-surface-1);
+}
+[data-ui-design="design2"] .note-toolbar > .toolbar-overflow-btn:hover,
+[data-ui-design="design2"] .note-toolbar > .toolbar-overflow-btn[aria-expanded="true"]{ color:var(--d2-text); background:var(--d2-surface-3); }
 [data-ui-design="design2"] .note-toolbar > .format-toolbar > .toolbar-group::before,
 [data-ui-design="design2"] .note-toolbar > .toolbar-document-group::before{
   content:""; position:absolute; left:0; top:50%; width:1px; height:18px;

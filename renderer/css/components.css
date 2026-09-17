@@ -1888,6 +1888,33 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
   min-width:58px;
   padding:0 6px;
 }
+/* "Weitere" (renderer/js/toolbar-overflow.js): erscheint nur bei tatsächlichem
+   Überlauf und klebt am rechten Rand der horizontal scrollenden Leiste. Das
+   bewusste overflow-x:auto oben bleibt erhalten; der Knopf macht die außerhalb
+   liegenden Werkzeuge nur ohne Suchen erreichbar. scroll-padding sorgt dafür,
+   dass ein über das Menü ausgewähltes Werkzeug beim Hineinscrollen nicht unter
+   dem Knopf selbst landet. */
+.note-toolbar{ --toolbar-overflow-w:92px; }
+/* scroll-padding zählt ab dem Rand des Scrollbereichs, der klebende Knopf
+   sitzt zusätzlich hinter dem Innenabstand der Leiste (Classic 10 px,
+   Design2 20 px) — daher Knopfbreite plus 24 px. */
+.note-toolbar:has(> .toolbar-overflow-btn:not([hidden])){ scroll-padding-inline-end:calc(var(--toolbar-overflow-w) + 24px); }
+.note-toolbar > .toolbar-overflow-btn{
+  position:sticky; right:0; z-index:1;
+  flex:0 0 auto; align-self:flex-end;
+  min-width:var(--toolbar-overflow-w); height:32px;
+  margin-left:auto; padding:0 10px;
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  border:1px solid var(--border); border-radius:var(--radius-sm);
+  background:var(--bg-color); color:var(--text-muted);
+  font-family:var(--mono); font-size:11.5px; white-space:nowrap; cursor:pointer;
+  box-shadow:-10px 0 10px -4px var(--bg-color);
+}
+.note-toolbar > .toolbar-overflow-btn[hidden]{ display:none; }
+.note-toolbar > .toolbar-overflow-btn:hover,
+.note-toolbar > .toolbar-overflow-btn[aria-expanded="true"]{ color:var(--text-main); background:var(--bg-elev-2); }
+.note-toolbar > .toolbar-overflow-btn:focus-visible{ outline:1px solid var(--accent-color); outline-offset:1px; }
+.toolbar-overflow-dots{ font-size:15px; line-height:1; }
 .incoming-links:not(:empty){ margin:4px 0; }
 
 @media (max-width:1480px){

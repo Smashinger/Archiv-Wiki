@@ -38,6 +38,7 @@ import { incomingFirstText, isIncomingWebpage, incomingTypeLabel, incomingDispla
 import { buildTagCloudViewModel, selectNotesForTag, buildTagEntriesViewModel } from './tags-data.js';
 import { buildDashboardViewModel, dashboardExcerptFor } from './dashboard-data.js';
 import { resolveUiDesign, applyUiDesign } from './ui-design.js';
+import { setupToolbarOverflow } from './toolbar-overflow.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -6865,6 +6866,12 @@ async function renderNote(relPath) {
   `;
   applyNoteDatesPlacement(activeUiDesign());
   applyEditorToolbarPlacement(activeUiDesign());
+  // "Weitere"-Menü für Werkzeuge, die bei schmalem Fenster außerhalb der Leiste
+  // liegen. Nutzt nur die vorhandenen Knöpfe und das vorhandene HTML-Menü.
+  setupToolbarOverflow(document.querySelector('.note-toolbar[aria-label="Editor-Werkzeugleiste"]'), {
+    createMenu: createHtmlContextMenu,
+    closeMenu: closeHtmlContextMenu
+  });
 
   // Die Werkzeugleiste wird bei jedem Notizwechsel neu aufgebaut. Der neue
   // Fokus-Button übernimmt deshalb unmittelbar den bestehenden Body-Zustand.
