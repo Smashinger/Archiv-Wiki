@@ -16,8 +16,15 @@
    1  Das Fenster
    -------------------------------------------------------------------- */
 
+/* Der Scrim beginnt unterhalb der App-Titelleiste: .app-titlebar liegt mit
+   z-index 1300 über dem Scrim (z-index 75). Bei inset:0 rutschte der Kopf des
+   zentrierten Fensters samt Schließen-Schaltfläche bei geringer Fensterhöhe
+   unter die Titelleiste (in Design2 vollständig verdeckt). Der Innenabstand
+   ersetzt die frühere max-height-Rechnung mit 100vh, sodass das Fenster immer
+   vollständig im freien Bereich unter der Titelleiste bleibt. */
 .aws-scrim{
-  position: fixed; inset: 0; z-index: 75;
+  position: fixed; inset: 0; top: var(--titlebar-h, 0px); z-index: 75;
+  padding: 16px; box-sizing: border-box;
   background: rgba(0,0,0,.55);
   display: flex; align-items: center; justify-content: center;
   font-family: 'Barlow', var(--sans);
@@ -32,7 +39,8 @@
    Spezifikation gewinnen dadurch verlässlich, ohne !important. */
 .aws-scrim .aws-window.aws-surface{
   width: 1180px; height: 660px;
-  max-width: calc(100vw - 32px); max-height: calc(100vh - 32px);
+  max-width: 100%; max-height: 100%;
+  min-height: 0;
   border: none; border-radius: 8px;
   box-shadow: var(--c-shadow);
   background: var(--c-s1);
@@ -131,6 +139,10 @@
 .aws-body{
   background: var(--c-s1);
   overflow-y: auto; overscroll-behavior: contain;
+  min-height: 0;
+  /* Bezugsgröße für den Spaltenumbruch weiter unten: maßgeblich ist die
+     tatsächliche Breite des Arbeitsbereichs, nicht die Fensterbreite. */
+  container-type: inline-size;
 }
 
 /* Zweispaltig */
@@ -150,6 +162,20 @@
 }
 .aws-pane.is-single > .aws-col{
   width: 580px; max-width: 100%; margin: 0 auto; padding: 22px 26px;
+}
+
+/* Zu schmal für zwei Spalten: 2 × (210 + 20 + 270) + 44 Abstand + 60 Rand =
+   1104 px. Darunter sprengte die zweite Spalte das Fenster (overflow: hidden)
+   und wurde rechts abgeschnitten. Zweispaltige Bereiche fallen dann auf
+   dieselbe Form wie die einspaltigen zurück: ein zentrierter 580-px-Block,
+   die zweite Spalte darunter. Breite Fenster bleiben unverändert. */
+@container (max-width: 1103px){
+  .aws-pane:not(.is-single){ display: block; padding: 0; }
+  .aws-pane:not(.is-single) > .aws-col{
+    width: 580px; max-width: 100%; margin: 0 auto; padding: 22px 26px;
+  }
+  .aws-pane:not(.is-single) > .aws-col + .aws-col{ padding-top: 0; }
+  .aws-pane:not(.is-single) > .aws-col + .aws-col > .aws-group:first-child{ margin-top: 16px; }
 }
 
 .aws-group{ margin-top: 16px; }
@@ -202,6 +228,16 @@
    rechte Kante mit allen übrigen Zeilen des Bereichs bündig bleibt (Prüfliste)
    — die Schalter sind rechtsbündig und brauchen die vollen 250 px nicht. */
 .aws-group.has-wide-label{ --aws-label-w: 280px; --aws-ctl-w: 170px; }
+
+/* Schmaler als eine Zeile aus Beschriftung und Bedienspalte (tritt erst
+   unterhalb der App-Mindestbreite auf): Die Beschriftung steht über dem
+   Bedienelement, statt es aus dem Bereich zu drängen. Steht bewusst hinter
+   den Zeilenregeln, damit es sie überschreibt. */
+@container (max-width: 559px){
+  .aws-row{ flex-wrap: wrap; }
+  .aws-label{ flex-basis: 100%; width: 100%; margin: 0 0 8px; }
+  .aws-ctl{ flex-basis: 100%; }
+}
 
 /* --------------------------------------------------------------------
    3  Die Bedienelemente
