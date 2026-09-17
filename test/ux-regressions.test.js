@@ -71,9 +71,10 @@ test('B: Sichtbarkeitsprüfung erkennt links, rechts und teilweise verdeckte Wer
   assert.equal(isOutsideVisibleRange({ left: 99.6, right: 500.4 }, ...visible), false, 'Rundung innerhalb der Toleranz');
 });
 
-test('B: Menübeschriftung folgt aria-label vor title vor Text und ist nie leer', async () => {
+test('B: Menübeschriftung folgt title vor aria-label vor Text und ist nie leer', async () => {
   const { toolbarControlLabel } = await importRenderer('renderer/js/toolbar-overflow.js');
-  assert.equal(toolbarControlLabel({ ariaLabel: 'Notiz exportieren', title: 'x', text: '⬇' }), 'Notiz exportieren');
+  assert.equal(toolbarControlLabel({ ariaLabel: 'Suchen und ersetzen', title: 'Im Dokument suchen und ersetzen (Strg+F)', text: '' }), 'Im Dokument suchen und ersetzen (Strg+F)');
+  assert.equal(toolbarControlLabel({ ariaLabel: 'Notiz exportieren', text: '⬇' }), 'Notiz exportieren');
   assert.equal(toolbarControlLabel({ title: 'Fett (**Text**)', text: 'F' }), 'Fett (**Text**)');
   assert.equal(toolbarControlLabel({ text: '  Split \n ' }), 'Split');
   assert.equal(toolbarControlLabel({}), 'Werkzeug');
@@ -227,4 +228,25 @@ test('G3: Ablauf pausiert bei Maus/Fokus/laufender Aktion, verdrängte Update-Me
   const restore = app.slice(app.indexOf('function restoreUpdateToastAfterTransientToast('), app.indexOf('function showMoveUndoToast('));
   assert.match(restore, /if \(document\.querySelector\('\.update-toast'\) \|\| !currentSidebarUpdateStatus\) return;/);
   assert.match(restore, /renderUpdateToastFromStatus\(currentSidebarUpdateStatus\)/);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5 – weitere eindeutig behebbare UX-Probleme
+// ---------------------------------------------------------------------------
+
+test('Phase 5: Formatknöpfe mit Symboltext und das Notiz-Titelfeld haben einen zugänglichen Namen', () => {
+  const app = read('renderer/js/app.js');
+  for (const fmt of ['bold', 'italic', 'strike', 'underline', 'ul', 'ol', 'checklist', 'code']) {
+    assert.match(app, new RegExp(`data-fmt="${fmt}" aria-label="[^"]{4,}" title="`), `data-fmt="${fmt}" ohne aria-label`);
+  }
+  assert.match(app, /id="noteTitleInput" aria-label="Titel der Notiz"/);
+});
+
+test('Phase 5: Kacheln und Statistik passen Einzahl/Mehrzahl an und nutzen Haupt-/Unterkategorie', () => {
+  const app = read('renderer/js/app.js');
+  assert.doesNotMatch(app, /stat-label">📄 Notizen gesamt</);
+  assert.doesNotMatch(app, /stat-label">📚 Themen</);
+  assert.doesNotMatch(app, />(Haupt|Unter)themen</, 'Statistik nutzt noch „Hauptthemen/Unterthemen“');
+  assert.equal((app.match(/pluralWord\(stats\.mainCategoryCount, 'Hauptkategorie', 'Hauptkategorien'\)/g) || []).length, 2, 'Classic und Design2');
+  assert.equal((app.match(/pluralWord\(stats\.subCategoryCount, 'Unterkategorie', 'Unterkategorien'\)/g) || []).length, 2, 'Classic und Design2');
 });

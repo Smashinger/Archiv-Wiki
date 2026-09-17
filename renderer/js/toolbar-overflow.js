@@ -29,10 +29,12 @@ export function isOutsideVisibleRange(rect, visibleLeft, visibleRight, tolerance
 
 /**
  * Sichtbare Beschriftung eines Werkzeugleisten-Elements für das Menü.
- * Reihenfolge wie bei Screenreadern: aria-label vor title vor Textinhalt.
+ * title vor aria-label: title trägt die hilfreichen Zusätze (Markdown-Syntax,
+ * Tastenkürzel wie "Strg+F"), aria-label nur den knappen Namen; der sichtbare
+ * Knopftext ("F", "•") ist allein nicht verständlich.
  */
 export function toolbarControlLabel({ ariaLabel = '', title = '', text = '' } = {}) {
-  const label = String(ariaLabel || title || text || '').replace(/\s+/g, ' ').trim();
+  const label = String(title || ariaLabel || text || '').replace(/\s+/g, ' ').trim();
   return label || 'Werkzeug';
 }
 

@@ -39,7 +39,7 @@ import { buildTagCloudViewModel, selectNotesForTag, buildTagEntriesViewModel } f
 import { buildDashboardViewModel, dashboardExcerptFor } from './dashboard-data.js';
 import { resolveUiDesign, applyUiDesign } from './ui-design.js';
 import { setupToolbarOverflow } from './toolbar-overflow.js';
-import { countLabel } from './count-label.js';
+import { countLabel, pluralWord } from './count-label.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -5833,7 +5833,7 @@ async function renderHome() {
     <div class="stats-widget">
       <button type="button" class="stat-chip" id="statChipNotes">
         <span class="stat-num">${notes.length}</span>
-        <span class="stat-label">📄 Notizen gesamt</span>
+        <span class="stat-label">📄 ${pluralWord(notes.length, 'Notiz', 'Notizen')} gesamt</span>
       </button>
       <button type="button" class="stat-chip" id="statChipWeek">
         <span class="stat-num">${editedThisWeek}</span>
@@ -5841,7 +5841,7 @@ async function renderHome() {
       </button>
       <button type="button" class="stat-chip${categoryCount === 0 ? ' is-empty' : ''}" id="statChipTopics">
         <span class="stat-num">${categoryCount}</span>
-        <span class="stat-label">📚 Themen</span>
+        <span class="stat-label">📚 ${pluralWord(categoryCount, 'Thema', 'Themen')}</span>
         ${categoryCount === 0 ? `
           <span class="stat-empty-hint">
             <strong>Noch keine Themen vorhanden.</strong>
@@ -5850,7 +5850,7 @@ async function renderHome() {
       </button>
       <button type="button" class="stat-chip${tagCount === 0 ? ' is-empty' : ''}" id="statChipTags">
         <span class="stat-num">${tagCount}</span>
-        <span class="stat-label">🏷 Tags</span>
+        <span class="stat-label">🏷 ${pluralWord(tagCount, 'Tag', 'Tags')}</span>
         ${tagCount === 0 ? `
           <span class="stat-empty-hint">
             <strong>Noch keine Tags vorhanden.</strong>
@@ -6889,7 +6889,7 @@ async function renderNote(relPath) {
     <div class="note-header">
       <div class="note-document-title">
         <button type="button" class="pin-btn${node.frontmatter?.pinned ? ' active' : ''}" id="btnPinNote" title="${node.frontmatter?.pinned ? 'Von Favoriten entfernen' : 'Als Favorit anpinnen'}" aria-label="Anpinnen">${node.frontmatter?.pinned ? '★' : '☆'}</button>
-        <input type="text" class="note-title-input" id="noteTitleInput" value="${escapeHtml(title)}">
+        <input type="text" class="note-title-input" id="noteTitleInput" aria-label="Titel der Notiz" value="${escapeHtml(title)}">
       </div>
       <div class="note-document-meta">
         <div class="backlink-row" id="backlinkRow"></div>
@@ -6933,10 +6933,10 @@ async function renderNote(relPath) {
               </select>
             </span>
             <button type="button" class="icon-btn" id="btnEmoji" title="Icon/Emoji einfügen" aria-label="Icon/Emoji einfügen"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M9 9.8h.01" stroke-width="2.6"/><path d="M15 9.8h.01" stroke-width="2.6"/><path d="M8.2 14.6a4.6 4.6 0 0 0 7.6 0"/></svg></button>
-            <button type="button" data-fmt="bold" title="Fett (**Text**)"><strong>F</strong></button>
-            <button type="button" data-fmt="italic" title="Kursiv (*Text*)"><em>K</em></button>
-            <button type="button" data-fmt="strike" title="Durchgestrichen (~~Text~~)"><s>D</s></button>
-            <button type="button" data-fmt="underline" title="Unterstrichen (&lt;u&gt;Text&lt;/u&gt;)"><u>U</u></button>
+            <button type="button" data-fmt="bold" aria-label="Fett" title="Fett (**Text**)"><strong>F</strong></button>
+            <button type="button" data-fmt="italic" aria-label="Kursiv" title="Kursiv (*Text*)"><em>K</em></button>
+            <button type="button" data-fmt="strike" aria-label="Durchgestrichen" title="Durchgestrichen (~~Text~~)"><s>D</s></button>
+            <button type="button" data-fmt="underline" aria-label="Unterstrichen" title="Unterstrichen (&lt;u&gt;Text&lt;/u&gt;)"><u>U</u></button>
             <button type="button" data-fmt="inlinecode" title="Quelltext im Fließtext (\`Code\`)" aria-label="Quelltext im Fließtext"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 8L5 12l4 4"/><path d="M15 8l4 4-4 4"/></svg></button>
             <button type="button" class="icon-btn" id="btnHeadingMenu" title="Überschrift auswählen" aria-label="Überschrift auswählen" aria-haspopup="menu" aria-expanded="false">H ▾</button>
           </div>
@@ -6944,9 +6944,9 @@ async function renderNote(relPath) {
         <div class="toolbar-group">
           <span class="toolbar-group-label">Listen</span>
           <div class="toolbar-group-controls">
-            <button type="button" data-fmt="ul" title="Aufzählung (- Punkt)">•</button>
-            <button type="button" data-fmt="ol" title="Nummerierte Liste (1. Punkt)">1.</button>
-            <button type="button" data-fmt="checklist" title="Checkliste (- [ ] Aufgabe)">☑</button>
+            <button type="button" data-fmt="ul" aria-label="Aufzählung" title="Aufzählung (- Punkt)">•</button>
+            <button type="button" data-fmt="ol" aria-label="Nummerierte Liste" title="Nummerierte Liste (1. Punkt)">1.</button>
+            <button type="button" data-fmt="checklist" aria-label="Checkliste" title="Checkliste (- [ ] Aufgabe)">☑</button>
           </div>
         </div>
         <div class="toolbar-group">
@@ -6961,7 +6961,7 @@ async function renderNote(relPath) {
         <div class="toolbar-group">
           <span class="toolbar-group-label">Markdown</span>
           <div class="toolbar-group-controls">
-            <button type="button" data-fmt="code" title="Code-Block (dreifache Backticks)">{ }</button>
+            <button type="button" data-fmt="code" aria-label="Code-Block" title="Code-Block (dreifache Backticks)">{ }</button>
             <button type="button" data-fmt="quote" title="Markdown-Zitat einfügen" aria-label="Markdown-Zitat einfügen">&gt;</button>
             <button type="button" id="btnCallout" title="Callout einfügen" aria-label="Callout einfügen"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v5"/><path d="M12 7.8h.01" stroke-width="2.5"/></svg></button>
             <button type="button" id="btnMarkdownMore" title="Weitere Markdown-Elemente" aria-label="Weitere Markdown-Elemente" aria-haspopup="menu" aria-expanded="false"><svg class="toolbar-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 12h.01" stroke-width="2.6"/><path d="M12 12h.01" stroke-width="2.6"/><path d="M18 12h.01" stroke-width="2.6"/></svg></button>
@@ -10783,10 +10783,10 @@ async function renderStatsPage() {
   els.contentScroll.innerHTML = `
     <h1 class="home-heading">Statistik</h1>
     <div class="stats-widget">
-      <div class="stat-chip"><span class="stat-num">${stats.totalNotes}</span><span class="stat-label">Notizen</span></div>
-      <div class="stat-chip"><span class="stat-num">${stats.mainCategoryCount}</span><span class="stat-label">Hauptthemen</span></div>
-      <div class="stat-chip"><span class="stat-num">${stats.subCategoryCount}</span><span class="stat-label">Unterthemen</span></div>
-      <div class="stat-chip"><span class="stat-num">${stats.totalWords.toLocaleString('de-DE')}</span><span class="stat-label">Wörter gesamt</span></div>
+      <div class="stat-chip"><span class="stat-num">${stats.totalNotes}</span><span class="stat-label">${pluralWord(stats.totalNotes, 'Notiz', 'Notizen')}</span></div>
+      <div class="stat-chip"><span class="stat-num">${stats.mainCategoryCount}</span><span class="stat-label">${pluralWord(stats.mainCategoryCount, 'Hauptkategorie', 'Hauptkategorien')}</span></div>
+      <div class="stat-chip"><span class="stat-num">${stats.subCategoryCount}</span><span class="stat-label">${pluralWord(stats.subCategoryCount, 'Unterkategorie', 'Unterkategorien')}</span></div>
+      <div class="stat-chip"><span class="stat-num">${stats.totalWords.toLocaleString('de-DE')}</span><span class="stat-label">${pluralWord(stats.totalWords, 'Wort', 'Wörter')} gesamt</span></div>
     </div>
     <div class="stats-columns">
       <div class="stats-block">
@@ -10850,10 +10850,10 @@ async function renderStatsPageDesign2() {
     <div class="stats-view-d2">
       <h1 class="home-heading">Statistik</h1>
       <div class="d2-stats-headline">
-        <div class="d2-stats-metric"><span class="d2-stats-num">${stats.totalNotes}</span><span class="d2-stats-label">Notizen</span></div>
-        <div class="d2-stats-metric"><span class="d2-stats-num">${stats.mainCategoryCount}</span><span class="d2-stats-label">Hauptthemen</span></div>
-        <div class="d2-stats-metric"><span class="d2-stats-num">${stats.subCategoryCount}</span><span class="d2-stats-label">Unterthemen</span></div>
-        <div class="d2-stats-metric"><span class="d2-stats-num">${stats.totalWords.toLocaleString('de-DE')}</span><span class="d2-stats-label">Wörter gesamt</span></div>
+        <div class="d2-stats-metric"><span class="d2-stats-num">${stats.totalNotes}</span><span class="d2-stats-label">${pluralWord(stats.totalNotes, 'Notiz', 'Notizen')}</span></div>
+        <div class="d2-stats-metric"><span class="d2-stats-num">${stats.mainCategoryCount}</span><span class="d2-stats-label">${pluralWord(stats.mainCategoryCount, 'Hauptkategorie', 'Hauptkategorien')}</span></div>
+        <div class="d2-stats-metric"><span class="d2-stats-num">${stats.subCategoryCount}</span><span class="d2-stats-label">${pluralWord(stats.subCategoryCount, 'Unterkategorie', 'Unterkategorien')}</span></div>
+        <div class="d2-stats-metric"><span class="d2-stats-num">${stats.totalWords.toLocaleString('de-DE')}</span><span class="d2-stats-label">${pluralWord(stats.totalWords, 'Wort', 'Wörter')} gesamt</span></div>
       </div>
       <div class="d2-stats-columns">
         <div class="d2-stats-section">
