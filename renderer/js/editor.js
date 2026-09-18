@@ -472,6 +472,42 @@ export function getOpenRelPath() {
   return currentRelPath;
 }
 
+// Identität der offenen Notiz einschließlich Editor-Instanz und
+// Bearbeitungsstand. Bewusst genau die drei Werte, mit denen saveNow() und
+// saveUntilClean() bereits intern prüfen, ob ihr Ergebnis noch zum Dokument
+// passt — hier nur zusätzlich nach außen gegeben.
+//
+// getOpenRelPath() allein reicht dafür nicht: mountEditorDocument() ruft zuerst
+// closeEditor() (editorGeneration += 1, contentRevision = 0) und setzt danach
+// denselben currentRelPath. Ein Neuaufbau DERSELBEN Notiz ist am Pfad also
+// nicht erkennbar. Aufrufer, die über einen eigenen Wartepunkt (Rückfrage-
+// dialog) hinweg entscheiden, brauchen genau diese Unterscheidung, damit eine
+// veraltete Antwort nicht für eine neue Editor-Instanz oder für inzwischen
+// geänderten Inhalt gilt. Reine Abfrage ohne Nebenwirkung.
+export function getOpenNoteIdentity() {
+  if (!currentEditor || !currentRelPath) return null;
+  return { relPath: currentRelPath, generation: editorGeneration, revision: contentRevision };
+}
+
+export function isSameOpenNoteIdentity(a, b) {
+  return Boolean(a && b
+    && a.relPath === b.relPath
+    && a.generation === b.generation
+    && a.revision === b.revision);
+}
+
+// Reiner Instanzzähler, unabhängig von relPath. getOpenNoteIdentity() liefert
+// null, sobald currentRelPath leer ist — für einen Eingang-Entwurf (immer
+// relPath: null, siehe openNoteDraftInEditor()) ist das dauerhaft der Fall und
+// verdeckt damit genau den Wert, der einen Neuaufbau erkennbar machen würde.
+// editorGeneration erhöht sich dagegen bei JEDEM closeEditor()-Aufruf,
+// unabhängig von relPath — reicht als alleiniges Instanzmerkmal für Aufrufer,
+// die keinen Pfad, sondern nur "dieselbe Editor-Instanz wie vorhin" brauchen.
+// Reine Abfrage ohne Nebenwirkung.
+export function getEditorGeneration() {
+  return editorGeneration;
+}
+
 // Rename/Move darf die Identität einer weiterhin geöffneten Notiz erst nach
 // erfolgreicher Dateisystemmutation umschalten. Der Inhaltsfingerprint bleibt
 // gültig, weil diese Operationen den Markdown-Body nicht verändern; beim

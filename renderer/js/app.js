@@ -28,7 +28,7 @@ import { showDiagnosticsDialog } from './diagnostics-ui.js';
 import { animateIn, animateOut } from './motion.js';
 import { manageModalDialog, closeManagedDialogs, showMessageDialog, showConfirmDialog } from './dialog.js';
 import { initEllipsisTooltips } from './tooltip.js';
-import { openNoteInEditor, openIncomingInEditor, openNoteDraftInEditor, saveNow, saveUntilClean, isDirty, getOpenRelPath, retargetOpenNote, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, renderMarkdownForExport, setEditorContent, jumpToMatchInEditor, focusEditor, editorHasFocus, restoreEditorViewState, placeCursorBelowLeadingHeading, setSyncScrollEnabled, setAutoSaveSeconds, openDocumentSearch } from './editor.js';
+import { openNoteInEditor, openIncomingInEditor, openNoteDraftInEditor, saveNow, saveUntilClean, isDirty, getOpenRelPath, getOpenNoteIdentity, isSameOpenNoteIdentity, getEditorGeneration, retargetOpenNote, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, renderMarkdownForExport, setEditorContent, jumpToMatchInEditor, focusEditor, editorHasFocus, restoreEditorViewState, placeCursorBelowLeadingHeading, setSyncScrollEnabled, setAutoSaveSeconds, openDocumentSearch } from './editor.js';
 import { rebuildIndex, getSearchState, search as searchNotes, searchWithDetails, getFilterOptions, SEARCH_SCOPES } from './search.js';
 import { buildKnowledgeCareViewModel } from './knowledge-care-data.js';
 import { buildStatsViewModel } from './stats-data.js';
@@ -4960,13 +4960,31 @@ function mutateEntryPath(options) {
   });
 }
 
-async function canLeaveCurrentRoute() {
+// guard bindet einen bereits bestätigten Auftrag an den Arbeitsbereich, zu dem
+// er gehört. Diese Funktion ist nicht nebenwirkungsfrei: Sie kann einen
+// Eingangsentwurf nach Rückfrage schließen und verwerfen oder den Save-/
+// Verwerfen-Ablauf der offenen Notiz auslösen. Das eigene Abwarten einer
+// laufenden Pfadmutation ist dabei der einzige Wartepunkt VOR dieser
+// Entscheidung — deshalb wird der guard genau dort geprüft und nicht schon beim
+// Aufruf. Liefert er false, gilt die Route als nicht verlassbar und es
+// geschieht nichts. Ohne guard (alle bisherigen Aufrufer) bleibt das Verhalten
+// unverändert.
+async function canLeaveCurrentRoute({ guard = null } = {}) {
   if (entryPathMutationPromise) await entryPathMutationPromise;
+  if (guard && !guard()) return false;
   const renderedSlug = slugFromHash(renderedHash);
   if (renderedSlug.startsWith('incoming-draft/')) {
     const incomingId = renderedSlug.slice('incoming-draft/'.length);
     const draft = state.incomingNoteDraft;
     if (draft?.incomingId === incomingId && draft.hasUnsavedChanges) {
+      // R1-Ergänzung: state.incomingNoteDraft bleibt bei einem Neuaufbau
+      // DERSELBEN Route (renderIncomingNoteDraft() über refreshAll(), reuse-
+      // Zweig) dieselbe Objektreferenz — openNoteDraftInEditor() montiert dabei
+      // trotzdem eine neue Editor-Instanz. Die reine Referenzprüfung unten
+      // erkennt diesen Fall nicht. editorGeneration erhöht sich dagegen bei
+      // jedem closeEditor()-Aufruf, also auch bei diesem Neuaufbau — hier vor
+      // dem Dialog festgehalten und danach erneut verglichen.
+      const generationAtDialog = getEditorGeneration();
       const discard = await showConfirmDialog({
         title: 'Bearbeiteten Eingangsentwurf verlassen?',
         message: 'Die Änderungen an diesem noch nicht gespeicherten Entwurf werden verworfen.',
@@ -4975,6 +4993,21 @@ async function canLeaveCurrentRoute() {
         danger: true
       });
       if (!discard) return false;
+      // R1: Der Dialog ist ein Wartepunkt. state.incomingNoteDraft wird bei
+      // jedem Neuaufbau des EntwurfsOBJEKTS vollständig ersetzt und beim
+      // Speichern/Verwerfen auf null gesetzt (nie in derselben Objektreferenz
+      // mutiert) — Referenzgleichheit mit der vor dem Dialog festgehaltenen
+      // draft-Variable ist damit ein bereits vorhandenes, hier nur genutztes
+      // Identitätsmerkmal. Ohne diese Prüfung hätte eine veraltete Zustimmung
+      // einen inzwischen neu aufgebauten Entwurf mit derselben incomingId
+      // geschlossen und verworfen, oder einen bereits gespeicherten/geleerten
+      // Entwurf nachträglich auf null gesetzt.
+      if (state.incomingNoteDraft !== draft) return false;
+      // Zusätzlich: dieselbe Referenz, aber inzwischen neu montierte Editor-
+      // Instanz (siehe Kommentar oben bei generationAtDialog). Ohne diese
+      // zweite Prüfung schlösse closeEditor() gleich darauf eine Instanz, über
+      // die nie entschieden wurde.
+      if (getEditorGeneration() !== generationAtDialog) return false;
     }
     if (draft?.incomingId === incomingId) {
       closeEditor();
@@ -4985,7 +5018,15 @@ async function canLeaveCurrentRoute() {
 
   if (!getOpenRelPath() || !isDirty()) return true;
   if (await saveUntilClean(currentOnSaved, currentOnSaveError)) return true;
-  return resolveUnsavableOpenNote();
+  // Das Speichern ist der zweite Wartepunkt vor einer Nebenwirkung.
+  // saveUntilClean() liefert false nicht nur bei einem Schreibfehler, sondern
+  // auch, wenn zwischenzeitlich eine andere Notiz oder eine neue Editor-
+  // Instanz übernommen hat (editor.js: Generations-/Pfadvergleich). Ohne diese
+  // erneute Prüfung ermittelte resolveUnsavableOpenNote() gleich darauf die
+  // DANN offene Notiz und stellte für sie den Verwerfen-Dialog — für einen
+  // gebundenen Auftrag ein fremder Arbeitsbereich.
+  if (guard && !guard()) return false;
+  return resolveUnsavableOpenNote(guard);
 }
 
 // Scheitert das Speichern beim Verlassen (Konflikt, Schreibfehler), blieb die
@@ -4995,11 +5036,24 @@ async function canLeaveCurrentRoute() {
 // destruktiven Dialogen nichts aus) oder die ungespeicherten Änderungen
 // bewusst verwerfen. Ein zweiter Weg, Änderungen zu sichern, entsteht dabei
 // nicht; die bestehende Konfliktschutz-Logik bleibt unverändert.
-async function resolveUnsavableOpenNote() {
+// guard hat dieselbe Bedeutung wie in canLeaveCurrentRoute() und wird von dort
+// durchgereicht: Er bindet die Rückfrage an den Arbeitsbereich, zu dem der
+// auslösende Auftrag gehört.
+//
+// Rückgabe: true ausschließlich, wenn nichts (mehr) zu entscheiden war oder das
+// ausdrücklich bestätigte Verwerfen tatsächlich für denselben Editor ausgeführt
+// wurde. Jede offene Frage — „Hier bleiben", veraltete Entscheidung, abgewiesener
+// Guard — liefert false und damit „nicht verlassen".
+async function resolveUnsavableOpenNote(guard = null) {
   const openRelPath = getOpenRelPath();
   // saveUntilClean() liefert auch false, wenn inzwischen ein anderer Editor
   // offen ist — dann gibt es nichts mehr zu entscheiden.
   if (!openRelPath || !isDirty()) return true;
+  // Die Rückfrage gilt genau dieser Notiz in genau dieser Editor-Instanz mit
+  // genau diesem Bearbeitungsstand. Der Dialog ist selbst ein Wartepunkt;
+  // ohne diesen Merker wäre nach der Antwort nicht mehr unterscheidbar, ob
+  // dieselbe Notiz inzwischen neu aufgebaut oder weiter bearbeitet wurde.
+  const decidedFor = getOpenNoteIdentity();
   const title = fs.findNode(state.tree, openRelPath)?.frontmatter?.title
     || openRelPath.split('/').pop().replace(/\.md$/, '');
   const discard = await showConfirmDialog({
@@ -5010,7 +5064,23 @@ async function resolveUnsavableOpenNote() {
     danger: true
   });
   if (!discard) return false;
-  if (getOpenRelPath() === openRelPath) closeEditor();
+  // Verworfen wird nur, worüber tatsächlich entschieden wurde. Ein Vergleich
+  // allein über getOpenRelPath() würde einen Neuaufbau derselben Notiz nicht
+  // erkennen: closeEditor() träfe dann eine fremde Editor-Instanz mit
+  // womöglich neuen, nie zur Entscheidung gestellten Änderungen.
+  //
+  // Passt die Identität nicht mehr, wird konservativ mit false abgebrochen —
+  // für JEDEN Aufrufer, mit oder ohne Guard. Das bloße Unterlassen von
+  // closeEditor() schützt nämlich nichts: Ein true ließe den Aufrufer seinen
+  // Wechsel vollziehen, und der ersetzende Aufbau (render() nach dem
+  // Routen-Commit, Projektwechsel, Fensterschluss) verwürfe genau die
+  // ungesicherten Änderungen, über die nie jemand gefragt wurde. Kein Aufrufer
+  // verliert dadurch etwas, denn false bedeutet bei allen dasselbe:
+  // hierbleiben, nichts anlegen, nichts schließen.
+  if (!isSameOpenNoteIdentity(decidedFor, getOpenNoteIdentity())) return false;
+  // Ein abgewiesener Guard gilt ebenfalls nie als erfolgreiches Verlassen.
+  if (guard && !guard()) return false;
+  closeEditor();
   return true;
 }
 
@@ -6870,6 +6940,14 @@ document.addEventListener('mouseup', () => {
   fs.setProjectSetting('splitEditorWidth', finalWidth).catch(() => {});
 });
 
+// Nur EIN Anlegeversuch aus einem fehlenden Wikilink gleichzeitig. Zwischen
+// Klick und fertiger Datei liegen Bestätigungsdialog, Leave-Vertrag und
+// Dateizugriff; ohne diese Sperre öffnen zwei schnelle Klicks zwei
+// Bestätigungen und legen am Ende zwei Dateien an ("Name" und "Name 2").
+// Bewusst nur für diesen einen Weg (keine globale Operationsverwaltung); der
+// Wert wird im finally desselben Vorgangs wieder freigegeben.
+let wikilinkCreateInFlight = false;
+
 async function renderNote(relPath) {
   const renderId = renderSequence;
   const node = fs.findNode(state.tree, relPath);
@@ -7513,16 +7591,99 @@ async function renderNote(relPath) {
     if (target.dataset.wikilinkTarget) {
       void navigateTo('#note/' + encodeURIComponent(target.dataset.wikilinkTarget));
     } else if (target.dataset.wikilinkCreate) {
+      if (wikilinkCreateInFlight) return;
       const name = target.dataset.wikilinkCreate;
-      const currentSubCategory = relPath.split('/').slice(0, -1).join('/');
-      if (!currentSubCategory || !await showConfirmDialog({
-        title: 'Notiz anlegen?',
-        message: `Die Notiz "${name}" existiert noch nicht. Soll sie in dieser Unterkategorie angelegt werden?`,
-        confirmLabel: 'Anlegen'
-      })) return;
-      const created = await fs.createNote(currentSubCategory, name);
-      await refreshAll();
-      void navigateTo('#note/' + encodeURIComponent(created.relPath));
+      const sourceRelPath = relPath;
+      const currentSubCategory = sourceRelPath.split('/').slice(0, -1).join('/');
+      if (!currentSubCategory) return;
+
+      // Zwischen Klick und fertiger Datei liegen mehrere Wartepunkte
+      // (Bestätigung, Leave-Vertrag, Dateizugriff). Der Auftrag gehört nur so
+      // lange zur gezeigten Quellnotiz, wie deren Route gerendert ist, ihr
+      // Editor offen ist und keine Navigation den Arbeitsbereich gerade
+      // wechselt. Genau diese drei bestehenden Zustände beschreiben "der
+      // Auftrag ist noch aktuell" — eine eigene Operationsverwaltung entsteht
+      // dafür nicht.
+      const orderBelongsToSourceNote = () =>
+        !navigationProcess
+        && slugFromHash(renderedHash) === 'note/' + sourceRelPath
+        && getOpenRelPath() === sourceRelPath;
+      const staleOrderHint = 'Die Notiz hat sich inzwischen geändert — es wurde nichts angelegt.';
+
+      wikilinkCreateInFlight = true;
+      let createdRelPath = null;
+      try {
+        if (!await showConfirmDialog({
+          title: 'Notiz anlegen?',
+          message: `Die Notiz "${name}" existiert noch nicht. Soll sie in dieser Unterkategorie angelegt werden?`,
+          confirmLabel: 'Anlegen'
+        })) return;
+
+        // Die Bestätigung ist selbst ein Wartepunkt. canLeaveCurrentRoute()
+        // entscheidet anhand der DANN gerenderten Route und kann dabei einen
+        // inzwischen aktiven Eingangsentwurf schließen und verwerfen oder den
+        // Save-/Verwerfen-Ablauf einer fremden Notiz auslösen. Ein überholter
+        // Auftrag darf das nicht anstoßen und erst danach merken, dass seine
+        // Quellnotiz gar nicht mehr aktiv ist: deshalb hier vor dem Aufruf …
+        if (!orderBelongsToSourceNote()) {
+          showQuickFeedback(staleOrderHint);
+          return;
+        }
+
+        // … und derselbe Test noch einmal als guard, weil die Funktion intern
+        // eine laufende Pfadmutation abwartet, bevor sie über ihre
+        // Nebenwirkungen entscheidet. Der guard läuft genau nach diesem Warten
+        // und vor jeder Nebenwirkung.
+        // Erst danach die offene Notiz über den zentralen Leave-Vertrag sichern
+        // (oder ihre Änderungen bewusst verwerfen lassen), DANN die Zieldatei
+        // anlegen. Vorher entstand die neue Datei auch dann, wenn das Speichern
+        // scheiterte und der Nutzer "Hier bleiben" wählte: Er blieb auf der
+        // alten Notiz und fand trotzdem eine leere neue Notiz vor, während
+        // refreshAll() den Editor parallel neu aufbaute (derselbe Ablauf wie
+        // bei "+ Notiz", Audit P1-A).
+        if (!await canLeaveCurrentRoute({ guard: orderBelongsToSourceNote })) {
+          // "Hier bleiben" lässt Route und Editor der Quellnotiz stehen und
+          // bleibt wie bisher stumm; ein abgewiesener guard wird dagegen
+          // gemeldet.
+          if (!orderBelongsToSourceNote()) showQuickFeedback(staleOrderHint);
+          return;
+        }
+
+        // Auch Speichern und Verwerfen-Rückfrage sind Wartepunkte. Nach dem
+        // Leave-Vertrag darf der Editor allerdings bewusst geschlossen sein:
+        // Ausdrücklich bestätigtes Verwerfen ruft closeEditor(), ohne die Route
+        // zu verändern. Diese Prüfung verlangt deshalb keinen offenen Editor
+        // mehr, sondern nur noch die weiterhin gerenderte Quellnotiz-Route und
+        // die Notiz im Baum. Ein zwischenzeitliches Umbenennen/Verschieben
+        // ersetzt renderedHash durch den neuen Pfad — dann wäre die oben
+        // abgeleitete Zielkategorie veraltet und es wird nichts angelegt.
+        if (navigationProcess
+          || slugFromHash(renderedHash) !== 'note/' + sourceRelPath
+          || !fs.findNode(state.tree, sourceRelPath)) {
+          showQuickFeedback(staleOrderHint);
+          return;
+        }
+
+        const created = await fs.createNote(currentSubCategory, name);
+        createdRelPath = created.relPath;
+        await refreshAll();
+        // Ein abgebrochener oder überholter Wechsel ist kein erfolgreiches
+        // Öffnen. Die Datei bleibt bestehen und wird nicht automatisch wieder
+        // gelöscht — der Hinweis nennt sie deshalb ausdrücklich als angelegt.
+        if (!await navigateTo('#note/' + encodeURIComponent(created.relPath))) {
+          showQuickFeedback(`„${name}“ wurde angelegt, aber nicht geöffnet.`);
+        }
+      } catch (err) {
+        console.error('[Archiv Wiki] Wikilink-Notiz konnte nicht angelegt werden', currentSubCategory, name, err);
+        await showMessageDialog({
+          title: createdRelPath ? 'Notiz angelegt, aber nicht geöffnet' : 'Notiz konnte nicht angelegt werden',
+          message: createdRelPath
+            ? `Die Notiz „${name}“ wurde angelegt, konnte aber nicht geöffnet werden: ${err.message}`
+            : err.message
+        });
+      } finally {
+        wikilinkCreateInFlight = false;
+      }
     }
   });
 
