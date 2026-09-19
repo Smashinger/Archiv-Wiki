@@ -2728,6 +2728,10 @@ body[data-ui-design="design2"]{
 [data-ui-design="design2"] .preview-pane{
   color: var(--d2-dim);
 }
+[data-ui-design="design2"] .preview-pane summary{
+  color: var(--d2-text);
+  font-family: var(--d2-font-body);
+}
 
 /* D10 — Vorschau-Rhythmus. Ohne aktivierte Nutzer-Lesebreite folgt
    Design2 der 560px-Manuskriptbreite der Referenz; die vorhandene optionale

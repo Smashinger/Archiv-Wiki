@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/highlight.js/lib/core.js
+// ../../../node_modules/highlight.js/lib/core.js
 var require_core = __commonJS({
-  "node_modules/highlight.js/lib/core.js"(exports, module) {
+  "../../../node_modules/highlight.js/lib/core.js"(exports, module) {
     function deepFreeze(obj) {
       if (obj instanceof Map) {
         obj.clear = obj.delete = obj.set = function() {
@@ -1566,7 +1566,7 @@ var require_core = __commonJS({
   }
 });
 
-// node_modules/@marijn/find-cluster-break/src/index.js
+// ../../../node_modules/@marijn/find-cluster-break/src/index.js
 var rangeFrom = [];
 var rangeTo = [];
 (() => {
@@ -1640,7 +1640,7 @@ function codePointSize(code2) {
   return code2 < 65536 ? 1 : 2;
 }
 
-// node_modules/@codemirror/state/dist/index.js
+// ../../../node_modules/@codemirror/state/dist/index.js
 var Text = class _Text {
   /**
   Get the line description around the given position.
@@ -5014,7 +5014,7 @@ function findColumn(string2, col, tabSize, strict) {
   return strict === true ? -1 : string2.length;
 }
 
-// node_modules/style-mod/src/style-mod.js
+// ../../../node_modules/style-mod/src/style-mod.js
 var C = "\u037C";
 var COUNT = typeof Symbol == "undefined" ? "__" + C : Symbol.for(C);
 var SET = typeof Symbol == "undefined" ? "__styleSet" + Math.floor(Math.random() * 1e8) : /* @__PURE__ */ Symbol("styleSet");
@@ -5145,7 +5145,7 @@ var StyleSet = class {
   }
 };
 
-// node_modules/w3c-keyname/index.js
+// ../../../node_modules/w3c-keyname/index.js
 var base = {
   8: "Backspace",
   9: "Tab",
@@ -5251,7 +5251,7 @@ function keyName(event) {
   return name2;
 }
 
-// node_modules/crelt/index.js
+// ../../../node_modules/crelt/index.js
 function crelt() {
   var elt2 = arguments[0];
   if (typeof elt2 == "string") elt2 = document.createElement(elt2);
@@ -5280,7 +5280,7 @@ function add(elt2, child) {
   }
 }
 
-// node_modules/@codemirror/view/dist/index.js
+// ../../../node_modules/@codemirror/view/dist/index.js
 var nav = typeof navigator != "undefined" ? navigator : { userAgent: "", vendor: "", platform: "" };
 var doc = typeof document != "undefined" ? document : { documentElement: { style: {} } };
 var ie_edge = /* @__PURE__ */ /Edge\/(\d+)/.exec(nav.userAgent);
@@ -15074,7 +15074,7 @@ function maxLineNumber(lines) {
   return last;
 }
 
-// node_modules/@lezer/common/dist/index.js
+// ../../../node_modules/@lezer/common/dist/index.js
 var DefaultBufferLength = 1024;
 var nextPropID = 0;
 var Range2 = class {
@@ -17125,7 +17125,7 @@ function enterFragments(mounts, ranges) {
   return result;
 }
 
-// node_modules/@lezer/highlight/dist/index.js
+// ../../../node_modules/@lezer/highlight/dist/index.js
 var nextTagID = 0;
 var Tag = class _Tag {
   /**
@@ -17849,7 +17849,7 @@ var classHighlighter = tagHighlighter([
   { tag: tags.punctuation, class: "tok-punctuation" }
 ]);
 
-// node_modules/@codemirror/language/dist/index.js
+// ../../../node_modules/@codemirror/language/dist/index.js
 var _a;
 var languageDataProp = /* @__PURE__ */ new NodeProp();
 function defineLanguageFacet(baseData) {
@@ -19063,7 +19063,7 @@ var marks = {
   auto: /* @__PURE__ */ Decoration.mark({ class: "cm-iso", inclusive: true, attributes: { dir: "auto" }, bidiIsolate: null })
 };
 
-// node_modules/@codemirror/commands/dist/index.js
+// ../../../node_modules/@codemirror/commands/dist/index.js
 var toggleComment = (target) => {
   let { state } = target, line = state.doc.lineAt(state.selection.main.from), config2 = getConfig(target.state, line.from);
   return config2.line ? toggleLineComment(target) : config2.block ? toggleBlockCommentByLine(target) : false;
@@ -20158,7 +20158,7 @@ var defaultKeymap = /* @__PURE__ */ [
 ].concat(standardKeymap);
 var indentWithTab = { key: "Tab", run: indentMore, shift: indentLess };
 
-// node_modules/@codemirror/autocomplete/dist/index.js
+// ../../../node_modules/@codemirror/autocomplete/dist/index.js
 var CompletionContext = class {
   /**
   Create a new completion context. (Mostly useful for testing
@@ -21975,7 +21975,7 @@ var completionKeymap = [
 ];
 var completionKeymapExt = /* @__PURE__ */ Prec.highest(/* @__PURE__ */ keymap.computeN([completionConfig], (state) => state.facet(completionConfig).defaultKeymap ? [completionKeymap] : []));
 
-// node_modules/@lezer/markdown/dist/index.js
+// ../../../node_modules/@lezer/markdown/dist/index.js
 var CompositeBlock = class _CompositeBlock {
   static create(type, value, from, parentHash, end) {
     let hash2 = parentHash + (parentHash << 8) + type + (value << 4) | 0;
@@ -24039,7 +24039,7 @@ var Emoji = {
   }]
 };
 
-// node_modules/@lezer/lr/dist/index.js
+// ../../../node_modules/@lezer/lr/dist/index.js
 var Stack = class _Stack {
   /**
   @internal
@@ -25801,7 +25801,7 @@ function getSpecializer(spec) {
   return spec.get;
 }
 
-// node_modules/@lezer/html/dist/index.js
+// ../../../node_modules/@lezer/html/dist/index.js
 var scriptText = 55;
 var StartCloseScriptTag = 1;
 var styleText = 56;
@@ -26145,7 +26145,7 @@ function configureNesting(tags3 = [], attributes = []) {
   });
 }
 
-// node_modules/@lezer/css/dist/index.js
+// ../../../node_modules/@lezer/css/dist/index.js
 var descendantOp = 148;
 var Unit = 1;
 var identifier = 149;
@@ -26320,7 +26320,7 @@ var parser3 = LRParser.deserialize({
   tokenPrec: 2444
 });
 
-// node_modules/@codemirror/lang-css/dist/index.js
+// ../../../node_modules/@codemirror/lang-css/dist/index.js
 var _properties = null;
 function properties() {
   if (!_properties && typeof document == "object" && document.body) {
@@ -27181,7 +27181,7 @@ function css() {
   return new LanguageSupport(cssLanguage, cssLanguage.data.of({ autocomplete: cssCompletionSource }));
 }
 
-// node_modules/@lezer/javascript/dist/index.js
+// ../../../node_modules/@lezer/javascript/dist/index.js
 var noSemi = 316;
 var noSemiType = 317;
 var incdec = 1;
@@ -27393,7 +27393,7 @@ var parser4 = LRParser.deserialize({
   tokenPrec: 15201
 });
 
-// node_modules/@codemirror/lang-javascript/dist/index.js
+// ../../../node_modules/@codemirror/lang-javascript/dist/index.js
 var snippets = [
   /* @__PURE__ */ snippetCompletion("function ${name}(${params}) {\n	${}\n}", {
     label: "function",
@@ -27705,7 +27705,7 @@ var autoCloseTags = /* @__PURE__ */ EditorView.inputHandler.of((view, from, to, 
   return true;
 });
 
-// node_modules/@codemirror/lang-html/dist/index.js
+// ../../../node_modules/@codemirror/lang-html/dist/index.js
 var Targets = ["_blank", "_self", "_top", "_parent"];
 var Charsets = ["ascii", "utf-8", "utf-16", "latin1", "latin1"];
 var Methods = ["get", "post", "put", "delete"];
@@ -28445,7 +28445,7 @@ var autoCloseTags2 = /* @__PURE__ */ EditorView.inputHandler.of((view, from, to,
   return true;
 });
 
-// node_modules/@codemirror/lang-markdown/dist/index.js
+// ../../../node_modules/@codemirror/lang-markdown/dist/index.js
 var data = /* @__PURE__ */ defineLanguageFacet({ commentTokens: { block: { open: "<!--", close: "-->" } } });
 var headingProp = /* @__PURE__ */ new NodeProp();
 var commonmark = /* @__PURE__ */ parser.configure({
@@ -28866,7 +28866,7 @@ var pasteURLAsLink = /* @__PURE__ */ EditorView.domEventHandlers({
   }
 });
 
-// node_modules/@codemirror/search/dist/index.js
+// ../../../node_modules/@codemirror/search/dist/index.js
 var basicNormalize = typeof String.prototype.normalize == "function" ? (x2) => x2.normalize("NFKD") : (x2) => x2;
 var SearchCursor = class {
   /**
@@ -29865,7 +29865,7 @@ var searchExtensions = [
   baseTheme3
 ];
 
-// node_modules/marked/lib/marked.esm.js
+// ../../../node_modules/marked/lib/marked.esm.js
 function C2() {
   return { async: false, breaks: false, extensions: null, gfm: true, hooks: null, pedantic: false, renderer: null, silent: false, tokenizer: null, walkTokens: null };
 }
@@ -31117,11 +31117,11 @@ var on = f.parseInline;
 var ln = b.parse;
 var pn = x.lex;
 
-// node_modules/highlight.js/es/core.js
+// ../../../node_modules/highlight.js/es/core.js
 var import_core = __toESM(require_core(), 1);
 var core_default = import_core.default;
 
-// node_modules/highlight.js/es/languages/javascript.js
+// ../../../node_modules/highlight.js/es/languages/javascript.js
 var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS = [
   "as",
@@ -31822,7 +31822,7 @@ function javascript2(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/python.js
+// ../../../node_modules/highlight.js/es/languages/python.js
 function python(hljs) {
   const regex = hljs.regex;
   const IDENT_RE2 = new RegExp("[\\p{XID_Start}_]\\p{XID_Continue}*", "u");
@@ -32237,7 +32237,7 @@ function python(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/bash.js
+// ../../../node_modules/highlight.js/es/languages/bash.js
 function bash(hljs) {
   const regex = hljs.regex;
   const VAR = {};
@@ -32631,7 +32631,7 @@ function bash(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/json.js
+// ../../../node_modules/highlight.js/es/languages/json.js
 function json(hljs) {
   const ATTRIBUTE = {
     className: "attr",
@@ -32671,7 +32671,7 @@ function json(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/yaml.js
+// ../../../node_modules/highlight.js/es/languages/yaml.js
 function yaml(hljs) {
   const LITERALS2 = "true false yes no null";
   const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";
@@ -32872,7 +32872,7 @@ function yaml(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/xml.js
+// ../../../node_modules/highlight.js/es/languages/xml.js
 function xml(hljs) {
   const regex = hljs.regex;
   const TAG_NAME_RE = regex.concat(/[\p{L}_]/u, regex.optional(/[\p{L}0-9_.-]*:/u), /[\p{L}0-9_.-]*/u);
@@ -33098,7 +33098,7 @@ function xml(hljs) {
   };
 }
 
-// node_modules/highlight.js/es/languages/css.js
+// ../../../node_modules/highlight.js/es/languages/css.js
 var MODES = (hljs) => {
   return {
     IMPORTANT: {
@@ -34035,7 +34035,7 @@ function css2(hljs) {
   };
 }
 
-// node_modules/katex/dist/katex.mjs
+// ../../../node_modules/katex/dist/katex.mjs
 var ParseError = class _ParseError extends Error {
   // The underlying error message without any context added.
   constructor(message, token) {
@@ -48363,7 +48363,7 @@ var katex = {
   __domTree
 };
 
-// node_modules/dompurify/dist/purify.es.mjs
+// ../../../node_modules/dompurify/dist/purify.es.mjs
 function _arrayLikeToArray(r, a) {
   (null == a || a > r.length) && (a = r.length);
   for (var e = 0, n = Array(a); e < a; e++) n[e] = r[e];
@@ -49914,6 +49914,7 @@ var PREVIEW_ALLOWED_TAGS = [
   "span",
   "strong",
   "sub",
+  "summary",
   "sup",
   "table",
   "tbody",
@@ -49922,7 +49923,8 @@ var PREVIEW_ALLOWED_TAGS = [
   "thead",
   "tr",
   "u",
-  "ul"
+  "ul",
+  "details"
 ];
 var PREVIEW_ALLOWED_ATTRIBUTES = [
   "align",
@@ -49936,7 +49938,8 @@ var PREVIEW_ALLOWED_ATTRIBUTES = [
   "scope",
   "src",
   "start",
-  "title"
+  "title",
+  "open"
 ];
 var PREVIEW_URI_PATTERN = /^(?:(?:https?|file|incoming-image):|assets\/icon-library\/)/i;
 var ICON_SOURCE_PATTERN = /^assets\/icon-library\/[a-z0-9_-]+\/[a-z0-9._-]+\.svg$/i;
@@ -50030,15 +50033,19 @@ function replaceTextTokens(root, pattern, createReplacement) {
     node.replaceWith(fragment);
   });
 }
-function restoreMath(root, mathStore) {
-  replaceTextTokens(root, /@@MATH(\d+)@@/g, (match) => {
+function placeholderPattern(prefix, kind, suffix = "(\\d+)") {
+  const escapedPrefix = String(prefix || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`${escapedPrefix}${kind}${suffix}@@`, "g");
+}
+function restoreMath(root, mathStore, placeholderPrefix) {
+  replaceTextTokens(root, placeholderPattern(placeholderPrefix, "MATH"), (match) => {
     const html3 = mathStore[Number(match[1])];
     if (typeof html3 !== "string") return null;
     return purify.sanitize(html3, KATEX_SANITIZE_CONFIG);
   });
 }
-function restoreWikiLinks(root, wikiStore) {
-  replaceTextTokens(root, /@@WIKILINK(\d+)@@/g, (match, ownerDocument) => {
+function restoreWikiLinks(root, wikiStore, placeholderPrefix) {
+  replaceTextTokens(root, placeholderPattern(placeholderPrefix, "WIKILINK"), (match, ownerDocument) => {
     const entry = wikiStore[Number(match[1])];
     if (!entry) return null;
     const link = ownerDocument.createElement("a");
@@ -50053,8 +50060,8 @@ function restoreWikiLinks(root, wikiStore) {
     return link;
   });
 }
-function restoreTaskCheckboxes(root, taskCheckboxCount) {
-  replaceTextTokens(root, /@@TASKCHECKBOX(\d+)_(0|1)@@/g, (match, ownerDocument) => {
+function restoreTaskCheckboxes(root, taskCheckboxCount, placeholderPrefix) {
+  replaceTextTokens(root, placeholderPattern(placeholderPrefix, "TASKCHECKBOX", "(\\d+)_(0|1)"), (match, ownerDocument) => {
     const index = Number(match[1]);
     if (!Number.isSafeInteger(index) || index < 0 || index >= taskCheckboxCount) return null;
     const checkbox = ownerDocument.createElement("input");
@@ -50140,9 +50147,9 @@ function enhanceTables(root) {
 }
 function sanitizePreviewHtml(html3, options = {}) {
   const fragment = purify.sanitize(normalizeTableAlignments(html3), BASE_SANITIZE_CONFIG);
-  restoreMath(fragment, options.mathStore || []);
-  restoreWikiLinks(fragment, options.wikiStore || []);
-  restoreTaskCheckboxes(fragment, options.taskCheckboxCount || 0);
+  restoreMath(fragment, options.mathStore || [], options.placeholderPrefix);
+  restoreWikiLinks(fragment, options.wikiStore || [], options.placeholderPrefix);
+  restoreTaskCheckboxes(fragment, options.taskCheckboxCount || 0, options.placeholderPrefix);
   secureLinks(fragment);
   enhanceCodeBlocks(fragment);
   enhanceTables(fragment);
@@ -50624,6 +50631,7 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 var taskCheckboxCounter = 0;
+var activePlaceholderPrefix = "@@ARCHIVWIKI_0_";
 f.use({
   gfm: true,
   breaks: true,
@@ -50643,8 +50651,7 @@ f.use({
     // plus einen Index, über den app.js die richtige Zeile in der Markdown-
     // Quelle wiederfindet und dort [ ] <-> [x] umschaltet.
     checkbox({ checked }) {
-      const idx = taskCheckboxCounter++;
-      return `@@TASKCHECKBOX${idx}_${checked ? "1" : "0"}@@ `;
+      return `${activePlaceholderPrefix}TASKCHECKBOX_${checked ? "1" : "0"}@@ `;
     }
   }
 });
@@ -50681,24 +50688,33 @@ var readingWidthNowrapPlugin = ViewPlugin.fromClass(class {
     return builder.finish();
   }
 }, { decorations: (v2) => v2.decorations });
-function protectCodeRegions(text3) {
+function createPreviewPlaceholderPrefix(source) {
+  const text3 = String(source || "");
+  let nonce = 0;
+  let prefix;
+  do {
+    prefix = `@@ARCHIVWIKI_${nonce++}_`;
+  } while (text3.includes(prefix));
+  return prefix;
+}
+function protectCodeRegions(text3, placeholderPrefix) {
   const store = [];
   function stash(match) {
     store.push(match);
-    return `@@CODE${store.length - 1}@@`;
+    return `${placeholderPrefix}CODE${store.length - 1}@@`;
   }
   let out = text3.replace(/```[\s\S]*?```/g, stash);
   out = out.replace(/`[^`\n]+`/g, stash);
   return { out, store };
 }
-function restoreCodeRegions(text3, store) {
-  return text3.replace(/@@CODE(\d+)@@/g, (_2, i3) => store[Number(i3)]);
+function restoreCodeRegions(text3, store, placeholderPrefix) {
+  return text3.replace(new RegExp(`${placeholderPrefix}CODE(\\d+)@@`, "g"), (_2, i3) => store[Number(i3)]);
 }
-function renderMathToPlaceholders(text3) {
+function renderMathToPlaceholders(text3, placeholderPrefix) {
   const store = [];
   function stash(html3) {
     store.push(html3);
-    return `@@MATH${store.length - 1}@@`;
+    return `${placeholderPrefix}MATH${store.length - 1}@@`;
   }
   let out = text3.replace(/\$\$([\s\S]+?)\$\$/g, (_2, expr) => {
     try {
@@ -50716,11 +50732,11 @@ function renderMathToPlaceholders(text3) {
   });
   return { out, store };
 }
-function renderWikiLinksToPlaceholders(text3, noteIndex) {
+function renderWikiLinksToPlaceholders(text3, noteIndex, placeholderPrefix) {
   const store = [];
   function stash(entry) {
     store.push(entry);
-    return `@@WIKILINK${store.length - 1}@@`;
+    return `${placeholderPrefix}WIKILINK${store.length - 1}@@`;
   }
   const out = text3.replace(/\[\[([^\]\n|]+?)(?:\|([^\]\n]+?))?\]\]/g, (_2, rawTarget, rawDisplay) => {
     const target = rawTarget.trim();
@@ -50734,11 +50750,11 @@ function renderWikiLinksToPlaceholders(text3, noteIndex) {
   return { out, store };
 }
 var CALLOUT_TYPES = ["note", "tip", "warning", "danger", "abstract", "example", "info"];
-function renderCalloutsToPlaceholders(text3, codeStore) {
+function renderCalloutsToPlaceholders(text3, codeStore, placeholderPrefix) {
   const store = [];
   function stash(html3) {
     store.push(html3);
-    return `@@CALLOUT${store.length - 1}@@`;
+    return `${placeholderPrefix}CALLOUT${store.length - 1}@@`;
   }
   const lines = text3.split("\n");
   const out = [];
@@ -50755,7 +50771,7 @@ function renderCalloutsToPlaceholders(text3, codeStore) {
         j2++;
       }
       const titleText = customTitle || calloutType.charAt(0).toUpperCase() + calloutType.slice(1);
-      const bodyText = restoreCodeRegions(bodyLines.join("\n"), codeStore);
+      const bodyText = restoreCodeRegions(bodyLines.join("\n"), codeStore, placeholderPrefix);
       const bodyHtml = bodyLines.length ? f.parse(bodyText) : "";
       out.push(stash(`<div class="callout ${calloutType}"><div class="callout-title">${escapeHtml(titleText)}</div>${bodyHtml}</div>`));
       i3 = j2;
@@ -50773,16 +50789,22 @@ function attachmentPreviewSource(projectPath, rawName) {
   return base2 + encodeURIComponent(name2);
 }
 function renderPreview(markdownText, options = {}) {
+  const source = String(markdownText || "");
+  const placeholderPrefix = createPreviewPlaceholderPrefix(source);
+  activePlaceholderPrefix = placeholderPrefix;
   taskCheckboxCounter = 0;
   const noteIndex = options.noteIndex || [];
-  const { out: codeProtected, store: codeStore } = protectCodeRegions(markdownText || "");
-  const { out: calloutProtected, store: calloutStore } = renderCalloutsToPlaceholders(codeProtected, codeStore);
-  const { out: wikiProtected, store: wikiStore } = renderWikiLinksToPlaceholders(calloutProtected, noteIndex);
-  const { out: mathProtected, store: mathStore } = renderMathToPlaceholders(wikiProtected);
-  const restoredCode = restoreCodeRegions(mathProtected, codeStore);
+  const { out: codeProtected, store: codeStore } = protectCodeRegions(source, placeholderPrefix);
+  const { out: wikiProtected, store: wikiStore } = renderWikiLinksToPlaceholders(codeProtected, noteIndex, placeholderPrefix);
+  const { out: mathProtected, store: mathStore } = renderMathToPlaceholders(wikiProtected, placeholderPrefix);
+  const { out: calloutProtected, store: calloutStore } = renderCalloutsToPlaceholders(mathProtected, codeStore, placeholderPrefix);
+  const restoredCode = restoreCodeRegions(calloutProtected, codeStore, placeholderPrefix);
   let html3 = f.parse(restoredCode);
-  html3 = html3.replace(/<p>@@CALLOUT(\d+)@@<\/p>/g, (_2, i3) => calloutStore[Number(i3)]);
-  html3 = html3.replace(/@@CALLOUT(\d+)@@/g, (_2, i3) => calloutStore[Number(i3)]);
+  html3 = html3.replace(new RegExp(`<p>${placeholderPrefix}CALLOUT(\\d+)@@<\\/p>`, "g"), (_2, i3) => calloutStore[Number(i3)]);
+  html3 = html3.replace(new RegExp(`${placeholderPrefix}CALLOUT(\\d+)@@`, "g"), (_2, i3) => calloutStore[Number(i3)]);
+  html3 = html3.replace(new RegExp(`${placeholderPrefix}TASKCHECKBOX_(0|1)@@`, "g"), (_2, checked) => {
+    return `${placeholderPrefix}TASKCHECKBOX${taskCheckboxCounter++}_${checked}@@`;
+  });
   if (options.projectPath) {
     html3 = html3.replace(/src="attachment:([^"]+)"/g, (_2, name2) => `src="${attachmentPreviewSource(options.projectPath, name2)}"`);
   }
@@ -50791,11 +50813,13 @@ function renderPreview(markdownText, options = {}) {
     mathStore,
     wikiStore,
     taskCheckboxCount: taskCheckboxCounter,
+    placeholderPrefix,
     projectPath: options.projectPath
   });
 }
 export {
   createMarkdownEditor,
+  createPreviewPlaceholderPrefix,
   renderPreview,
   wikiLinkCompletionChange,
   wikiLinkCompletionSource

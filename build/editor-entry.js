@@ -550,6 +550,7 @@ function escapeHtml(s) {
 // Zurück-Zuordnen "welche Checkbox wurde angeklickt" zur entsprechenden
 // Zeile in der rohen Markdown-Quelle (siehe toggleTaskCheckbox in app.js).
 let taskCheckboxCounter = 0;
+let activePlaceholderPrefix = '@@ARCHIVWIKI_0_';
 
 marked.use({
   gfm: true,
@@ -572,8 +573,11 @@ marked.use({
     // plus einen Index, über den app.js die richtige Zeile in der Markdown-
     // Quelle wiederfindet und dort [ ] <-> [x] umschaltet.
     checkbox({ checked }) {
-      const idx = taskCheckboxCounter++;
-      return `@@TASKCHECKBOX${idx}_${checked ? '1' : '0'}@@ `;
+      // Der endgültige Index wird erst nach dem Zusammensetzen von normalem
+      // Markdown und verschachtelten Callouts in echter DOM-Reihenfolge
+      // vergeben. Ein Index an dieser Stelle wäre bei Checklisten in einem
+      // Callout gegenüber davorstehenden normalen Checklisten vertauscht.
+      return `${activePlaceholderPrefix}TASKCHECKBOX_${checked ? '1' : '0'}@@ `;
     }
   }
 });
@@ -634,29 +638,39 @@ const readingWidthNowrapPlugin = ViewPlugin.fromClass(class {
 // Mathe-Ausdruck interpretiert. Läuft VOR der Mathe-Ersetzung, wird danach
 // (mit dem echten Quelltext, nicht HTML) wiederhergestellt, damit marked
 // beim Parsen noch den echten Code für das Syntax-Highlighting bekommt.
-function protectCodeRegions(text) {
+export function createPreviewPlaceholderPrefix(source) {
+  const text = String(source || '');
+  let nonce = 0;
+  let prefix;
+  do {
+    prefix = `@@ARCHIVWIKI_${nonce++}_`;
+  } while (text.includes(prefix));
+  return prefix;
+}
+
+function protectCodeRegions(text, placeholderPrefix) {
   const store = [];
   function stash(match) {
     store.push(match);
-    return `@@CODE${store.length - 1}@@`;
+    return `${placeholderPrefix}CODE${store.length - 1}@@`;
   }
   let out = text.replace(/```[\s\S]*?```/g, stash);
   out = out.replace(/`[^`\n]+`/g, stash);
   return { out, store };
 }
 
-function restoreCodeRegions(text, store) {
-  return text.replace(/@@CODE(\d+)@@/g, (_, i) => store[Number(i)]);
+function restoreCodeRegions(text, store, placeholderPrefix) {
+  return text.replace(new RegExp(`${placeholderPrefix}CODE(\\d+)@@`, 'g'), (_, i) => store[Number(i)]);
 }
 
 // Ersetzt Mathematik durch Platzhalter VOR dem Markdown-Parsing (damit weder
 // marked die LaTeX-Syntax verändert, noch marked das KaTeX-HTML verändert),
 // löst die Platzhalter danach im fertigen HTML wieder auf.
-function renderMathToPlaceholders(text) {
+function renderMathToPlaceholders(text, placeholderPrefix) {
   const store = [];
   function stash(html) {
     store.push(html);
-    return `@@MATH${store.length - 1}@@`;
+    return `${placeholderPrefix}MATH${store.length - 1}@@`;
   }
   let out = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) => {
     try { return stash(katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false, output: 'html', trust: false })); }
@@ -673,11 +687,11 @@ function renderMathToPlaceholders(text) {
 // dem code-geschützten Text, damit z. B. eine Doku über die Wiki-Link-Syntax
 // selbst in einem Code-Block nicht angefasst wird). noteIndex ist eine Liste
 // von { title, relPath } — kommt live aus app.js (siehe getNoteIndex oben).
-function renderWikiLinksToPlaceholders(text, noteIndex) {
+function renderWikiLinksToPlaceholders(text, noteIndex, placeholderPrefix) {
   const store = [];
   function stash(entry) {
     store.push(entry);
-    return `@@WIKILINK${store.length - 1}@@`;
+    return `${placeholderPrefix}WIKILINK${store.length - 1}@@`;
   }
   // Unterstützt sowohl [[Notizname]] als auch [[Notizname|Eigener Anzeigetext]]
   // (Obsidian-artige Pipe-Syntax) — das Ziel VOR dem "|" bestimmt weiterhin,
@@ -703,11 +717,11 @@ function renderWikiLinksToPlaceholders(text, noteIndex) {
 // Doku ÜBER diese Syntax in einem Code-Block nicht selbst umgewandelt wird.
 const CALLOUT_TYPES = ['note', 'tip', 'warning', 'danger', 'abstract', 'example', 'info'];
 
-function renderCalloutsToPlaceholders(text, codeStore) {
+function renderCalloutsToPlaceholders(text, codeStore, placeholderPrefix) {
   const store = [];
   function stash(html) {
     store.push(html);
-    return `@@CALLOUT${store.length - 1}@@`;
+    return `${placeholderPrefix}CALLOUT${store.length - 1}@@`;
   }
   const lines = text.split('\n');
   const out = [];
@@ -731,7 +745,7 @@ function renderCalloutsToPlaceholders(text, codeStore) {
       // Die äußere restoreCodeRegions() käme dafür zu spät, weil der Callout-
       // Inhalt zu dem Zeitpunkt noch hinter einem eigenen @@CALLOUTn@@-Token
       // versteckt ist. Das war der gemeldete Bug (sichtbare "@@CODE7@@"-Reste).
-      const bodyText = restoreCodeRegions(bodyLines.join('\n'), codeStore);
+      const bodyText = restoreCodeRegions(bodyLines.join('\n'), codeStore, placeholderPrefix);
       const bodyHtml = bodyLines.length ? marked.parse(bodyText) : '';
       out.push(stash(`<div class="callout ${calloutType}"><div class="callout-title">${escapeHtml(titleText)}</div>${bodyHtml}</div>`));
       i = j;
@@ -751,20 +765,28 @@ function attachmentPreviewSource(projectPath, rawName) {
 }
 
 export function renderPreview(markdownText, options = {}) {
+  const source = String(markdownText || '');
+  const placeholderPrefix = createPreviewPlaceholderPrefix(source);
+  activePlaceholderPrefix = placeholderPrefix;
   taskCheckboxCounter = 0; // vor JEDEM Render zurücksetzen — auch vor den intern in Callouts genutzten marked.parse()-Aufrufen
   const noteIndex = options.noteIndex || [];
-  const { out: codeProtected, store: codeStore } = protectCodeRegions(markdownText || '');
-  const { out: calloutProtected, store: calloutStore } = renderCalloutsToPlaceholders(codeProtected, codeStore);
-  const { out: wikiProtected, store: wikiStore } = renderWikiLinksToPlaceholders(calloutProtected, noteIndex);
-  const { out: mathProtected, store: mathStore } = renderMathToPlaceholders(wikiProtected);
-  const restoredCode = restoreCodeRegions(mathProtected, codeStore);
+  const { out: codeProtected, store: codeStore } = protectCodeRegions(source, placeholderPrefix);
+  // Wiki-Links und Mathe werden vor den Callouts geschützt, damit sie auch
+  // im verschachtelt geparsten Callout-Inhalt wiederhergestellt werden.
+  const { out: wikiProtected, store: wikiStore } = renderWikiLinksToPlaceholders(codeProtected, noteIndex, placeholderPrefix);
+  const { out: mathProtected, store: mathStore } = renderMathToPlaceholders(wikiProtected, placeholderPrefix);
+  const { out: calloutProtected, store: calloutStore } = renderCalloutsToPlaceholders(mathProtected, codeStore, placeholderPrefix);
+  const restoredCode = restoreCodeRegions(calloutProtected, codeStore, placeholderPrefix);
   let html = marked.parse(restoredCode);
   // Callouts zuletzt: marked wrappt eine alleinstehende Platzhalter-Zeile in
   // <p>...</p> — das würde ein Block-Element (unser .callout-div) ungültig
   // in ein Inline-<p> verschachteln. Erst den <p>-Wrapper mit auflösen,
   // "nackte" Vorkommen (falls doch nicht gewrappt) als Sicherheitsnetz danach.
-  html = html.replace(/<p>@@CALLOUT(\d+)@@<\/p>/g, (_, i) => calloutStore[Number(i)]);
-  html = html.replace(/@@CALLOUT(\d+)@@/g, (_, i) => calloutStore[Number(i)]);
+  html = html.replace(new RegExp(`<p>${placeholderPrefix}CALLOUT(\\d+)@@<\\/p>`, 'g'), (_, i) => calloutStore[Number(i)]);
+  html = html.replace(new RegExp(`${placeholderPrefix}CALLOUT(\\d+)@@`, 'g'), (_, i) => calloutStore[Number(i)]);
+  html = html.replace(new RegExp(`${placeholderPrefix}TASKCHECKBOX_(0|1)@@`, 'g'), (_, checked) => {
+    return `${placeholderPrefix}TASKCHECKBOX${taskCheckboxCounter++}_${checked}@@`;
+  });
 
   // Per Drag&Drop eingefügte Bilder werden mit "attachment:dateiname" statt
   // eines relativen Pfades referenziert (siehe Bilder-Drag&Drop-Feature) —
@@ -792,6 +814,7 @@ export function renderPreview(markdownText, options = {}) {
     mathStore,
     wikiStore,
     taskCheckboxCount: taskCheckboxCounter,
+    placeholderPrefix,
     projectPath: options.projectPath
   });
 }

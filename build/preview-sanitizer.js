@@ -9,13 +9,13 @@ import DOMPurify from 'dompurify';
 const PREVIEW_ALLOWED_TAGS = [
   'a', 'blockquote', 'br', 'code', 'del', 'div', 'em', 'h1', 'h2', 'h3',
   'h4', 'h5', 'h6', 'hr', 'img', 'li', 'ol', 'p', 'pre', 's', 'span',
-  'strong', 'sub', 'sup', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'u',
-  'ul'
+  'strong', 'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'th', 'thead',
+  'tr', 'u', 'ul', 'details'
 ];
 
 const PREVIEW_ALLOWED_ATTRIBUTES = [
   'align', 'alt', 'aria-hidden', 'class', 'colspan', 'href', 'reversed',
-  'rowspan', 'scope', 'src', 'start', 'title'
+  'rowspan', 'scope', 'src', 'start', 'title', 'open'
 ];
 
 // DOMPurify prüft URI-Attribute bereits während der DOM-basierten
@@ -127,16 +127,21 @@ function replaceTextTokens(root, pattern, createReplacement) {
   });
 }
 
-function restoreMath(root, mathStore) {
-  replaceTextTokens(root, /@@MATH(\d+)@@/g, (match) => {
+function placeholderPattern(prefix, kind, suffix = '(\\d+)') {
+  const escapedPrefix = String(prefix || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`${escapedPrefix}${kind}${suffix}@@`, 'g');
+}
+
+function restoreMath(root, mathStore, placeholderPrefix) {
+  replaceTextTokens(root, placeholderPattern(placeholderPrefix, 'MATH'), (match) => {
     const html = mathStore[Number(match[1])];
     if (typeof html !== 'string') return null;
     return DOMPurify.sanitize(html, KATEX_SANITIZE_CONFIG);
   });
 }
 
-function restoreWikiLinks(root, wikiStore) {
-  replaceTextTokens(root, /@@WIKILINK(\d+)@@/g, (match, ownerDocument) => {
+function restoreWikiLinks(root, wikiStore, placeholderPrefix) {
+  replaceTextTokens(root, placeholderPattern(placeholderPrefix, 'WIKILINK'), (match, ownerDocument) => {
     const entry = wikiStore[Number(match[1])];
     if (!entry) return null;
     const link = ownerDocument.createElement('a');
@@ -152,8 +157,8 @@ function restoreWikiLinks(root, wikiStore) {
   });
 }
 
-function restoreTaskCheckboxes(root, taskCheckboxCount) {
-  replaceTextTokens(root, /@@TASKCHECKBOX(\d+)_(0|1)@@/g, (match, ownerDocument) => {
+function restoreTaskCheckboxes(root, taskCheckboxCount, placeholderPrefix) {
+  replaceTextTokens(root, placeholderPattern(placeholderPrefix, 'TASKCHECKBOX', '(\\d+)_(0|1)'), (match, ownerDocument) => {
     const index = Number(match[1]);
     if (!Number.isSafeInteger(index) || index < 0 || index >= taskCheckboxCount) return null;
     const checkbox = ownerDocument.createElement('input');
@@ -249,9 +254,9 @@ function enhanceTables(root) {
 
 export function sanitizePreviewHtml(html, options = {}) {
   const fragment = DOMPurify.sanitize(normalizeTableAlignments(html), BASE_SANITIZE_CONFIG);
-  restoreMath(fragment, options.mathStore || []);
-  restoreWikiLinks(fragment, options.wikiStore || []);
-  restoreTaskCheckboxes(fragment, options.taskCheckboxCount || 0);
+  restoreMath(fragment, options.mathStore || [], options.placeholderPrefix);
+  restoreWikiLinks(fragment, options.wikiStore || [], options.placeholderPrefix);
+  restoreTaskCheckboxes(fragment, options.taskCheckboxCount || 0, options.placeholderPrefix);
   secureLinks(fragment);
   enhanceCodeBlocks(fragment);
   enhanceTables(fragment);

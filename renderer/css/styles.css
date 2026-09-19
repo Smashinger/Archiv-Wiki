@@ -244,6 +244,11 @@ body.reading-width .cm-content .cm-line.cm-line-nowrap{
   text-transform: uppercase; letter-spacing: .04em; margin: 14px 0 8px;
 }
 .preview-pane p{ margin: 0 0 12px; }
+.preview-pane details{ margin: 0 0 12px; }
+.preview-pane summary{
+  cursor: pointer; font-weight: 600; color: var(--text-main); user-select: none;
+}
+.preview-pane details[open] > summary{ margin-bottom: 8px; }
 .preview-pane a{ color: var(--cyan); }
 .preview-pane ul, .preview-pane ol{ margin: 0 0 12px; padding-left: 20px; }
 .preview-pane li:has(> input[type="checkbox"]:first-child){ list-style: none; margin-left: -20px; }
