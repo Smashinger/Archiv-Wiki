@@ -30,7 +30,7 @@ export const DEFAULT_UI_DESIGN = 'classic';
 // gewünschten Anzeigereihenfolge im Umschalter.
 export const UI_DESIGN_LABELS = {
   classic: 'Classic',
-  design2: 'Design2'
+  design2: 'Design 2'
 };
 
 /**

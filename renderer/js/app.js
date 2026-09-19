@@ -40,6 +40,7 @@ import { buildDashboardViewModel, dashboardExcerptFor } from './dashboard-data.j
 import { resolveUiDesign, applyUiDesign } from './ui-design.js';
 import { setupToolbarOverflow } from './toolbar-overflow.js';
 import { countLabel, pluralWord } from './count-label.js';
+import { findNotesLinkingToTitle, renameBreaksTitleLinks } from './wikilink-refs.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -73,7 +74,7 @@ function updateAppBranding(wikiName = state.project?.config?.wikiName) {
   const appName = document.getElementById('appTitlebarAppName');
   if (!appName) return;
   const normalizedName = typeof wikiName === 'string' ? wikiName.trim() : '';
-  appName.textContent = normalizedName ? `Wiki von ${normalizedName}` : 'Archiv Wiki';
+  appName.textContent = normalizedName ? `Wiki von ${normalizedName}` : 'Archiv-Wiki';
 }
 
 // Phase 4H (sichtbarer Design-Umschalter): einziger Ort, an dem ein per
@@ -396,7 +397,7 @@ function buildMoreActionsMenuItems() {
     data: { action: 'selectionMode' }
   });
   items.push({ label: 'Fehler melden', data: { action: 'bugReport' } });
-  items.push({ label: 'Über Archiv Wiki', data: { action: 'about' } });
+  items.push({ label: 'Über Archiv-Wiki', data: { action: 'about' } });
   items.push({ separator: true });
   items.push({ label: 'Einstellungen', data: { action: 'settings' } });
   return items;
@@ -1715,6 +1716,10 @@ function friendlyBackupErrorText(code, message) {
 // Erscheint beim X-Klick, sofern noch keine feste Wahl gespeichert ist (siehe
 // main.js handleCloseRequest). Ergebnis geht über resolveCloseDialog zurück
 // an den Hauptprozess, der dann entsprechend minimiert/beendet/nichts tut.
+// Der Dialog fragt nur, was JETZT passieren soll (Beenden oder in den Tray).
+// Früher gab es zusätzlich "Immer nachfragen" als Auswahl – mit OK bestätigt
+// passierte dann gar nichts. "Immer nachfragen" ist der Normalzustand und
+// bleibt in den Einstellungen wählbar; der Hauptknopf nennt die Aktion.
 function showCloseDialog() {
   closeManagedDialogs('.prompt-overlay', { restoreFocus: false });
   const overlay = document.createElement('div');
@@ -1722,25 +1727,31 @@ function showCloseDialog() {
   overlay.innerHTML = `
     <div class="prompt-modal">
       <div class="prompt-title">Archiv-Wiki schließen?</div>
-      <p class="sync-modal-note">Was soll beim Klick auf das X passieren?</p>
+      <p class="sync-modal-note">Was soll jetzt passieren?</p>
       <div class="close-dialog-options">
-        <label class="close-dialog-option"><input type="radio" name="closeChoice" value="ask" checked> Immer nachfragen</label>
+        <label class="close-dialog-option"><input type="radio" name="closeChoice" value="quit" checked> Anwendung vollständig beenden</label>
         <label class="close-dialog-option"><input type="radio" name="closeChoice" value="tray"> In den System-Tray minimieren (läuft im Hintergrund weiter)</label>
-        <label class="close-dialog-option"><input type="radio" name="closeChoice" value="quit"> Anwendung vollständig beenden</label>
       </div>
-      <label class="close-dialog-remember"><input type="checkbox" id="closeDialogRemember"> Diese Auswahl merken</label>
+      <label class="close-dialog-remember"><input type="checkbox" id="closeDialogRemember"> Nicht mehr fragen – Auswahl merken</label>
+      <p class="sync-modal-note close-dialog-hint">Das Verhalten lässt sich später unter Einstellungen → Allgemein → „Beim Schließen“ ändern.</p>
       <div class="prompt-actions">
         <button type="button" class="btn" data-action="cancel">Abbrechen</button>
-        <button type="button" class="btn primary" data-action="ok">OK</button>
+        <button type="button" class="btn primary" data-action="ok">Beenden</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
+  const okButton = overlay.querySelector('[data-action="ok"]');
+  overlay.querySelectorAll('input[name="closeChoice"]').forEach(input => {
+    input.addEventListener('change', () => {
+      okButton.textContent = input.value === 'tray' ? 'Minimieren' : 'Beenden';
+    });
+  });
   function close(result = { choice: 'cancel', remember: false }) {
     dialogController.destroy();
     window.archivAPI.resolveCloseDialog(result);
   }
   overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => close());
-  overlay.querySelector('[data-action="ok"]').addEventListener('click', () => {
+  okButton.addEventListener('click', () => {
     const choice = overlay.querySelector('input[name="closeChoice"]:checked').value;
     const remember = overlay.querySelector('#closeDialogRemember').checked;
     close({ choice, remember });
@@ -2224,6 +2235,14 @@ function restoreUpdateToastAfterTransientToast() {
   void renderUpdateToastFromStatus(currentSidebarUpdateStatus);
 }
 
+function treeContainsRelPath(nodes, relPath) {
+  for (const node of Array.isArray(nodes) ? nodes : []) {
+    if (node.relPath === relPath) return true;
+    if (node.children && treeContainsRelPath(node.children, relPath)) return true;
+  }
+  return false;
+}
+
 function showMoveUndoToast(originalRelPath, moved) {
   const originalParent = originalRelPath.includes('/') ? originalRelPath.split('/').slice(0, -1).join('/') : '';
   const targetParent = moved.relPath.includes('/') ? moved.relPath.split('/').slice(0, -1).join('/') : '';
@@ -2232,6 +2251,19 @@ function showMoveUndoToast(originalRelPath, moved) {
   showUndoToast({
     message: `„${itemName}" nach „${targetName}" verschoben.`,
     onUndo: async () => {
+      // Die Meldung kann eine spätere Aktion überdauern (Löschen, erneutes
+      // Verschieben, Umbenennen). Liegt der Eintrag nicht mehr dort, ist das
+      // Rückgängigmachen sinnlos – verständlich erklären statt eines rohen
+      // Dateisystemfehlers.
+      let tree = state.tree;
+      try { tree = await fs.getTree(); } catch { /* letzter bekannter Stand */ }
+      if (!treeContainsRelPath(tree, moved.relPath)) {
+        await showMessageDialog({
+          title: 'Rückgängig nicht mehr möglich',
+          message: `„${itemName}“ liegt nicht mehr in „${targetName}“ – der Eintrag wurde inzwischen gelöscht, umbenannt oder erneut verschoben. Gelöschte Notizen lassen sich aus dem Papierkorb wiederherstellen.`
+        });
+        return;
+      }
       await mutateEntryPath({
         sourceRelPath: moved.relPath,
         actionLabel: 'Verschieben',
@@ -2457,14 +2489,14 @@ async function openSyncSettingsModal() {
     <div class="prompt-modal sync-modal">
       <div class="prompt-title"><img class="lib-icon dialog-title-icon" src="assets/icon-library/network/cloud.svg" alt="">Synchronisation (Nextcloud/WebDAV)<button type="button" class="modal-close-x" data-action="close-x" title="Schließen" aria-label="Schließen">✕</button></div>
       <p class="sync-modal-note">Verbindung testen, reiner Upload, oder Abgleich in beide Richtungen mit Löschungs- und Konflikterkennung.</p>
-      <label class="sync-field-label">WebDAV-URL</label>
+      <label class="sync-field-label">Server-Adresse (WebDAV-URL)</label>
       <input type="text" class="prompt-input" id="syncModalUrl" placeholder="https://deine-nextcloud.example/remote.php/dav/files/NUTZER/" autocomplete="off">
       <label class="sync-field-label">Benutzername</label>
       <input type="text" class="prompt-input" id="syncModalUser" autocomplete="off">
-      <label class="sync-field-label">Passwort</label>
+      <label class="sync-field-label">App-Passwort</label>
       <input type="password" class="prompt-input" id="syncModalPass" autocomplete="off">
       <label class="sync-remember-label" id="syncRememberLabel">
-        <input type="checkbox" id="syncModalRemember"> Passwort merken
+        <input type="checkbox" id="syncModalRemember"> Zugangsdaten sicher speichern (im Systemschlüsselbund)
       </label>
       <label class="sync-remember-label" id="syncAutoLabel">
         <input type="checkbox" id="syncModalAuto"> Automatische Synchronisation, alle
@@ -2856,6 +2888,27 @@ function initialCollapsedGroups(tree, behavior, savedCollapsedGroups) {
     case 'closed':
     default: return new Set(collectAllGroupRelPaths(tree));
   }
+}
+
+// Suchindex nach reinen Inhaltsänderungen (Autosave, Strg+S, Tags) neu
+// aufbauen. refreshAll() erledigt das nur bei Strukturänderungen; ohne diesen
+// Aufruf blieb frisch gespeicherter Text bis zum nächsten Umbenennen oder
+// Neustart unauffindbar. Entprellt, damit schnell aufeinanderfolgende
+// Speichervorgänge nur einen Neuaufbau auslösen; aufgerufen wird es
+// ausschließlich nach ERFOLGREICHEM Speichern, nie pro Tastendruck.
+let searchIndexRefreshTimer = null;
+function scheduleSearchIndexRefresh() {
+  clearTimeout(searchIndexRefreshTimer);
+  searchIndexRefreshTimer = setTimeout(() => {
+    searchIndexRefreshTimer = null;
+    rebuildIndex()
+      .then(result => {
+        if (result.applied) refreshSearchDropdownForCurrentQuery();
+      })
+      .catch(err => {
+        console.error('[Archiv Wiki] Such-Index konnte nach dem Speichern nicht aktualisiert werden', err);
+      });
+  }, 250);
 }
 
 async function refreshAll() {
@@ -3457,6 +3510,55 @@ async function restoreNoteFlow(relPath) {
   await refreshAll();
 }
 
+// "Verschieben …" im Kontextmenü einer Notiz: derselbe Ablauf wie am
+// Kategorie-Knopf im Editor (mutateEntryPath + moveEntry + Rückgängig-
+// Meldung), nur mit Auswahldialog statt Dropdown am Knopf. Vorher war das
+// Verschieben nur über diesen Knopf oder per Ziehen erreichbar.
+async function moveNoteToOtherCategoryFlow(relPath) {
+  const currentCategoryRelPath = relPath.includes('/') ? relPath.split('/').slice(0, -1).join('/') : '';
+  const options = collectSubCategories(state.tree).filter(c => c.relPath !== currentCategoryRelPath);
+  if (options.length === 0) {
+    showQuickFeedback('Keine andere Unterkategorie vorhanden – lege zuerst eine weitere an („+ Unter“).');
+    return;
+  }
+  const targetRelPath = await showCategoryPickerModal(options, 'Verschieben nach welcher Unterkategorie?');
+  if (!targetRelPath) return;
+  const moved = await mutateEntryPath({
+    sourceRelPath: relPath,
+    actionLabel: 'Verschieben',
+    mutate: () => fs.moveEntry(relPath, targetRelPath)
+  });
+  if (moved) showMoveUndoToast(relPath, moved);
+}
+
+// Links zeigen per Titel auf eine Notiz ([[Titel]]) und werden beim
+// Umbenennen bewusst NICHT automatisch umgeschrieben (keine stillen
+// Änderungen an anderen Notizen). Damit niemand unbemerkt mit defekten Links
+// zurückbleibt, nennt dieser Dialog vorher die betroffenen Notizen.
+// Liefert { proceed, prompted }: proceed = umbenennen, prompted = es wurde
+// tatsächlich ein Dialog gezeigt. Kategorien sind nicht betroffen, weil Links
+// nur Notiztitel adressieren.
+async function confirmRenameDespiteLinks(relPath, oldTitle, newTitle) {
+  if (!renameBreaksTitleLinks(oldTitle, newTitle)) return { proceed: true, prompted: false };
+  let docs;
+  try { docs = await fs.getSearchDocuments(); }
+  catch { return { proceed: true, prompted: false }; } // Ohne Daten keine Warnung.
+  const ownTitle = docs.find(doc => doc.relPath === relPath)?.title || oldTitle;
+  const linking = findNotesLinkingToTitle(docs, relPath, ownTitle);
+  if (linking.length === 0) return { proceed: true, prompted: false };
+  const shown = linking.slice(0, 5).map(doc => `„${doc.title}“`).join(', ');
+  const more = linking.length > 5 ? ` und ${countLabel(linking.length - 5, 'weitere', 'weitere')}` : '';
+  const proceed = await showConfirmDialog({
+    title: 'Verlinkte Notiz umbenennen?',
+    message: `${countLabel(linking.length, 'Notiz verlinkt', 'Notizen verlinken')} auf „${ownTitle}“: ${shown}${more}. `
+      + `Diese Links werden nicht automatisch angepasst und zeigen nach dem Umbenennen auf eine fehlende Notiz. `
+      + `Die Wissenspflege listet sie danach unter „Defekte Wikilinks“.`,
+    confirmLabel: 'Trotzdem umbenennen',
+    cancelLabel: 'Abbrechen'
+  });
+  return { proceed, prompted: true };
+}
+
 function showContextMenu(relPath, anchorEl, type = 'note', position = null) {
   const menu = createHtmlContextMenu({
     trigger: anchorEl,
@@ -3465,6 +3567,7 @@ function showContextMenu(relPath, anchorEl, type = 'note', position = null) {
     html: renderSimpleContextMenuItems([
       { label: '<img class="lib-icon context-menu-icon" src="assets/icon-library/actions/pencil.svg" alt=""><span>Umbenennen</span>', data: { action: 'rename' } },
       { label: '<img class="lib-icon context-menu-icon" src="assets/icon-library/actions/palette.svg" alt=""><span>Icon ändern</span>', data: { action: 'icon' } },
+      ...(type === 'note' ? [{ label: '<span class="context-menu-icon" aria-hidden="true">→</span><span>Verschieben …</span>', data: { action: 'move' } }] : []),
       ...(type === 'note' ? [{ label: '<img class="lib-icon context-menu-icon" src="assets/icon-library/projects/archive.svg" alt=""><span>Archivieren</span>', data: { action: 'archive' } }] : []),
       { separator: true },
       { label: '<img class="lib-icon context-menu-icon" src="assets/icon-library/actions/trash.svg" alt=""><span>In den Papierkorb</span>', danger: true, data: { action: 'delete' } }
@@ -3484,6 +3587,11 @@ function showContextMenu(relPath, anchorEl, type = 'note', position = null) {
       await archiveNoteFlow(relPath);
       return;
     }
+    if (btn.dataset.action === 'move') {
+      closeHtmlContextMenu(menu, { reason: 'action' });
+      await moveNoteToOtherCategoryFlow(relPath);
+      return;
+    }
     if (btn.dataset.action === 'icon') {
       closeHtmlContextMenu(menu, { reason: 'action' });
       showIconPicker(anchorEl, async (icon) => {
@@ -3497,6 +3605,7 @@ function showContextMenu(relPath, anchorEl, type = 'note', position = null) {
     const currentName = relPath.split('/').pop().replace(/\.md$/, '');
     const newName = await showPromptModal({ title: 'Neuer Name', defaultValue: currentName });
     if (newName && newName !== currentName) {
+      if (type === 'note' && !(await confirmRenameDespiteLinks(relPath, currentName, newName)).proceed) return;
       await mutateEntryPath({
         sourceRelPath: relPath,
         actionLabel: 'Umbenennen',
@@ -3547,13 +3656,20 @@ async function createMainCategoryFlow() {
 // Neue Unterkategorie — fragt nach der Hauptkategorie, wenn es mehr als eine gibt.
 // ---------------------------------------------------------------------------
 async function createSubCategoryFlow() {
-  const mainCategories = collectMainCategories(state.tree);
+  let mainCategories = collectMainCategories(state.tree);
   if (mainCategories.length === 0) {
-    await showMessageDialog({
+    // Statt einer Sackgasse direkt die fehlende Ebene anlegen lassen
+    // (bestehender Ablauf von "+ Haupt") und danach hier weitermachen.
+    const createMain = await showConfirmDialog({
       title: 'Hauptkategorie erforderlich',
-      message: 'Lege zuerst eine Hauptkategorie an. Danach kannst du darin eine Unterkategorie erstellen.'
+      message: 'Unterkategorien liegen immer in einer Hauptkategorie. Möchtest du jetzt eine Hauptkategorie anlegen?',
+      confirmLabel: 'Hauptkategorie anlegen',
+      cancelLabel: 'Abbrechen'
     });
-    return;
+    if (!createMain) return;
+    await createMainCategoryFlow();
+    mainCategories = collectMainCategories(state.tree);
+    if (mainCategories.length === 0) return;
   }
   const mainCategoryRelPath = mainCategories.length === 1
     ? mainCategories[0].relPath
@@ -3740,17 +3856,35 @@ els.btnAddNote.addEventListener('click', async () => {
   // der Dialoge ihn nicht vorzeitig schließt.
   if (getOpenRelPath() && isDirty() && !await canLeaveCurrentRoute()) return;
 
-  const subCategories = collectSubCategories(state.tree);
+  let subCategories = collectSubCategories(state.tree);
   if (subCategories.length === 0) {
-    await showMessageDialog({
-      title: 'Unterkategorie erforderlich',
-      message: 'Lege zuerst eine Unterkategorie an. Danach kannst du darin eine Notiz erstellen.'
+    // Leeres Wiki: die nötigen Ebenen über die bestehenden Abläufe von
+    // "+ Haupt"/"+ Unter" anlegen und danach mit der Notiz weitermachen.
+    const hasMain = collectMainCategories(state.tree).length > 0;
+    const createCategories = await showConfirmDialog({
+      title: 'Zuerst eine Unterkategorie anlegen',
+      message: hasMain
+        ? 'Notizen liegen immer in einer Unterkategorie. Möchtest du jetzt eine Unterkategorie anlegen und danach die Notiz erstellen?'
+        : 'Notizen liegen immer in einer Unterkategorie, die zu einer Hauptkategorie gehört (z. B. „Haushalt“ → „Rezepte“). Möchtest du beides jetzt anlegen und danach die Notiz erstellen?',
+      confirmLabel: hasMain ? 'Unterkategorie anlegen' : 'Kategorien anlegen',
+      cancelLabel: 'Abbrechen'
     });
-    return;
+    if (!createCategories) return;
+    if (!hasMain) {
+      await createMainCategoryFlow();
+      if (collectMainCategories(state.tree).length === 0) return;
+    }
+    await createSubCategoryFlow();
+    subCategories = collectSubCategories(state.tree);
+    if (subCategories.length === 0) return;
   }
+  const openNoteRelPath = getOpenRelPath();
+  const openNoteCategory = openNoteRelPath && openNoteRelPath.includes('/')
+    ? openNoteRelPath.split('/').slice(0, -1).join('/')
+    : null;
   const targetRelPath = subCategories.length === 1
     ? subCategories[0].relPath
-    : await showCategoryPickerModal(subCategories, 'In welcher Unterkategorie?');
+    : await showCategoryPickerModal(subCategories, 'In welcher Unterkategorie?', openNoteCategory);
   if (!targetRelPath) return;
 
   const title = await promptForUniqueNoteTitle('Neue Notiz');
@@ -3825,7 +3959,9 @@ async function promptForUniqueNoteTitle(defaultValue) {
   }
 }
 
-function showCategoryPickerModal(categories, title = 'In welcher Kategorie?') {
+// preselectRelPath: optional vorausgewählter Eintrag (z. B. die Kategorie der
+// gerade geöffneten Notiz), sonst wie bisher der erste.
+function showCategoryPickerModal(categories, title = 'In welcher Kategorie?', preselectRelPath = null) {
   return new Promise((resolve) => {
     closeManagedDialogs('.prompt-overlay', { restoreFocus: false });
     const overlay = document.createElement('div');
@@ -3834,7 +3970,7 @@ function showCategoryPickerModal(categories, title = 'In welcher Kategorie?') {
       <div class="prompt-modal">
         <div class="prompt-title">${escapeHtml(title)}</div>
         <select class="prompt-input">
-          ${categories.map(c => `<option value="${escapeHtml(c.relPath)}">${escapeHtml(c.label)}</option>`).join('')}
+          ${categories.map(c => `<option value="${escapeHtml(c.relPath)}"${c.relPath === preselectRelPath ? ' selected' : ''}>${escapeHtml(c.label)}</option>`).join('')}
         </select>
         <div class="prompt-actions">
           <button type="button" class="btn" data-action="cancel">Abbrechen</button>
@@ -4845,6 +4981,20 @@ function relocatedOpenNotePath(openRelPath, sourceRelPath, mutatedRelPath) {
   return mutatedRelPath + openRelPath.slice(sourceRelPath.length);
 }
 
+// Fehler aus ipcRenderer.invoke tragen das technische Präfix
+// "Error invoking remote method 'fs:…': Error: …". Für Meldungen an
+// Nutzer wird nur der eigentliche Text gezeigt.
+function readableIpcErrorMessage(error) {
+  return String(error?.message || '')
+    .replace(/^Error invoking remote method '[^']*':\s*/, '')
+    .replace(/^(?:[A-Za-z]*Error:\s*)+/, '')
+    .trim();
+}
+
+function isMissingEntryError(error) {
+  return error?.code === 'ENOENT' || /\bENOENT\b/.test(String(error?.message || ''));
+}
+
 async function performEntryPathMutation({ sourceRelPath, actionLabel, mutate, afterMutation }) {
   const openRelPath = getOpenRelPath();
   const affectsOpenNote = entryMutationAffectsOpenNote(sourceRelPath, openRelPath);
@@ -4866,10 +5016,15 @@ async function performEntryPathMutation({ sourceRelPath, actionLabel, mutate, af
     try {
       result = await mutate();
     } catch (error) {
+      const missing = isMissingEntryError(error);
       await showMessageDialog({
         title: `${actionLabel} fehlgeschlagen`,
-        message: error?.message || 'Die Dateioperation konnte nicht abgeschlossen werden.'
+        message: missing
+          ? 'Der Eintrag ist an dieser Stelle nicht mehr vorhanden – er wurde vermutlich inzwischen gelöscht, umbenannt oder verschoben.'
+          : (readableIpcErrorMessage(error) || 'Die Dateioperation konnte nicht abgeschlossen werden.')
       });
+      // Nur den Baum nachziehen; eine offene Notiz bleibt unangetastet.
+      if (missing && !affectsOpenNote) await refreshAll();
       return null;
     }
 
@@ -5863,7 +6018,7 @@ async function renderHome() {
           </div>
         </div>
         <div class="empty-state">
-          <div class="empty-state-title">Dein Archiv ist noch leer.</div>
+          <div class="empty-state-title">Dein Wiki ist noch leer.</div>
           <div class="empty-state-body">Erstelle deine erste Wissensseite, um dein persönliches Wiki aufzubauen — in der Sidebar mit „+ Haupt" eine Hauptkategorie und mit „+ Unter" eine Unterkategorie anlegen, dann „+ Notiz" darin.</div>
         </div>
       </div>`;
@@ -6238,7 +6393,7 @@ async function renderHomeDesign2() {
             </div>
           </div>
           <div class="empty-state">
-            <div class="empty-state-title">Dein Archiv ist noch leer.</div>
+            <div class="empty-state-title">Dein Wiki ist noch leer.</div>
             <div class="empty-state-body">Erstelle deine erste Wissensseite, um dein persönliches Wiki aufzubauen — in der Sidebar mit „+ Haupt" eine Hauptkategorie und mit „+ Unter" eine Unterkategorie anlegen, dann „+ Notiz" darin.</div>
           </div>
         </div>
@@ -6791,19 +6946,7 @@ async function renderIncomingLinks(relPath, currentTitle) {
     return;
   }
 
-  const linkRe = /\[\[([^\]\n|]+?)(?:\|[^\]\n]+?)?\]\]/g;
-  const linkingNotes = [];
-  for (const doc of docs) {
-    if (doc.relPath === relPath) continue;
-    let m;
-    linkRe.lastIndex = 0;
-    while ((m = linkRe.exec(doc.body || ''))) {
-      if (m[1].trim().toLowerCase() === currentTitle.toLowerCase()) {
-        linkingNotes.push(doc);
-        break;
-      }
-    }
-  }
+  const linkingNotes = findNotesLinkingToTitle(docs, relPath, currentTitle);
 
   if (container) {
     if (linkingNotes.length === 0) {
@@ -6972,9 +7115,8 @@ async function renderNote(relPath) {
       <div class="note-document-meta">
         <div class="backlink-row" id="backlinkRow"></div>
         <span class="note-meta-divider" aria-hidden="true"></span>
-        <span class="note-meta-label">Tags</span>
-        <button type="button" class="category-badge" id="noteCategoryBadge" title="In andere Kategorie verschieben">${escapeHtml(node.frontmatter?.category || node.frontmatter?.mainCategory || '')}</button>
-        <input type="text" class="tags-input" id="noteTagsInput" placeholder="tag1, tag2, …">
+        <span class="note-meta-pair"><span class="note-meta-label">Kategorie</span><button type="button" class="category-badge" id="noteCategoryBadge" title="In andere Kategorie verschieben">${escapeHtml(node.frontmatter?.category || node.frontmatter?.mainCategory || '')}</button></span>
+        <span class="note-meta-pair note-meta-pair-tags"><span class="note-meta-label">Tags</span><input type="text" class="tags-input" id="noteTagsInput" aria-label="Tags, durch Komma getrennt" placeholder="tag1, tag2, …"></span>
       </div>
       <div class="note-document-actions">
         <span class="dirty-label" id="dirtyLabel">✓ gespeichert</span>
@@ -7463,6 +7605,7 @@ async function renderNote(relPath) {
       }
     }
     fs.getTree().then(t => { state.tree = t; renderNavTree(); });
+    scheduleSearchIndexRefresh();
   }
   currentOnSaved = onSaved;
 
@@ -7774,12 +7917,28 @@ async function renderNote(relPath) {
   titleInput.addEventListener('blur', async (event) => {
     const newTitle = titleInput.value.trim();
     if (!newTitle || newTitle === title) return;
+    // Warnung vor defekten Links (siehe confirmRenameDespiteLinks). Der
+    // Dialog nimmt den Fokus; bei "Abbrechen" bleibt der alte Titel stehen.
+    // Nur wenn tatsächlich gewarnt wurde, entfällt der Eingabepuffer (der
+    // Fokus liegt dann nicht mehr im Editor), und es wird nichts umbenannt,
+    // falls sich währenddessen die offene Notiz oder ihr Editor geändert hat.
+    const editorGeneration = getEditorGeneration();
+    const renameCheck = await confirmRenameDespiteLinks(relPath, title, newTitle);
+    if (renameCheck.prompted) {
+      const stillSameEditor = getOpenRelPath() === relPath && getEditorGeneration() === editorGeneration;
+      if (!renameCheck.proceed) {
+        if (stillSameEditor) titleInput.value = title;
+        return;
+      }
+      if (!stillSameEditor) return;
+    }
+    const warned = renameCheck.prompted;
     // Führt der Fokuswechsel in den Editor, wird die Notiz während des
     // Umbenennens gesperrt und neu aufgebaut (Audit P1-B). Eingaben aus dieser
     // Zeit werden gepuffert und anschließend an der wiederhergestellten
     // Cursorposition eingefügt, statt zu verpuffen oder am Dokumentanfang zu
     // landen.
-    const continueInEditor = Boolean(event.relatedTarget?.closest?.('#editorContainer'));
+    const continueInEditor = !warned && Boolean(event.relatedTarget?.closest?.('#editorContainer'));
     const inputBuffer = continueInEditor ? startEditorInputBuffer() : null;
     try {
       await mutateEntryPath({
@@ -7833,16 +7992,7 @@ async function renderNote(relPath) {
     // Editor werden dabei bewusst nicht neu gerendert.
     state.tree = await fs.getTree();
     renderNavTree();
-
-    const indexRebuild = rebuildIndex();
-    refreshSearchDropdownForCurrentQuery();
-    indexRebuild
-      .then(rebuildResult => {
-        if (rebuildResult.applied) refreshSearchDropdownForCurrentQuery();
-      })
-      .catch(err => {
-        console.error('[Archiv Wiki] Such-Index konnte nach Tag-Änderung nicht aktualisiert werden', err);
-      });
+    scheduleSearchIndexRefresh();
   }
 
   tagsInput.addEventListener('keydown', async (event) => {
@@ -9698,7 +9848,7 @@ async function renderIncoming() {
       list.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-title">Noch keine Eingänge.</div>
-          <div class="empty-state-body">Gesammelte Inhalte erscheinen hier, bevor sie später weiterverarbeitet werden.</div>
+          <div class="empty-state-body">Gesammelte Inhalte erscheinen hier, bevor sie später weiterverarbeitet werden – zum Beispiel Webseiten, die du mit dem Web Clipper im Browser sicherst (Einrichtung unter Einstellungen → Web Clipper).</div>
         </div>`;
       updateIncomingSelectionControls();
       return;
@@ -9886,7 +10036,7 @@ async function renderIncomingDesign2() {
       list.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-title">Noch keine Eingänge.</div>
-          <div class="empty-state-body">Gesammelte Inhalte erscheinen hier, bevor sie später weiterverarbeitet werden.</div>
+          <div class="empty-state-body">Gesammelte Inhalte erscheinen hier, bevor sie später weiterverarbeitet werden – zum Beispiel Webseiten, die du mit dem Web Clipper im Browser sicherst (Einrichtung unter Einstellungen → Web Clipper).</div>
         </div>`;
       updateIncomingSelectionControlsD2();
       return;
@@ -9967,7 +10117,7 @@ async function renderKnowledgeCare() {
 
   els.contentScroll.innerHTML = `
     <h1 class="home-heading">Wissenspflege</h1>
-    <p class="home-sub">Prüfe dein Archiv auf mögliche Verbesserungen.</p>
+    <p class="home-sub">Prüfe dein Wiki auf mögliche Verbesserungen.</p>
     <div class="dashboard-section" id="knowledgeLinksSection" aria-label="Verknüpfungen">
       <div class="dashboard-section-header">Verknüpfungen</div>
       <div class="empty-state">Wikilinks werden geprüft …</div>
@@ -10171,7 +10321,7 @@ async function renderKnowledgeCareDesign2() {
   els.contentScroll.innerHTML = `
     <div class="knowledge-care-view-d2">
       <h1 class="home-heading">Wissenspflege</h1>
-      <p class="home-sub">Prüfe dein Archiv auf mögliche Verbesserungen.</p>
+      <p class="home-sub">Prüfe dein Wiki auf mögliche Verbesserungen.</p>
       <div class="d2-kc-section" id="knowledgeLinksSectionD2" aria-label="Verknüpfungen">
         <div class="d2-kc-section-header"><span>Verknüpfungen</span><span class="d2-kc-section-rule"></span></div>
         <div class="empty-state">Wikilinks werden geprüft …</div>
@@ -11102,6 +11252,32 @@ function trashRowSelectHtml(item, cls) {
   return `<label class="${cls}" title="Auswählen"><input type="checkbox" data-select="${escapeHtml(item.trashRelPath)}" aria-label="${escapeHtml(item.title)} auswählen"></label>`;
 }
 
+// Herkunft eines Papierkorb-Eintrags für Menschen: "Haushalt / Rezepte"
+// statt "Haushalt/Rezepte/Pfannkuchen.md".
+function trashOriginLabel(originalRelPath) {
+  const parents = String(originalRelPath || '').split('/').filter(Boolean).slice(0, -1);
+  return parents.length ? parents.join(' / ') : 'oberste Ebene';
+}
+
+// Gemeinsamer Wiederherstellen-Ablauf (Classic + Design2) mit sichtbarer
+// Rückmeldung, wohin der Eintrag zurückgekehrt ist. Die Fachaktion selbst
+// (fs.restoreFromTrash) bleibt unverändert.
+async function restoreTrashEntry(trashRelPath, entries) {
+  const item = (entries || []).find(entry => entry.trashRelPath === trashRelPath);
+  try {
+    await fs.restoreFromTrash(trashRelPath);
+  } catch (err) {
+    await showMessageDialog({
+      title: 'Wiederherstellen fehlgeschlagen',
+      message: readableIpcErrorMessage(err) || 'Der Eintrag konnte nicht wiederhergestellt werden.'
+    });
+    return false;
+  }
+  await refreshAll();
+  if (item) showQuickFeedback(`„${item.title}“ wiederhergestellt in „${trashOriginLabel(item.originalRelPath)}“.`);
+  return true;
+}
+
 async function renderTrash() {
   setBreadcrumb('Papierkorb');
   setActiveNav(null);
@@ -11123,10 +11299,14 @@ async function renderTrash() {
   if (list) {
     trash.entries.forEach(item => {
       const row = document.createElement('div');
-      row.className = 'note-card';
+      row.className = 'note-card trash-card';
       row.innerHTML = `
-        <div class="nc-top">${trashRowSelectHtml(item, 'trash-select')}<span class="nc-icon">${item.type === 'folder' ? '📁' : '📄'}</span><span class="nc-tag">war: ${escapeHtml(item.originalRelPath)}</span></div>
-        <div class="nc-title">${escapeHtml(item.title)}</div>
+        ${trashRowSelectHtml(item, 'trash-select')}
+        <span class="trash-card-icon" aria-hidden="true">${item.type === 'folder' ? '📁' : '📄'}</span>
+        <div class="trash-card-text">
+          <div class="trash-card-title">${escapeHtml(item.title)}</div>
+          <div class="trash-card-origin">Ursprünglich in: ${escapeHtml(trashOriginLabel(item.originalRelPath))}</div>
+        </div>
         <button type="button" class="btn" data-restore="${escapeHtml(item.trashRelPath)}">↩ Wiederherstellen</button>
       `;
       list.appendChild(row);
@@ -11134,8 +11314,7 @@ async function renderTrash() {
     list.addEventListener('click', async (e) => {
       const btn = e.target.closest('[data-restore]');
       if (!btn) return;
-      await fs.restoreFromTrash(btn.dataset.restore);
-      await refreshAll();
+      await restoreTrashEntry(btn.dataset.restore, trash.entries);
       renderTrash();
     });
     wireTrashMultiDelete({ listEl: list, rerender: renderTrash });
@@ -11193,8 +11372,7 @@ async function renderTrashDesign2() {
     list.addEventListener('click', async (e) => {
       const btn = e.target.closest('[data-restore]');
       if (!btn) return;
-      await fs.restoreFromTrash(btn.dataset.restore);
-      await refreshAll();
+      await restoreTrashEntry(btn.dataset.restore, trash.entries);
       renderTrashDesign2();
     });
     wireTrashMultiDelete({ listEl: list, rerender: renderTrashDesign2 });
@@ -11223,7 +11401,7 @@ function buildTrashRowDesign2(item) {
     ${trashRowSelectHtml(item, 'd2-trash-select')}
     <span class="d2-trash-icon">${item.type === 'folder' ? '📁' : '📄'}</span>
     <span class="d2-trash-title">${escapeHtml(item.title)}</span>
-    <span class="d2-trash-meta">war: ${escapeHtml(item.originalRelPath)}</span>
+    <span class="d2-trash-meta">Ursprünglich in: ${escapeHtml(trashOriginLabel(item.originalRelPath))}</span>
     <button type="button" class="d2-trash-restore" data-restore="${escapeHtml(item.trashRelPath)}">Wiederherstellen</button>
   `;
   return row;

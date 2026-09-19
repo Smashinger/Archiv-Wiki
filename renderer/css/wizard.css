@@ -192,6 +192,9 @@ body { font-family:var(--wf); -webkit-font-smoothing:antialiased; }
 .wz-check-dot { width:6px; height:6px; background:var(--w-s3); flex:none; }
 .wz-check-text { font-family:var(--wf); font-size:13px; color:var(--w-dim); }
 .wz-check-value { margin-left:auto; font-family:var(--wf-mono); font-size:11px; color:var(--w-faint); }
+/* Verbindungsstatus im Sync-Schritt: hatte keine eigene Regel und erschien in
+   der 16-px-Standardschrift, deutlich größer als alles andere im Assistenten. */
+.wz-conn-status { font-family:var(--wf-mono); font-size:11px; color:var(--w-muted); margin-left:12px; }
 .wz-check.ok .wz-check-dot { background:var(--w-green); }
 .wz-check.ok .wz-check-text { color:var(--w-dim); }
 .wz-check.fail .wz-check-dot { background:var(--w-copper); }
@@ -236,3 +239,34 @@ body { font-family:var(--wf); -webkit-font-smoothing:antialiased; }
 .wz-foot-version.is-update .update-dot { background:var(--w-copper); }
 
 .is-hidden { display:none !important; }
+
+/* --- Rückfrage- und Hinweisdialoge (dialog.js) ---
+   showConfirmDialog()/showMessageDialog() hängen ein .prompt-overlay direkt an
+   <body>. Der Assistent lädt components.css nicht; ohne diese Regeln erschien
+   z. B. "Einrichtung abbrechen?" ungestaltet UNTER dem sichtbaren Fenster.
+   Die Farbwerte entsprechen den .wz-Token oben (das Overlay liegt außerhalb
+   von .wz und erbt sie deshalb nicht). Bewusst nur diese Dialogklassen. */
+.prompt-overlay {
+  position:fixed; inset:0; z-index:100;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(0,0,0,.55);
+  font-family:'Barlow', var(--sans, system-ui, sans-serif);
+}
+.prompt-overlay .prompt-modal {
+  box-sizing:border-box; width:380px; max-width:calc(100vw - 40px);
+  max-height:calc(100vh - 40px); overflow:auto;
+  background:#212326; border:1px solid rgba(232,228,220,.17);
+  padding:20px 22px; box-shadow:0 20px 60px rgba(0,0,0,.5);
+  color:#E8E4DC;
+}
+.prompt-overlay .prompt-title { font-size:15px; font-weight:600; color:#E8E4DC; margin-bottom:10px; }
+.prompt-overlay .dialog-message { margin:0 0 18px; font-size:13px; line-height:1.55; color:#BEB8AE; white-space:pre-line; }
+.prompt-overlay .prompt-actions { display:flex; justify-content:flex-end; gap:10px; }
+.prompt-overlay .btn {
+  font-family:inherit; font-size:12.5px; padding:7px 16px; border-radius:0; cursor:pointer;
+  background:none; border:1px solid rgba(232,228,220,.17); color:#BEB8AE;
+}
+.prompt-overlay .btn:hover { color:#E8E4DC; }
+.prompt-overlay .btn.primary { background:#C8834A; border-color:#C8834A; color:#1A0F06; font-weight:500; }
+.prompt-overlay .btn.danger { border-color:#E2585A; color:#E2585A; }
+.prompt-overlay .btn:focus-visible { outline:2px solid #C8834A; outline-offset:2px; }

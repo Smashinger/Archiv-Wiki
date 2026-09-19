@@ -50,7 +50,7 @@
   --border-soft: #262626;
   --text-main: #e0e0e0;
   --text-muted: #a0a0a0;
-  --text-faint: #6e6e6e;
+  --text-faint: #939393; /* vorher #6e6e6e: 2,8–3,6:1 auf den Flächen, jetzt ≥ 4,6:1 (WCAG AA) */
   --accent-color: #c17d45; /* Standard/Fallback (Archiv Orange) — wird beim Start ggf. von der gewählten Palette überschrieben, siehe renderer/js/theme.js */
   --accent-dim: #9c6537;
   --accent-soft: rgba(193,125,69,0.08);
@@ -127,7 +127,7 @@ body.theme-light{
   --border-soft: #dad5cd;
   --text-main: #201e1b;
   --text-muted: #6b665f;
-  --text-faint: #888175;
+  --text-faint: #6f685d; /* vorher #888175: 3,1–3,9:1, jetzt ≈ 4,5–5,5:1 */
   --cyan: #237a74;
   --blue: #2171b9;
   --red: #d91a1c;

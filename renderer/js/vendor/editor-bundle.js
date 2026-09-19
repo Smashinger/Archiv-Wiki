@@ -50347,9 +50347,23 @@ function wikiLinkCompletionSource(getNoteIndex) {
     if (!match) return null;
     const query = match.text.slice(2).toLowerCase();
     const notes = typeof getNoteIndex === "function" ? getNoteIndex() : [];
-    const options = notes.filter((n) => n.title.toLowerCase().includes(query)).slice(0, 40).map((n) => ({ label: n.title, apply: `${n.title}]]`, type: "text", detail: "Notiz" }));
+    const options = notes.filter((n) => n.title.toLowerCase().includes(query)).slice(0, 40).map((n) => ({ label: n.title, apply: applyWikiLinkCompletion, type: "text", detail: "Notiz" }));
     return { from: match.from + 2, options, validFor: /^[^\]\n]*$/ };
   };
+}
+function wikiLinkCompletionChange(following, completionLabel, from, to) {
+  const closingCount = following.startsWith("]]") ? 2 : following.startsWith("]") ? 1 : 0;
+  const insert2 = `${completionLabel}]]`;
+  return { from, to: to + closingCount, insert: insert2, cursor: from + insert2.length };
+}
+function applyWikiLinkCompletion(view, completion, from, to) {
+  const change = wikiLinkCompletionChange(view.state.sliceDoc(to, to + 2), completion.label, from, to);
+  view.dispatch({
+    changes: { from: change.from, to: change.to, insert: change.insert },
+    selection: { anchor: change.cursor },
+    annotations: pickedCompletion.of(completion),
+    userEvent: "input.complete"
+  });
 }
 function createMarkdownEditor({ parent, doc: doc2 = "", tabSize = 2, readOnly: readOnly2 = false, onChange, onSave, onCursorActivity, getNoteIndex, onScroll, onSlashCommand, onSearchQueryChange }) {
   let view;
@@ -50783,6 +50797,7 @@ function renderPreview(markdownText, options = {}) {
 export {
   createMarkdownEditor,
   renderPreview,
+  wikiLinkCompletionChange,
   wikiLinkCompletionSource
 };
 /*! Bundled license information:

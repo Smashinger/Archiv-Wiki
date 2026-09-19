@@ -171,7 +171,7 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
     const win = getWizardWindow();
     if (win) { win.show(); win.moveTop(); win.focus(); }
     const result = await dialog.showOpenDialog(win, {
-      title: 'Speicherort für dein neues Archiv Wiki-Projekt wählen',
+      title: 'Speicherort für dein neues Archiv-Wiki wählen',
       properties: ['openDirectory', 'createDirectory']
     });
     if (result.canceled || result.filePaths.length === 0) return null;

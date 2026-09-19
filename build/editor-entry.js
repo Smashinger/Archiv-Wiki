@@ -10,7 +10,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { markdown, markdownLanguage, markdownKeymap } from '@codemirror/lang-markdown';
 import { syntaxHighlighting, HighlightStyle, syntaxTree, indentUnit } from '@codemirror/language';
 import { GFM } from '@lezer/markdown';
-import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, pickedCompletion } from '@codemirror/autocomplete';
 import { search, searchKeymap, setSearchQuery, SearchQuery, findNext, findPrevious, closeSearchPanel, openSearchPanel, getSearchQuery } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
 
@@ -231,9 +231,30 @@ export function wikiLinkCompletionSource(getNoteIndex) {
     const options = notes
       .filter(n => n.title.toLowerCase().includes(query))
       .slice(0, 40)
-      .map(n => ({ label: n.title, apply: `${n.title}]]`, type: 'text', detail: 'Notiz' }));
+      .map(n => ({ label: n.title, apply: applyWikiLinkCompletion, type: 'text', detail: 'Notiz' }));
     return { from: match.from + 2, options, validFor: /^[^\]\n]*$/ };
   };
+}
+
+// closeBrackets() ergänzt beim Tippen von "[[" bereits "]]" hinter dem
+// Cursor. Ein fester Einfügetext "Titel]]" erzeugte deshalb "[[Titel]]]]".
+// Hier werden direkt folgende schließende Klammern (höchstens zwei) mit
+// ersetzt, sodass genau ein "]]" entsteht und der Cursor dahinter steht –
+// gleich ob per Enter, Tab-Taste der Liste oder Mausklick übernommen.
+export function wikiLinkCompletionChange(following, completionLabel, from, to) {
+  const closingCount = following.startsWith(']]') ? 2 : (following.startsWith(']') ? 1 : 0);
+  const insert = `${completionLabel}]]`;
+  return { from, to: to + closingCount, insert, cursor: from + insert.length };
+}
+
+function applyWikiLinkCompletion(view, completion, from, to) {
+  const change = wikiLinkCompletionChange(view.state.sliceDoc(to, to + 2), completion.label, from, to);
+  view.dispatch({
+    changes: { from: change.from, to: change.to, insert: change.insert },
+    selection: { anchor: change.cursor },
+    annotations: pickedCompletion.of(completion),
+    userEvent: 'input.complete'
+  });
 }
 
 // ---------------------------------------------------------------------------

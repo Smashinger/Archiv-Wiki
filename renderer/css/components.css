@@ -273,7 +273,9 @@ a.nav-link, .nav-link{ display:flex; align-items:center; gap:var(--density-nav-g
 .group-header:hover{ background: var(--bg-elev-2); color: var(--text-main); }
 .group-header .g-label{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; background:none; border:none; color:inherit; font:inherit; text-transform:inherit; letter-spacing:inherit; cursor:pointer; padding:0; }
 .group-header .g-count{ font-family: var(--mono); font-size:10px; color: var(--text-faint); background: var(--bg-elev-2); border:1px solid var(--border); padding: 1px 7px; border-radius: var(--radius-sm); flex-shrink:0; }
-.group-header .g-chevron{ width:11px; height:11px; stroke: var(--text-faint); transition: transform .18s ease; flex-shrink:0; }
+/* Der Chevron-Pfad zeigt nach rechts (gemeinsam mit Design2): offen um 90°
+   gedreht = nach unten, geschlossen ungedreht = nach rechts. */
+.group-header .g-chevron{ width:11px; height:11px; stroke: var(--text-faint); transition: transform .18s ease; flex-shrink:0; transform: rotate(90deg); }
 .group-header .g-icon{ flex-shrink:0; font-size:var(--density-icon-size); line-height:1; }
 /* Aktive Kategorie (Nutzer-Feature): dezente Hervorhebung aller
    Vorfahren-Kategorien der aktuell geöffneten Notiz — bewusst nur die
@@ -303,7 +305,7 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
    eigener Override mehr — die Hierarchie kommt schon über Ebene 1 (größer,
    fett, Akzentfarbe) und die Notiz-Zeilen (kleiner) zustande. */
 
-.nav-group.collapsed .g-chevron{ transform: rotate(-90deg); }
+.nav-group.collapsed > .group-header-row .g-chevron{ transform: rotate(0deg); }
 .nav-group.collapsed .group-list{ max-height:0; opacity:0; margin:0; border-color:transparent; }
 
 /* Einrückungslinie: jede Verschachtelungsebene (Unterkategorien, Notizen)
@@ -554,7 +556,7 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
 .dashboard-row.recent-row .dr-title{ font-weight:700; color: var(--accent-color); }
 .dashboard-row .dr-excerpt{ font-size:12px; color: var(--text-faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .dashboard-row .dr-tag{
-  font-family: var(--mono); font-size:9px; text-transform:uppercase; letter-spacing:.05em; text-align:center;
+  font-family: var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.05em; text-align:center;
   color: var(--text-faint); background: var(--bg-elev-2); border:1px solid var(--border); border-radius: var(--radius-sm); padding:3px 6px;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
@@ -914,6 +916,18 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
 .trash-select, .d2-trash-select{ display:inline-flex; align-items:center; cursor:pointer; flex:0 0 auto; }
 .trash-select input, .d2-trash-select input{ cursor:pointer; }
 .trash-select{ margin-right:8px; }
+/* Classic-Papierkorbzeile: Titel zuerst, darunter die Herkunft in Klartext,
+   Wiederherstellen rechts. Vorher ungestaltetes .note-card-Markup. */
+.trash-card{
+  display:flex; align-items:center; gap:12px;
+  padding:12px 14px; margin-top:8px;
+  background: var(--bg-elev); border:1px solid var(--border); border-radius: var(--radius-md, 8px);
+}
+.trash-card-icon{ flex:0 0 auto; font-size:16px; line-height:1; }
+.trash-card-text{ flex:1; min-width:0; }
+.trash-card-title{ font-size:14px; font-weight:600; color: var(--text-main); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.trash-card-origin{ margin-top:3px; font-size:12.5px; color: var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.trash-card .btn{ flex:0 0 auto; }
 /* D4 / Block 2: Umbenennen/Zusammenführen/Löschen-Buttons neben dem
    Tag-Detail-Titel — wiederverwendet .trash-header für die Kopfzeile. */
 .tag-actions-row{ display:flex; gap:8px; flex-shrink:0; }
@@ -1704,6 +1718,9 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
   flex:0 0 1px;
   background:var(--border-soft);
 }
+/* Label und zugehöriges Feld dürfen beim Umbruch nicht getrennt werden. */
+.note-meta-pair{ display:inline-flex; align-items:center; gap:8px; flex:0 0 auto; }
+.note-meta-pair-tags{ flex:0 1 auto; min-width:0; }
 .note-meta-label{
   flex:0 0 auto;
   font-family:var(--mono);

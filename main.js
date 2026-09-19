@@ -1042,12 +1042,12 @@ function buildMenu() {
         { type: 'separator' },
         {
           id: 'help.about',
-          label: 'Über Archiv Wiki',
+          label: 'Über Archiv-Wiki',
           click: () => {
             dialog.showMessageBox(mainWindow, {
               type: 'info',
-              title: 'Über Archiv Wiki',
-              message: 'Archiv Wiki',
+              title: 'Über Archiv-Wiki',
+              message: 'Archiv-Wiki',
               detail: `Version ${app.getVersion()}\nAutor: Smashinger\nLizenz: MIT`
             });
           }
@@ -1682,7 +1682,7 @@ function registerCoreIpc() {
   // keits- und Bereits-konfiguriert-Prüfung).
   ipcMain.handle('dialog:selectDirectory', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'Projektordner für Archiv Wiki wählen',
+      title: 'Projektordner für Archiv-Wiki wählen',
       properties: ['openDirectory', 'createDirectory']
     });
     if (result.canceled || result.filePaths.length === 0) return null;
@@ -1748,7 +1748,7 @@ function createTray() {
     tray = null;
     return;
   }
-  tray.setToolTip('Archiv Wiki');
+  tray.setToolTip('Archiv-Wiki');
   tray.on('click', () => { mainWindow?.show(); mainWindow?.focus(); });
   refreshTrayMenu();
 }
