@@ -41,6 +41,7 @@ import { resolveUiDesign, applyUiDesign } from './ui-design.js';
 import { setupToolbarOverflow } from './toolbar-overflow.js';
 import { countLabel, pluralWord } from './count-label.js';
 import { findNotesLinkingToTitle, renameBreaksTitleLinks } from './wikilink-refs.js';
+import { initAiChat } from './ai-chat.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -11649,6 +11650,7 @@ function resolveAccentForActiveDesign(config) {
 }
 
 (async function init() {
+  initAiChat();
   state.project = await window.archivAPI.getCurrentProject();
   // Bewusst VOR waitForUnlock() (im Gegensatz zu Akzentfarbe/Sidebar-Größe/
   // Lesebreite weiter unten): ein falsches Theme wäre bei aktivem App-Lock
