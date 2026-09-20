@@ -6,7 +6,7 @@
 // Reiterwechsel nichts springt; einspaltige Bereiche zentrieren darin ihren
 // 580-px-Block.
 //
-// Jeder der sieben Bereiche ist eine eigene, unabhängige render-Funktion. Ein
+// Jeder der acht Bereiche ist eine eigene, unabhängige render-Funktion. Ein
 // künftiger Bereich wird als weiterer Eintrag in SETTINGS_SECTIONS ergänzt —
 // an der Fenster-/Reiter-Logik selbst muss dafür nichts geändert werden.
 //
@@ -220,7 +220,7 @@ function setFeedback(el, id, message, isError = false) {
   target.classList.toggle('is-error', Boolean(isError && message));
 }
 
-// --- Die sieben Bereiche -------------------------------------------------
+// --- Die acht Bereiche ---------------------------------------------------
 
 const SETTINGS_SECTIONS = [
   { id: 'general', label: 'Allgemein', columns: 2, render: renderGeneralSection },
@@ -229,6 +229,7 @@ const SETTINGS_SECTIONS = [
   { id: 'backup', label: 'Backup', columns: 2, render: renderBackupSection },
   { id: 'updates', label: 'Updates', columns: 2, render: renderUpdatesSection },
   { id: 'webclipper', label: 'Web Clipper', columns: 2, render: renderWebClipperSection },
+  { id: 'ai', label: 'KI-Assistent', columns: 2, render: renderAiSection },
   { id: 'security', label: 'Sicherheit', columns: 2, render: renderSecuritySection }
 ];
 
@@ -1538,7 +1539,137 @@ async function renderWebClipperSection(el, config, updateSetting, context, lifec
   });
 }
 
-// --- 5.7  Sicherheit — einspaltig ---------------------------------------
+// --- 5.7  KI-Assistent — zweispaltig ------------------------------------
+
+async function renderAiSection(el, config, updateSetting, context, lifecycle) {
+  const defaultAiSettings = {
+    enabled: true,
+    host: 'http://127.0.0.1:11434',
+    defaultModel: 'phi:2.7b',
+    temperature: 0.7,
+    contextSize: 4096,
+    persistHistory: true
+  };
+  const aiSettings = await window.archivAPI.ai.getSettings().catch((error) => {
+    console.error('KI-Einstellungen konnten nicht geladen werden:', error);
+    return defaultAiSettings;
+  });
+  const modelsRes = await window.archivAPI.ai.getModels({ host: aiSettings.host })
+    .catch(() => ({ success: false, models: [] }));
+  if (!lifecycle.isCurrent()) return;
+
+  const selectedModel = aiSettings.defaultModel || defaultAiSettings.defaultModel;
+  const availableModelNames = modelsRes?.success && Array.isArray(modelsRes.models)
+    ? modelsRes.models.map(model => model?.name).filter(name => typeof name === 'string' && name.trim())
+    : [];
+  const modelOptions = [...new Set([selectedModel, ...availableModelNames])]
+    .map(name => ({ value: name, label: name }));
+  const contextSizeOptions = [2048, 4096, 8192, 16384]
+    .map(value => ({ value: String(value), label: String(value) }));
+
+  const left = group('Server & Verbindung',
+    row('KI-Assistent aktivieren', 'Aktiviert den lokalen KI-Assistenten in Archiv-Wiki.',
+      toggle({ id: 'stAiEnabled', on: aiSettings.enabled !== false, label: 'KI-Assistent aktivieren' }))
+    + row('Ollama-Server URL', 'Adresse des lokalen Ollama-Servers.',
+      inlineGroup(
+        textInput({ id: 'stAiHost', value: aiSettings.host || defaultAiSettings.host, placeholder: defaultAiSettings.host })
+        + button2('btnTestAiConnection', 'Verbindung testen')
+      )
+      + feedbackLine('stAiConnectionFeedback'))
+  );
+  const right = group('Modell & Parameter',
+    row('Standard-Modell', 'Das für den Chat verwendete lokale Modell.',
+      select({ id: 'stAiDefaultModel', value: selectedModel, options: modelOptions }))
+    + row('Temperatur', 'Kreativität der Antworten (0.0 = präzise, 1.0 = kreativ).',
+      measure({ id: 'stAiTemperature', value: aiSettings.temperature ?? defaultAiSettings.temperature, unit: '', min: 0, max: 1, step: '0.05' }))
+    + row('Kontext-Größe', 'Maximaler Kontextumfang für Eingabe und Antwort.',
+      select({ id: 'stAiContextSize', value: String(aiSettings.contextSize || defaultAiSettings.contextSize), options: contextSizeOptions }))
+    + row('Chat-Verlauf speichern', 'Behält bis zu 50 Nachrichten sitzungsübergreifend.',
+      toggle({ id: 'stAiPersistHistory', on: aiSettings.persistHistory !== false, label: 'Chat-Verlauf speichern' }))
+    + row('Verlauf verwalten', 'Löscht alle gespeicherten Nachrichten restlos.',
+      button2('btnClearAiHistory', 'Verlauf leeren') + feedbackLine('stAiHistoryFeedback'))
+  );
+
+  el.innerHTML = pane(2, left, right);
+
+  function setConnectionFeedback(message, { error = false, success = false } = {}) {
+    setFeedback(el, 'stAiConnectionFeedback', message, error);
+    const feedback = el.querySelector('#stAiConnectionFeedback');
+    if (feedback) feedback.style.color = success ? 'var(--c-green)' : '';
+  }
+
+  onToggle(el, 'stAiEnabled', async (enabled) => {
+    await window.archivAPI.ai.updateSettings({ enabled });
+  });
+
+  onSelectChange(el, 'stAiDefaultModel', async (value) => {
+    await window.archivAPI.ai.updateSettings({ defaultModel: value });
+  });
+
+  el.querySelector('#stAiTemperature').addEventListener('change', async (event) => {
+    await window.archivAPI.ai.updateSettings({ temperature: parseFloat(event.currentTarget.value) });
+  });
+
+  onSelectChange(el, 'stAiContextSize', async (value) => {
+    await window.archivAPI.ai.updateSettings({ contextSize: parseInt(value, 10) });
+  });
+
+  onToggle(el, 'stAiPersistHistory', async (persistHistory) => {
+    await window.archivAPI.ai.updateSettings({ persistHistory });
+  });
+
+  el.querySelector('#btnClearAiHistory').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    setFeedback(el, 'stAiHistoryFeedback', '');
+    try {
+      await window.archivAPI.ai.clearHistory();
+      if (lifecycle.isCurrent()) setFeedback(el, 'stAiHistoryFeedback', 'Verlauf geleert.');
+    } catch (error) {
+      if (lifecycle.isCurrent()) {
+        setFeedback(el, 'stAiHistoryFeedback', error?.message || 'Der Verlauf konnte nicht geleert werden.', true);
+      }
+    } finally {
+      if (lifecycle.isCurrent()) button.disabled = false;
+    }
+  });
+
+  const hostInput = el.querySelector('#stAiHost');
+  hostInput.addEventListener('change', async (event) => {
+    try {
+      await window.archivAPI.ai.updateSettings({ host: event.currentTarget.value.trim() });
+    } catch (error) {
+      console.error('Ollama-Server-URL konnte nicht gespeichert werden:', error);
+      setConnectionFeedback(error?.message || 'Die Server-URL konnte nicht gespeichert werden.', { error: true });
+    }
+  });
+
+  el.querySelector('#btnTestAiConnection').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    setConnectionFeedback('Verbindung wird geprüft …');
+    try {
+      const result = await window.archivAPI.ai.checkConnection({ host: hostInput.value.trim() });
+      if (!lifecycle.isCurrent()) return;
+      if (!result?.online) {
+        setConnectionFeedback(result?.error || 'Ollama ist nicht erreichbar.', { error: true });
+        return;
+      }
+      const details = [
+        result.version ? `v${String(result.version).replace(/^v/i, '')}` : null,
+        Number.isFinite(result.latencyMs) ? `${Math.round(result.latencyMs)} ms` : null
+      ].filter(Boolean).join(', ');
+      setConnectionFeedback(`Verbunden${details ? ` (${details})` : ''}`, { success: true });
+    } catch (error) {
+      if (!lifecycle.isCurrent()) return;
+      setConnectionFeedback(error?.message || 'Ollama ist nicht erreichbar.', { error: true });
+    } finally {
+      if (lifecycle.isCurrent()) button.disabled = false;
+    }
+  });
+}
+
+// --- 5.8  Sicherheit — einspaltig ---------------------------------------
 
 const PRIVACY_POINTS = [
   'Wiki-Dateien liegen lokal',
