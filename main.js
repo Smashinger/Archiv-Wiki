@@ -27,6 +27,7 @@ const {
 const { registerExportIpc, exportProjectZip } = require('./main/export-ipc');
 const { registerSyncIpc, isSyncInProgress, getSyncStatusSnapshot } = require('./main/sync-ipc');
 const { registerSettingsIpc, matchesStoredAppLockPassword } = require('./main/settings-ipc');
+const { registerAiIpc } = require('./main/ai-ipc');
 const {
   maybeRunAutoBackup,
   getBackupFolderState,
@@ -1853,6 +1854,7 @@ app.whenReady().then(async () => {
     getMainWindow: () => mainWindow,
     onProjectConfigLoaded: adoptCurrentProjectConfig
   }));
+  safeRegister('registerAiIpc', () => registerAiIpc({ getMainWindow: () => mainWindow }));
   // Bugfix (Audit-Punkt 6): vorher nur im "kein Projekt bekannt"-Zweig weiter
   // unten registriert — wurde der Wizard stattdessen später über
   // app.on('activate') geöffnet (z. B. falls currentProject.path zwischen-

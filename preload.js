@@ -60,6 +60,31 @@ contextBridge.exposeInMainWorld('archivAPI', {
     // diese Änderung keine eigene Autorität (siehe main/settings-ipc.js).
     setAppLockPassword: (request) => ipcRenderer.invoke('settings:setAppLockPassword', request)
   },
+  ai: {
+    checkConnection: (options) => ipcRenderer.invoke('ai:checkConnection', options),
+    getModels: (options) => ipcRenderer.invoke('ai:getModels', options),
+    sendMessage: (request) => ipcRenderer.invoke('ai:sendMessage', request),
+    abort: (messageId) => ipcRenderer.invoke('ai:abort', { messageId }),
+    getHistory: () => ipcRenderer.invoke('ai:getHistory'),
+    clearHistory: () => ipcRenderer.invoke('ai:clearHistory'),
+    getSettings: () => ipcRenderer.invoke('ai:getSettings'),
+    updateSettings: (patch) => ipcRenderer.invoke('ai:updateSettings', patch),
+    onStreamChunk: (callback) => {
+      const listener = (_event, payload) => callback(payload);
+      ipcRenderer.on('ai:stream-chunk', listener);
+      return () => ipcRenderer.removeListener('ai:stream-chunk', listener);
+    },
+    onStreamEnd: (callback) => {
+      const listener = (_event, payload) => callback(payload);
+      ipcRenderer.on('ai:stream-end', listener);
+      return () => ipcRenderer.removeListener('ai:stream-end', listener);
+    },
+    onStreamError: (callback) => {
+      const listener = (_event, payload) => callback(payload);
+      ipcRenderer.on('ai:stream-error', listener);
+      return () => ipcRenderer.removeListener('ai:stream-error', listener);
+    }
+  },
   webClipper: {
     getStatus: () => ipcRenderer.invoke('app:getWebClipperStatus'),
     detectBrowsers: () => ipcRenderer.invoke('webclip:detectBrowsers'),
