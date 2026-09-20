@@ -1558,14 +1558,32 @@ async function renderAiSection(el, config, updateSetting, context, lifecycle) {
     .catch(() => ({ success: false, models: [] }));
   if (!lifecycle.isCurrent()) return;
 
-  const selectedModel = aiSettings.defaultModel || defaultAiSettings.defaultModel;
+  const configuredModel = aiSettings.defaultModel || defaultAiSettings.defaultModel;
   const availableModelNames = modelsRes?.success && Array.isArray(modelsRes.models)
     ? modelsRes.models.map(model => model?.name).filter(name => typeof name === 'string' && name.trim())
     : [];
-  const modelOptions = [...new Set([selectedModel, ...availableModelNames])]
-    .map(name => ({ value: name, label: name }));
-  const contextSizeOptions = [2048, 4096, 8192, 16384]
-    .map(value => ({ value: String(value), label: String(value) }));
+
+  let selectedModel = configuredModel;
+  let modelOptions = [];
+  if (modelsRes?.success && availableModelNames.length > 0) {
+    if (availableModelNames.includes(configuredModel)) {
+      selectedModel = configuredModel;
+    } else {
+      selectedModel = availableModelNames[0];
+      window.archivAPI.ai.updateSettings({ defaultModel: selectedModel }).catch(() => {});
+    }
+    modelOptions = availableModelNames.map(name => ({ value: name, label: name }));
+  } else {
+    modelOptions = [{ value: configuredModel, label: configuredModel }];
+  }
+
+  const contextSizeOptions = [
+    { value: '2048', label: '2048 (2K)' },
+    { value: '4096', label: '4096 (4K - Standard)' },
+    { value: '8192', label: '8192 (8K - Empfohlen)' },
+    { value: '16384', label: '16384 (16K)' },
+    { value: '32768', label: '32768 (32K - Maximum)' }
+  ];
 
   const left = group('Server & Verbindung',
     row('KI-Assistent aktivieren', 'Aktiviert den lokalen KI-Assistenten in Archiv-Wiki.',

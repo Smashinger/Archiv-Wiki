@@ -225,6 +225,40 @@ function generateMessageId() {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+export function resolveActiveModels(availableNames, currentSelected, configuredDefault) {
+  const available = Array.isArray(availableNames)
+    ? availableNames.map(n => (typeof n === 'string' ? n.trim() : '')).filter(Boolean)
+    : [];
+
+  if (available.length === 0) {
+    return {
+      models: [],
+      selectedModel: null,
+      shouldUpdateDefault: false
+    };
+  }
+
+  let selected = null;
+  if (currentSelected && available.includes(currentSelected)) {
+    selected = currentSelected;
+  } else if (configuredDefault && available.includes(configuredDefault)) {
+    selected = configuredDefault;
+  } else {
+    selected = available[0];
+  }
+
+  const shouldUpdateDefault = Boolean(
+    configuredDefault &&
+    !available.includes(configuredDefault)
+  );
+
+  return {
+    models: available,
+    selectedModel: selected,
+    shouldUpdateDefault
+  };
+}
+
 export function initAiChat({ onProposalApplied } = {}) {
   const panel = document.getElementById('aiChatPanel');
   const openButton = document.getElementById('titlebarAiChatBtn');
@@ -234,6 +268,8 @@ export function initAiChat({ onProposalApplied } = {}) {
   const sendButton = document.getElementById('aiChatSendBtn');
   const clearButton = document.getElementById('aiChatClearBtn');
   const modelSelect = document.getElementById('aiChatModelSelect');
+  const modelRefreshBtn = document.getElementById('aiChatModelRefreshBtn');
+  const contextSelect = document.getElementById('aiChatContextSelect');
   const messagesContainer = document.getElementById('aiChatMessages');
   const emptyState = messagesContainer?.querySelector('.ai-chat-empty-state');
   const statusDot = document.getElementById('aiTopbarStatusDot');
@@ -325,6 +361,9 @@ export function initAiChat({ onProposalApplied } = {}) {
       if (settings?.mode) {
         setActiveMode(settings.mode);
       }
+      if (contextSelect && settings?.contextSize) {
+        contextSelect.value = String(settings.contextSize);
+      }
       const conn = await window.archivAPI.ai.checkConnection({ host: settings?.host }).catch(() => ({ online: false }));
       if (statusDot) {
         statusDot.classList.toggle('is-online', Boolean(conn?.online));
@@ -338,15 +377,44 @@ export function initAiChat({ onProposalApplied } = {}) {
         const availableNames = modelsRes?.success && Array.isArray(modelsRes.models)
           ? modelsRes.models.map(m => m?.name).filter(Boolean)
           : [];
-        const currentSelected = modelSelect.value || settings?.defaultModel || 'phi:2.7b';
-        const allModels = [...new Set([currentSelected, ...availableNames])];
-        modelSelect.innerHTML = '';
-        for (const name of allModels) {
-          const opt = document.createElement('option');
-          opt.value = name;
-          opt.textContent = name;
-          opt.selected = (name === currentSelected);
-          modelSelect.appendChild(opt);
+
+        if (modelsRes?.success) {
+          const { models, selectedModel, shouldUpdateDefault } = resolveActiveModels(
+            availableNames,
+            modelSelect.value,
+            settings?.defaultModel
+          );
+          modelSelect.innerHTML = '';
+          if (models.length > 0) {
+            for (const name of models) {
+              const opt = document.createElement('option');
+              opt.value = name;
+              opt.textContent = name;
+              opt.selected = (name === selectedModel);
+              modelSelect.appendChild(opt);
+            }
+            modelSelect.value = selectedModel;
+            if (shouldUpdateDefault && selectedModel) {
+              window.archivAPI.ai.updateSettings({ defaultModel: selectedModel }).catch(() => {});
+            }
+          } else {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'Keine Modelle installiert';
+            opt.disabled = true;
+            opt.selected = true;
+            modelSelect.appendChild(opt);
+          }
+        } else {
+          // Ollama war nicht erreichbar
+          if (modelSelect.options.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = settings?.defaultModel || 'phi:2.7b';
+            opt.textContent = `${settings?.defaultModel || 'phi:2.7b'} (offline)`;
+            opt.disabled = true;
+            opt.selected = true;
+            modelSelect.appendChild(opt);
+          }
         }
       }
     } catch (err) {
@@ -401,12 +469,16 @@ export function initAiChat({ onProposalApplied } = {}) {
     setGenerating(true);
 
     const selectedModel = modelSelect?.value || undefined;
+    const contextSize = contextSelect?.value ? parseInt(contextSelect.value, 10) : undefined;
     try {
       await window.archivAPI.ai.sendMessage({
         messageId,
         text,
         model: selectedModel,
-        mode: currentMode
+        mode: currentMode,
+        options: {
+          contextSize: Number.isInteger(contextSize) ? contextSize : undefined
+        }
       });
     } catch (err) {
       activeBubbleCursorEl?.remove();
@@ -698,6 +770,26 @@ export function initAiChat({ onProposalApplied } = {}) {
   modelSelect?.addEventListener('change', () => {
     if (modelSelect.value) {
       window.archivAPI.ai.updateSettings({ defaultModel: modelSelect.value }).catch(() => {});
+    }
+  });
+
+  modelRefreshBtn?.addEventListener('click', async () => {
+    modelRefreshBtn.classList.add('is-refreshing');
+    modelRefreshBtn.disabled = true;
+    try {
+      await refreshModelsAndStatus();
+    } finally {
+      setTimeout(() => {
+        modelRefreshBtn.classList.remove('is-refreshing');
+        modelRefreshBtn.disabled = false;
+      }, 400);
+    }
+  });
+
+  contextSelect?.addEventListener('change', () => {
+    const contextSize = parseInt(contextSelect.value, 10);
+    if (Number.isInteger(contextSize)) {
+      window.archivAPI.ai.updateSettings({ contextSize }).catch(() => {});
     }
   });
 

@@ -332,11 +332,22 @@
         <select class="ai-chat-model-select" id="aiChatModelSelect" aria-label="KI-Modell auswählen">
           <option value="phi:2.7b">phi:2.7b</option>
         </select>
+        <button class="ai-chat-icon-btn" id="aiChatModelRefreshBtn" type="button" title="Modelle neu laden" aria-label="Modelle neu laden">🔄</button>
         <button class="ai-chat-icon-btn" id="aiChatClearBtn" type="button" title="Chat-Verlauf leeren" aria-label="Chat-Verlauf leeren">🗑</button>
         <button class="ai-chat-icon-btn" id="aiChatCloseBtn" type="button" title="KI-Assistent schließen" aria-label="KI-Assistent schließen">×</button>
       </div>
     </header>
     <div class="ai-chat-toolbar">
+      <div class="ai-chat-context-wrapper">
+        <label class="ai-chat-toolbar-label" for="aiChatContextSelect" title="Kontextgröße (Tokens) für Prompts und Notizen">Kontext:</label>
+        <select class="ai-chat-context-select" id="aiChatContextSelect" aria-label="Kontextgröße auswählen">
+          <option value="2048">2K (2.048)</option>
+          <option value="4096" selected>4K (4.096)</option>
+          <option value="8192">8K (8.192)</option>
+          <option value="16384">16K (16.384)</option>
+          <option value="32768">32K (32.768)</option>
+        </select>
+      </div>
       <div class="ai-chat-mode-group" id="aiChatModeGroup" role="radiogroup" aria-label="Betriebsmodus">
         <button type="button" class="ai-mode-btn is-active" data-mode="safe" title="Sicherer Modus: Einzelschritte mit maximaler Kontrolle" aria-checked="true">🛡️ Safe</button>
         <button type="button" class="ai-mode-btn" data-mode="auto" title="Autonomer Modus: Führt mehrstufige Recherchen selbstständig durch" aria-checked="false">⚡ Auto</button>

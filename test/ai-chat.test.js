@@ -51,6 +51,8 @@ test('KI-Chat UI 2: index.html enthält alle erforderlichen UI-Elemente und Styl
   assert.ok(indexHtml.includes('id="aiChatPanel"'), '#aiChatPanel existiert');
   assert.ok(indexHtml.includes('data-ai-drag-handle'), 'Header hat data-ai-drag-handle');
   assert.ok(indexHtml.includes('id="aiChatModelSelect"'), '#aiChatModelSelect existiert');
+  assert.ok(indexHtml.includes('id="aiChatModelRefreshBtn"'), '#aiChatModelRefreshBtn existiert');
+  assert.ok(indexHtml.includes('id="aiChatContextSelect"'), '#aiChatContextSelect existiert in index.html');
   assert.ok(indexHtml.includes('id="aiChatClearBtn"'), '#aiChatClearBtn existiert');
   assert.ok(indexHtml.includes('id="aiChatCloseBtn"'), '#aiChatCloseBtn existiert');
   assert.ok(indexHtml.includes('id="aiChatMessages"'), '#aiChatMessages existiert');
@@ -72,10 +74,13 @@ test('KI-Chat UI 3: ai-chat.css definiert alle relevanten Zustände und Animatio
   assert.ok(chatCss.includes('.ai-msg-assistant{'), 'Assistent-Sprechblase existiert');
   assert.ok(chatCss.includes('.ai-typing-cursor{'), 'Typing-Cursor existiert');
   assert.ok(chatCss.includes('@keyframes ai-blink'), 'Blink-Animation existiert');
+  assert.ok(chatCss.includes('@keyframes ai-spin'), 'Spin-Animation existiert');
+  assert.ok(chatCss.includes('.ai-chat-icon-btn.is-refreshing'), 'Spin-Klasse für Refresh existiert');
   assert.ok(chatCss.includes('.ai-status-indicator.is-online'), 'Online-Statuspunkt existiert');
   assert.ok(chatCss.includes('[data-mode="stop"]'), 'Stop-Zustand für Button existiert');
   assert.ok(chatCss.includes('.ai-tool-pill{'), 'Werkzeug-Badge-Klasse existiert');
   assert.ok(chatCss.includes('.ai-chat-toolbar{'), 'Toolbar-Klasse existiert');
+  assert.ok(chatCss.includes('.ai-chat-context-select{'), 'Kontext-Select-Klasse existiert');
   assert.ok(chatCss.includes('.ai-mode-btn{'), 'Modus-Button-Klasse existiert');
   assert.ok(chatCss.includes('.ai-mode-btn.is-active{'), 'Aktiver Modus-Button existiert');
   assert.ok(chatCss.includes('.ai-proposal-card{'), 'Proposal-Karten-Klasse existiert');
@@ -352,6 +357,34 @@ test('KI-Chat UI 10: triggerAiPrompt versendet archiv:ai-prompt CustomEvent', as
   } finally {
     global.window = prevWindow;
   }
+});
+
+test('KI-Chat UI 11: resolveActiveModels bereinigt gelöschte Modelle und wählt gültige Fallbacks', async () => {
+  const { resolveActiveModels } = await import('../renderer/js/ai-chat.js');
+  assert.equal(typeof resolveActiveModels, 'function', 'resolveActiveModels ist exportiert');
+
+  // Fall 1: Altes Modell wurde gelöscht, nur noch gemma4:12b existiert
+  const res1 = resolveActiveModels(['gemma4:12b'], 'phi:2.7b', 'phi:2.7b');
+  assert.deepEqual(res1.models, ['gemma4:12b'], 'Enthält ausschließlich noch installierte Modelle');
+  assert.equal(res1.selectedModel, 'gemma4:12b', 'Fällt automatisch auf das verfügbare Modell zurück');
+  assert.equal(res1.shouldUpdateDefault, true, 'Signalisiert, dass die Standard-Einstellung aktualisiert werden muss');
+
+  // Fall 2: Aktuell gewähltes Modell ist vorhanden und bleibt aktiv
+  const res2 = resolveActiveModels(['gemma4:12b', 'qwen2.5:7b'], 'qwen2.5:7b', 'gemma4:12b');
+  assert.deepEqual(res2.models, ['gemma4:12b', 'qwen2.5:7b']);
+  assert.equal(res2.selectedModel, 'qwen2.5:7b', 'Aktuelle Auswahl bleibt erhalten');
+  assert.equal(res2.shouldUpdateDefault, false);
+
+  // Fall 3: Aktuell gewähltes Modell ist veraltet, aber konfiguriertes Default existiert noch
+  const res3 = resolveActiveModels(['gemma4:12b', 'mistral:latest'], 'deleted:1b', 'mistral:latest');
+  assert.equal(res3.selectedModel, 'mistral:latest', 'Fällt auf das noch gültige konfigurierte Modell zurück');
+  assert.equal(res3.shouldUpdateDefault, false);
+
+  // Fall 4: Keine Modelle verfügbar (z. B. leere Liste)
+  const res4 = resolveActiveModels([], 'phi:2.7b', 'phi:2.7b');
+  assert.deepEqual(res4.models, []);
+  assert.equal(res4.selectedModel, null);
+  assert.equal(res4.shouldUpdateDefault, false);
 });
 
 
