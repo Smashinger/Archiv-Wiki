@@ -75,7 +75,7 @@ Dieser Inhalt ist archiviert.
 
 test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werkzeuge', () => {
   assert.ok(Array.isArray(AI_TOOLS_DEFINITIONS));
-  assert.equal(AI_TOOLS_DEFINITIONS.length, 9);
+  assert.equal(AI_TOOLS_DEFINITIONS.length, 11);
 
   const names = AI_TOOLS_DEFINITIONS.map(d => d.function?.name);
   assert.ok(names.includes('search_notes'), 'search_notes ist definiert');
@@ -87,6 +87,8 @@ test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werk
   assert.ok(names.includes('propose_move_note'), 'propose_move_note ist definiert');
   assert.ok(names.includes('propose_rename_note'), 'propose_rename_note ist definiert');
   assert.ok(names.includes('propose_delete_note'), 'propose_delete_note ist definiert');
+  assert.ok(names.includes('audit_knowledge_base'), 'audit_knowledge_base ist definiert');
+  assert.ok(names.includes('find_duplicate_notes'), 'find_duplicate_notes ist definiert');
 
   // Keine direkten Schreibwerkzeuge (Human-in-the-Loop Zwang)
   assert.ok(!names.includes('write_note'), 'write_note darf nicht existieren');
@@ -240,6 +242,26 @@ test('KI-Tools 7: executeAiTool routet die Phase-6-Werkzeuge (Kategorie, Verschi
   assert.equal(deleteRes.data.isDanger, true);
   assert.equal(deleteRes.data.requiresConfirmation, true);
   assert.ok(deleteRes.data.proposalId);
+});
+
+test('KI-Tools 8: executeAiTool führt audit_knowledge_base und find_duplicate_notes aus', async t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  // 1. audit_knowledge_base
+  const auditRes = await executeAiTool(wikiDir, 'audit_knowledge_base', {});
+  assert.equal(auditRes.success, true);
+  assert.ok(auditRes.data);
+  assert.equal(typeof auditRes.data.isHealthy, 'boolean');
+  assert.ok(auditRes.data.issues);
+  assert.ok(Array.isArray(auditRes.data.issues.emptyNotes));
+  assert.ok(Array.isArray(auditRes.data.issues.brokenLinks));
+
+  // 2. find_duplicate_notes
+  const dupRes = await executeAiTool(wikiDir, 'find_duplicate_notes', { threshold: 0.3 });
+  assert.equal(dupRes.success, true);
+  assert.ok(dupRes.data);
+  assert.ok(Array.isArray(dupRes.data.duplicatePairs));
+  assert.equal(typeof dupRes.data.evaluatedNotes, 'number');
 });
 
 

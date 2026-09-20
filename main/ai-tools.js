@@ -8,6 +8,7 @@
 const path = require('path');
 const notesFs = require('./notes-fs');
 const aiProposals = require('./ai-proposals');
+const aiKnowledge = require('./ai-knowledge');
 
 const AI_TOOLS_DEFINITIONS = [
   {
@@ -228,6 +229,37 @@ const AI_TOOLS_DEFINITIONS = [
           }
         },
         required: ['relPath', 'reason']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'audit_knowledge_base',
+      description: 'Führt eine automatische Wissenspflege-Prüfung des gesamten Wikis durch. Findet defekte Wikilinks, leere Notizen, Notizen ohne Schlagworte/Tags, verwaiste Notizen (weder eingehende noch ausgehende Wikilinks) und potenzielle Titel-Duplikate.',
+      parameters: {
+        type: 'object',
+        properties: {}
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'find_duplicate_notes',
+      description: 'Sucht nach inhaltlichen oder thematischen Duplikaten und Redundanzen zwischen Notizen anhand von Begriffen, Tags und Titeln. Berechnet Ähnlichkeits-Scores und gemeinsame Schlüsselbegriffe.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Optionales Thema oder Suchbegriff, um die Duplikatsuche einzugrenzen.'
+          },
+          threshold: {
+            type: 'number',
+            description: 'Ähnlichkeits-Schwellenwert zwischen 0.2 und 1.0 (Standard: 0.45).'
+          }
+        }
       }
     }
   }
@@ -511,6 +543,17 @@ async function executeAiTool(projectPath, name, args = {}) {
           }
         };
       }
+      case 'audit_knowledge_base': {
+        const report = aiKnowledge.auditKnowledgeBase(projectPath);
+        return { success: true, data: report };
+      }
+      case 'find_duplicate_notes': {
+        const duplicates = aiKnowledge.findDuplicateNotes(projectPath, {
+          query: args.query,
+          threshold: args.threshold
+        });
+        return { success: true, data: duplicates };
+      }
       default:
         return { success: false, error: `Unbekanntes KI-Werkzeug: ${name}` };
     }
@@ -525,5 +568,7 @@ module.exports = {
   searchNotes,
   readNote,
   listNotes,
-  executeAiTool
+  executeAiTool,
+  auditKnowledgeBase: aiKnowledge.auditKnowledgeBase,
+  findDuplicateNotes: aiKnowledge.findDuplicateNotes
 };
