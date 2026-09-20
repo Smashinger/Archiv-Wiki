@@ -336,6 +336,13 @@
         <button class="ai-chat-icon-btn" id="aiChatCloseBtn" type="button" title="KI-Assistent schließen" aria-label="KI-Assistent schließen">×</button>
       </div>
     </header>
+    <div class="ai-chat-toolbar">
+      <div class="ai-chat-mode-group" id="aiChatModeGroup" role="radiogroup" aria-label="Betriebsmodus">
+        <button type="button" class="ai-mode-btn is-active" data-mode="safe" title="Sicherer Modus: Einzelschritte mit maximaler Kontrolle" aria-checked="true">🛡️ Safe</button>
+        <button type="button" class="ai-mode-btn" data-mode="auto" title="Autonomer Modus: Führt mehrstufige Recherchen selbstständig durch" aria-checked="false">⚡ Auto</button>
+        <button type="button" class="ai-mode-btn" data-mode="plan" title="Plan-Modus: Erstellt zuerst einen Ausführungsplan" aria-checked="false">📋 Plan</button>
+      </div>
+    </div>
     <div class="ai-chat-messages" id="aiChatMessages" aria-live="polite">
       <div class="ai-chat-empty-state">
         <span class="ai-chat-empty-icon" aria-hidden="true">🤖</span>

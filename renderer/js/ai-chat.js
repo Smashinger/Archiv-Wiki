@@ -55,6 +55,8 @@ export function initAiChat() {
   const messagesContainer = document.getElementById('aiChatMessages');
   const emptyState = messagesContainer?.querySelector('.ai-chat-empty-state');
   const statusDot = document.getElementById('aiTopbarStatusDot');
+  const modeGroup = document.getElementById('aiChatModeGroup');
+  const modeButtons = modeGroup ? Array.from(modeGroup.querySelectorAll('.ai-mode-btn')) : [];
 
   if (!panel || !openButton || !closeButton || !header || !input || !sendButton || !messagesContainer) {
     return () => {};
@@ -66,6 +68,17 @@ export function initAiChat() {
   let activeDeltaBuffer = '';
   let activeBubbleEl = null;
   let activeBubbleCursorEl = null;
+  let currentMode = 'safe';
+
+  function setActiveMode(mode) {
+    if (!['safe', 'auto', 'plan'].includes(mode)) mode = 'safe';
+    currentMode = mode;
+    for (const btn of modeButtons) {
+      const isActive = (btn.dataset.mode === mode);
+      btn.classList.toggle('is-active', isActive);
+      btn.setAttribute('aria-checked', isActive ? 'true' : 'false');
+    }
+  }
 
   function setGenerating(isGenerating) {
     sendButton.dataset.mode = isGenerating ? 'stop' : 'send';
@@ -127,6 +140,9 @@ export function initAiChat() {
   async function refreshModelsAndStatus() {
     try {
       const settings = await window.archivAPI.ai.getSettings().catch(() => ({}));
+      if (settings?.mode) {
+        setActiveMode(settings.mode);
+      }
       const conn = await window.archivAPI.ai.checkConnection({ host: settings?.host }).catch(() => ({ online: false }));
       if (statusDot) {
         statusDot.classList.toggle('is-online', Boolean(conn?.online));
@@ -207,7 +223,8 @@ export function initAiChat() {
       await window.archivAPI.ai.sendMessage({
         messageId,
         text,
-        model: selectedModel
+        model: selectedModel,
+        mode: currentMode
       });
     } catch (err) {
       activeBubbleCursorEl?.remove();
@@ -472,6 +489,16 @@ export function initAiChat() {
       window.archivAPI.ai.updateSettings({ defaultModel: modelSelect.value }).catch(() => {});
     }
   });
+
+  for (const btn of modeButtons) {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode;
+      if (mode && mode !== currentMode) {
+        setActiveMode(mode);
+        window.archivAPI.ai.updateSettings({ mode }).catch(() => {});
+      }
+    });
+  }
 
   window.addEventListener('resize', handleWindowResize);
   window.addEventListener('focus', handleWindowFocus);

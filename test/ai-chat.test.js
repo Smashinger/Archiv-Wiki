@@ -56,6 +56,10 @@ test('KI-Chat UI 2: index.html enthält alle erforderlichen UI-Elemente und Styl
   assert.ok(indexHtml.includes('id="aiChatMessages"'), '#aiChatMessages existiert');
   assert.ok(indexHtml.includes('id="aiChatInput"'), '#aiChatInput existiert');
   assert.ok(indexHtml.includes('id="aiChatSendBtn"'), '#aiChatSendBtn existiert');
+  assert.ok(indexHtml.includes('id="aiChatModeGroup"'), '#aiChatModeGroup existiert in index.html');
+  assert.ok(indexHtml.includes('data-mode="safe"'), 'Safe-Button existiert');
+  assert.ok(indexHtml.includes('data-mode="auto"'), 'Auto-Button existiert');
+  assert.ok(indexHtml.includes('data-mode="plan"'), 'Plan-Button existiert');
 });
 
 test('KI-Chat UI 3: ai-chat.css definiert alle relevanten Zustände und Animationen', () => {
@@ -70,6 +74,9 @@ test('KI-Chat UI 3: ai-chat.css definiert alle relevanten Zustände und Animatio
   assert.ok(chatCss.includes('.ai-status-indicator.is-online'), 'Online-Statuspunkt existiert');
   assert.ok(chatCss.includes('[data-mode="stop"]'), 'Stop-Zustand für Button existiert');
   assert.ok(chatCss.includes('.ai-tool-pill{'), 'Werkzeug-Badge-Klasse existiert');
+  assert.ok(chatCss.includes('.ai-chat-toolbar{'), 'Toolbar-Klasse existiert');
+  assert.ok(chatCss.includes('.ai-mode-btn{'), 'Modus-Button-Klasse existiert');
+  assert.ok(chatCss.includes('.ai-mode-btn.is-active{'), 'Aktiver Modus-Button existiert');
 });
 
 test('KI-Chat UI 4: preload.js exponiert die vollständige KI-Schnittstelle ohne Leaks', () => {
