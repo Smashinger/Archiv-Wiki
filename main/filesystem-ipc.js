@@ -130,6 +130,148 @@ function validateFilesystemArguments(channel, args) {
   }
 }
 
+function migrateConfigPaths(config, oldRelPath, newRelPath) {
+  if (!config || typeof config !== 'object') return false;
+  let changed = false;
+
+  if (config.categoryIcons && typeof config.categoryIcons === 'object') {
+    const updatedIcons = {};
+    for (const [key, icon] of Object.entries(config.categoryIcons)) {
+      if (key === oldRelPath) {
+        updatedIcons[newRelPath] = icon;
+        changed = true;
+      } else if (key.startsWith(oldRelPath + '/')) {
+        updatedIcons[newRelPath + key.slice(oldRelPath.length)] = icon;
+        changed = true;
+      } else {
+        updatedIcons[key] = icon;
+      }
+    }
+    if (changed) config.categoryIcons = updatedIcons;
+  }
+
+  if (config.childOrder && typeof config.childOrder === 'object') {
+    const updatedOrder = {};
+    const oldParent = oldRelPath.includes('/') ? oldRelPath.split('/').slice(0, -1).join('/') : '';
+    const newParent = newRelPath.includes('/') ? newRelPath.split('/').slice(0, -1).join('/') : '';
+    const oldName = oldRelPath.split('/').pop();
+    const newName = newRelPath.split('/').pop();
+
+    for (const [parentKey, list] of Object.entries(config.childOrder)) {
+      let targetParentKey = parentKey;
+      if (parentKey === oldRelPath) {
+        targetParentKey = newRelPath;
+        changed = true;
+      } else if (parentKey.startsWith(oldRelPath + '/')) {
+        targetParentKey = newRelPath + parentKey.slice(oldRelPath.length);
+        changed = true;
+      }
+
+      if (Array.isArray(list)) {
+        let nextList = list;
+        if (parentKey === oldParent) {
+          if (oldParent === newParent) {
+            nextList = list.map(item => (item === oldName ? newName : item));
+            if (nextList.some((item, i) => item !== list[i])) changed = true;
+          } else {
+            nextList = list.filter(item => item !== oldName);
+            if (nextList.length !== list.length) changed = true;
+          }
+        }
+        updatedOrder[targetParentKey] = nextList;
+      } else {
+        updatedOrder[targetParentKey] = list;
+      }
+    }
+    if (changed) config.childOrder = updatedOrder;
+  }
+
+  if (Array.isArray(config.savedCollapsedGroups)) {
+    const nextCollapsed = config.savedCollapsedGroups.map(p => {
+      if (p === oldRelPath) {
+        changed = true;
+        return newRelPath;
+      }
+      if (p.startsWith(oldRelPath + '/')) {
+        changed = true;
+        return newRelPath + p.slice(oldRelPath.length);
+      }
+      return p;
+    });
+    if (changed) config.savedCollapsedGroups = nextCollapsed;
+  }
+
+  if (config.noteScrollPositions && typeof config.noteScrollPositions === 'object') {
+    const updatedPositions = {};
+    for (const [key, pos] of Object.entries(config.noteScrollPositions)) {
+      if (key === oldRelPath) {
+        updatedPositions[newRelPath] = pos;
+        changed = true;
+      } else if (key.startsWith(oldRelPath + '/')) {
+        updatedPositions[newRelPath + key.slice(oldRelPath.length)] = pos;
+        changed = true;
+      } else {
+        updatedPositions[key] = pos;
+      }
+    }
+    if (changed) config.noteScrollPositions = updatedPositions;
+  }
+
+  return changed;
+}
+
+function removeConfigPaths(config, relPath) {
+  if (!config || typeof config !== 'object') return false;
+  let changed = false;
+
+  if (config.categoryIcons && typeof config.categoryIcons === 'object') {
+    for (const key of Object.keys(config.categoryIcons)) {
+      if (key === relPath || key.startsWith(relPath + '/')) {
+        delete config.categoryIcons[key];
+        changed = true;
+      }
+    }
+  }
+
+  if (config.childOrder && typeof config.childOrder === 'object') {
+    const parentDir = relPath.includes('/') ? relPath.split('/').slice(0, -1).join('/') : '';
+    const baseName = relPath.split('/').pop();
+    for (const [parentKey, list] of Object.entries(config.childOrder)) {
+      if (parentKey === relPath || parentKey.startsWith(relPath + '/')) {
+        delete config.childOrder[parentKey];
+        changed = true;
+      } else if (parentKey === parentDir && Array.isArray(list)) {
+        const nextList = list.filter(item => item !== baseName);
+        if (nextList.length !== list.length) {
+          config.childOrder[parentKey] = nextList;
+          changed = true;
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(config.savedCollapsedGroups)) {
+    const nextCollapsed = config.savedCollapsedGroups.filter(
+      p => p !== relPath && !p.startsWith(relPath + '/')
+    );
+    if (nextCollapsed.length !== config.savedCollapsedGroups.length) {
+      config.savedCollapsedGroups = nextCollapsed;
+      changed = true;
+    }
+  }
+
+  if (config.noteScrollPositions && typeof config.noteScrollPositions === 'object') {
+    for (const key of Object.keys(config.noteScrollPositions)) {
+      if (key === relPath || key.startsWith(relPath + '/')) {
+        delete config.noteScrollPositions[key];
+        changed = true;
+      }
+    }
+  }
+
+  return changed;
+}
+
 function registerFilesystemIpc({
   getCurrentProject,
   onProjectConfigLoaded,
@@ -158,6 +300,26 @@ function registerFilesystemIpc({
     const projectPath = getCurrentProject()?.path;
     if (!projectPath) throw new Error('Kein Projekt geöffnet.');
     return projectPath;
+  }
+
+  function syncConfigOnPathMutation(projectPath, oldRelPath, newRelPath) {
+    if (!oldRelPath || !newRelPath || oldRelPath === newRelPath) return;
+    try {
+      const config = updateProjectConfig(projectPath, draft => {
+        migrateConfigPaths(draft, oldRelPath, newRelPath);
+      });
+      adoptConfig(projectPath, config);
+    } catch { /* Config-Update schlägt nicht die Dateimutierung fehl */ }
+  }
+
+  function syncConfigOnPathDeletion(projectPath, relPath) {
+    if (!relPath) return;
+    try {
+      const config = updateProjectConfig(projectPath, draft => {
+        removeConfigPaths(draft, relPath);
+      });
+      adoptConfig(projectPath, config);
+    } catch { /* Config-Update schlägt nicht die Dateilöschung fehl */ }
   }
 
   function adoptConfig(projectPath, config) {
@@ -362,14 +524,26 @@ function registerFilesystemIpc({
   handle('fs:undoBatchMove', (_e, undoEntries) =>
     runExclusiveSyncMutation(() => nfs.undoBatchMove(requireProjectPath(), undoEntries)));
 
-  handle('fs:renameEntry', (_e, relPath, newName) =>
-    nfs.renameEntry(requireProjectPath(), relPath, newName));
+  handle('fs:renameEntry', (_e, relPath, newName) => {
+    const projectPath = requireProjectPath();
+    const result = nfs.renameEntry(projectPath, relPath, newName);
+    syncConfigOnPathMutation(projectPath, relPath, result.relPath);
+    return result;
+  });
 
-  handle('fs:moveEntry', (_e, relPath, targetCategoryRelPath) =>
-    nfs.moveEntry(requireProjectPath(), relPath, targetCategoryRelPath));
+  handle('fs:moveEntry', (_e, relPath, targetCategoryRelPath) => {
+    const projectPath = requireProjectPath();
+    const result = nfs.moveEntry(projectPath, relPath, targetCategoryRelPath);
+    syncConfigOnPathMutation(projectPath, relPath, result.relPath);
+    return result;
+  });
 
-  handle('fs:deleteEntry', (_e, relPath) =>
-    nfs.deleteEntry(requireProjectPath(), relPath));
+  handle('fs:deleteEntry', (_e, relPath) => {
+    const projectPath = requireProjectPath();
+    const result = nfs.deleteEntry(projectPath, relPath);
+    syncConfigOnPathDeletion(projectPath, relPath);
+    return result;
+  });
 
   handle('fs:listTrash', () => nfs.listTrash(requireProjectPath()));
 

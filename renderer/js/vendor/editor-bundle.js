@@ -50354,7 +50354,7 @@ function wikiLinkCompletionSource(getNoteIndex) {
     if (!match) return null;
     const query = match.text.slice(2).toLowerCase();
     const notes = typeof getNoteIndex === "function" ? getNoteIndex() : [];
-    const options = notes.filter((n) => n.title.toLowerCase().includes(query)).slice(0, 40).map((n) => ({ label: n.title, apply: applyWikiLinkCompletion, type: "text", detail: "Notiz" }));
+    const options = notes.filter((n) => String(n?.title || "").toLowerCase().includes(query)).slice(0, 40).map((n) => ({ label: String(n?.title || ""), apply: applyWikiLinkCompletion, type: "text", detail: "Notiz" }));
     return { from: match.from + 2, options, validFor: /^[^\]\n]*$/ };
   };
 }
@@ -50741,7 +50741,7 @@ function renderWikiLinksToPlaceholders(text3, noteIndex, placeholderPrefix) {
   const out = text3.replace(/\[\[([^\]\n|]+?)(?:\|([^\]\n]+?))?\]\]/g, (_2, rawTarget, rawDisplay) => {
     const target = rawTarget.trim();
     const display = (rawDisplay || rawTarget).trim();
-    const match = (noteIndex || []).find((n) => n.title.toLowerCase() === target.toLowerCase());
+    const match = (noteIndex || []).find((n) => String(n?.title || "").toLowerCase() === target.toLowerCase());
     if (match) {
       return stash({ target, display, relPath: match.relPath });
     }

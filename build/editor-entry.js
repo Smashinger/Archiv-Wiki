@@ -229,9 +229,9 @@ export function wikiLinkCompletionSource(getNoteIndex) {
     const query = match.text.slice(2).toLowerCase();
     const notes = typeof getNoteIndex === 'function' ? getNoteIndex() : [];
     const options = notes
-      .filter(n => n.title.toLowerCase().includes(query))
+      .filter(n => String(n?.title || '').toLowerCase().includes(query))
       .slice(0, 40)
-      .map(n => ({ label: n.title, apply: applyWikiLinkCompletion, type: 'text', detail: 'Notiz' }));
+      .map(n => ({ label: String(n?.title || ''), apply: applyWikiLinkCompletion, type: 'text', detail: 'Notiz' }));
     return { from: match.from + 2, options, validFor: /^[^\]\n]*$/ };
   };
 }
@@ -699,7 +699,7 @@ function renderWikiLinksToPlaceholders(text, noteIndex, placeholderPrefix) {
   const out = text.replace(/\[\[([^\]\n|]+?)(?:\|([^\]\n]+?))?\]\]/g, (_, rawTarget, rawDisplay) => {
     const target = rawTarget.trim();
     const display = (rawDisplay || rawTarget).trim();
-    const match = (noteIndex || []).find(n => n.title.toLowerCase() === target.toLowerCase());
+    const match = (noteIndex || []).find(n => String(n?.title || '').toLowerCase() === target.toLowerCase());
     if (match) {
       return stash({ target, display, relPath: match.relPath });
     }

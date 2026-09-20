@@ -3466,8 +3466,16 @@ async function performDelete(relPath, type) {
   const openRelPath = getOpenRelPath();
   const affectsOpenNote = openRelPath && (type === 'note' ? openRelPath === relPath : (openRelPath === relPath || openRelPath.startsWith(relPath + '/')));
   if (affectsOpenNote) { closeEditor(); void navigateAfterEntryMutation('#home'); }
-  await fs.deleteEntry(relPath);
-  await refreshAll();
+  try {
+    await fs.deleteEntry(relPath);
+    await refreshAll();
+  } catch (error) {
+    await showMessageDialog({
+      title: noun + ' konnte nicht gelöscht werden',
+      message: error?.message || 'Der Eintrag konnte nicht in den Papierkorb verschoben werden.'
+    });
+    if (affectsOpenNote) await refreshAll();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -3539,12 +3547,19 @@ async function moveNoteToOtherCategoryFlow(relPath) {
 // tatsächlich ein Dialog gezeigt. Kategorien sind nicht betroffen, weil Links
 // nur Notiztitel adressieren.
 async function confirmRenameDespiteLinks(relPath, oldTitle, newTitle) {
-  if (!renameBreaksTitleLinks(oldTitle, newTitle)) return { proceed: true, prompted: false };
   let docs;
   try { docs = await fs.getSearchDocuments(); }
   catch { return { proceed: true, prompted: false }; } // Ohne Daten keine Warnung.
-  const ownTitle = docs.find(doc => doc.relPath === relPath)?.title || oldTitle;
-  const linking = findNotesLinkingToTitle(docs, relPath, ownTitle);
+  const docTitle = docs.find(doc => doc.relPath === relPath)?.title;
+  const ownTitle = String(docTitle || oldTitle || '').replace(/\.md$/i, '');
+  const cleanOldTitle = String(oldTitle || '').replace(/\.md$/i, '');
+  if (!renameBreaksTitleLinks(ownTitle, newTitle) && !renameBreaksTitleLinks(cleanOldTitle, newTitle)) {
+    return { proceed: true, prompted: false };
+  }
+  const linking = [...new Map([
+    ...findNotesLinkingToTitle(docs, relPath, ownTitle),
+    ...findNotesLinkingToTitle(docs, relPath, cleanOldTitle)
+  ].map(doc => [doc.relPath, doc])).values()];
   if (linking.length === 0) return { proceed: true, prompted: false };
   const shown = linking.slice(0, 5).map(doc => `„${doc.title}“`).join(', ');
   const more = linking.length > 5 ? ` und ${countLabel(linking.length - 5, 'weitere', 'weitere')}` : '';
@@ -3943,7 +3958,7 @@ async function promptForUniqueNoteTitle(defaultValue) {
     if (!title) return null;
     const normalized = title.trim().toLocaleLowerCase('de');
     const existing = fs.flattenNotes(state.tree).find((note) => {
-      const noteTitle = note.frontmatter?.title || note.name.replace(/\.md$/, '');
+      const noteTitle = String(note.frontmatter?.title || note.name.replace(/\.md$/, ''));
       return noteTitle.trim().toLocaleLowerCase('de') === normalized;
     });
     if (!existing) return title;
@@ -5124,64 +5139,58 @@ function mutateEntryPath(options) {
 // Aufruf. Liefert er false, gilt die Route als nicht verlassbar und es
 // geschieht nichts. Ohne guard (alle bisherigen Aufrufer) bleibt das Verhalten
 // unverändert.
+let activeLeavePromise = null;
+
 async function canLeaveCurrentRoute({ guard = null } = {}) {
   if (entryPathMutationPromise) await entryPathMutationPromise;
-  if (guard && !guard()) return false;
-  const renderedSlug = slugFromHash(renderedHash);
-  if (renderedSlug.startsWith('incoming-draft/')) {
-    const incomingId = renderedSlug.slice('incoming-draft/'.length);
-    const draft = state.incomingNoteDraft;
-    if (draft?.incomingId === incomingId && draft.hasUnsavedChanges) {
-      // R1-Ergänzung: state.incomingNoteDraft bleibt bei einem Neuaufbau
-      // DERSELBEN Route (renderIncomingNoteDraft() über refreshAll(), reuse-
-      // Zweig) dieselbe Objektreferenz — openNoteDraftInEditor() montiert dabei
-      // trotzdem eine neue Editor-Instanz. Die reine Referenzprüfung unten
-      // erkennt diesen Fall nicht. editorGeneration erhöht sich dagegen bei
-      // jedem closeEditor()-Aufruf, also auch bei diesem Neuaufbau — hier vor
-      // dem Dialog festgehalten und danach erneut verglichen.
-      const generationAtDialog = getEditorGeneration();
-      const discard = await showConfirmDialog({
-        title: 'Bearbeiteten Eingangsentwurf verlassen?',
-        message: 'Die Änderungen an diesem noch nicht gespeicherten Entwurf werden verworfen.',
-        confirmLabel: 'Entwurf verwerfen',
-        cancelLabel: 'Hier bleiben',
-        danger: true
-      });
-      if (!discard) return false;
-      // R1: Der Dialog ist ein Wartepunkt. state.incomingNoteDraft wird bei
-      // jedem Neuaufbau des EntwurfsOBJEKTS vollständig ersetzt und beim
-      // Speichern/Verwerfen auf null gesetzt (nie in derselben Objektreferenz
-      // mutiert) — Referenzgleichheit mit der vor dem Dialog festgehaltenen
-      // draft-Variable ist damit ein bereits vorhandenes, hier nur genutztes
-      // Identitätsmerkmal. Ohne diese Prüfung hätte eine veraltete Zustimmung
-      // einen inzwischen neu aufgebauten Entwurf mit derselben incomingId
-      // geschlossen und verworfen, oder einen bereits gespeicherten/geleerten
-      // Entwurf nachträglich auf null gesetzt.
-      if (state.incomingNoteDraft !== draft) return false;
-      // Zusätzlich: dieselbe Referenz, aber inzwischen neu montierte Editor-
-      // Instanz (siehe Kommentar oben bei generationAtDialog). Ohne diese
-      // zweite Prüfung schlösse closeEditor() gleich darauf eine Instanz, über
-      // die nie entschieden wurde.
-      if (getEditorGeneration() !== generationAtDialog) return false;
-    }
-    if (draft?.incomingId === incomingId) {
-      closeEditor();
-      state.incomingNoteDraft = null;
-    }
-    return true;
+  if (activeLeavePromise) {
+    const previousResult = await activeLeavePromise;
+    if (!previousResult) return false;
+    if (guard && !guard()) return false;
+    if (!getOpenRelPath() || !isDirty()) return true;
   }
 
-  if (!getOpenRelPath() || !isDirty()) return true;
-  if (await saveUntilClean(currentOnSaved, currentOnSaveError)) return true;
-  // Das Speichern ist der zweite Wartepunkt vor einer Nebenwirkung.
-  // saveUntilClean() liefert false nicht nur bei einem Schreibfehler, sondern
-  // auch, wenn zwischenzeitlich eine andere Notiz oder eine neue Editor-
-  // Instanz übernommen hat (editor.js: Generations-/Pfadvergleich). Ohne diese
-  // erneute Prüfung ermittelte resolveUnsavableOpenNote() gleich darauf die
-  // DANN offene Notiz und stellte für sie den Verwerfen-Dialog — für einen
-  // gebundenen Auftrag ein fremder Arbeitsbereich.
-  if (guard && !guard()) return false;
-  return resolveUnsavableOpenNote(guard);
+  const runLeave = async () => {
+    if (guard && !guard()) return false;
+    const renderedSlug = slugFromHash(renderedHash);
+    if (renderedSlug.startsWith('incoming-draft/')) {
+      const incomingId = renderedSlug.slice('incoming-draft/'.length);
+      const draft = state.incomingNoteDraft;
+      if (draft?.incomingId === incomingId && draft.hasUnsavedChanges) {
+        const generationAtDialog = getEditorGeneration();
+        const discard = await showConfirmDialog({
+          title: 'Bearbeiteten Eingangsentwurf verlassen?',
+          message: 'Die Änderungen an diesem noch nicht gespeicherten Entwurf werden verworfen.',
+          confirmLabel: 'Entwurf verwerfen',
+          cancelLabel: 'Hier bleiben',
+          danger: true
+        });
+        if (!discard) return false;
+        if (state.incomingNoteDraft !== draft) return false;
+        if (getEditorGeneration() !== generationAtDialog) return false;
+      }
+      if (draft?.incomingId === incomingId) {
+        closeEditor();
+        state.incomingNoteDraft = null;
+      }
+      return true;
+    }
+
+    if (!getOpenRelPath() || !isDirty()) return true;
+    if (await saveUntilClean(currentOnSaved, currentOnSaveError)) return true;
+    if (guard && !guard()) return false;
+    return resolveUnsavableOpenNote(guard);
+  };
+
+  const currentPromise = runLeave();
+  activeLeavePromise = currentPromise;
+  try {
+    return await currentPromise;
+  } finally {
+    if (activeLeavePromise === currentPromise) {
+      activeLeavePromise = null;
+    }
+  }
 }
 
 // Scheitert das Speichern beim Verlassen (Konflikt, Schreibfehler), blieb die
@@ -7916,7 +7925,11 @@ async function renderNote(relPath) {
 
   titleInput.addEventListener('blur', async (event) => {
     const newTitle = titleInput.value.trim();
-    if (!newTitle || newTitle === title) return;
+    if (!newTitle) {
+      titleInput.value = title;
+      return;
+    }
+    if (newTitle === title) return;
     // Warnung vor defekten Links (siehe confirmRenameDespiteLinks). Der
     // Dialog nimmt den Fokus; bei "Abbrechen" bleibt der alte Titel stehen.
     // Nur wenn tatsächlich gewarnt wurde, entfällt der Eingabepuffer (der
@@ -10485,11 +10498,8 @@ function buildKnowledgeCareRowDesign2({ icon, title, excerpt, meta, ariaLabel, r
 // ---------------------------------------------------------------------------
 async function renderArchive() {
   setBreadcrumb('Archiv');
-  els.homeLink.classList.remove('active');
-  els.incomingLink.classList.remove('active');
+  setActiveNav(null);
   els.archiveLink.classList.add('active');
-  els.knowledgeCareLink.classList.remove('active');
-  els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.remove('active'));
 
   const archivedNotes = selectArchivedNotes(fs.flattenNotes(state.tree));
 
@@ -10549,11 +10559,8 @@ async function renderArchive() {
 // ---------------------------------------------------------------------------
 async function renderArchiveDesign2() {
   setBreadcrumb('Archiv');
-  els.homeLink.classList.remove('active');
-  els.incomingLink.classList.remove('active');
+  setActiveNav(null);
   els.archiveLink.classList.add('active');
-  els.knowledgeCareLink.classList.remove('active');
-  els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.remove('active'));
 
   const archivedNotes = selectArchivedNotes(fs.flattenNotes(state.tree));
 
@@ -10779,11 +10786,7 @@ async function runTagBatchOperation(operation, { confirmTitle, confirmMessage, c
 // --- Tags: Übersicht aller vergebenen Schlagwörter, anklickbar zum Filtern ---
 async function renderTagsOverview(activeTag) {
   setBreadcrumb(activeTag ? `Tags / ${activeTag}` : 'Tags');
-  els.homeLink.classList.remove('active');
-  els.incomingLink.classList.remove('active');
-  els.archiveLink.classList.remove('active');
-  els.knowledgeCareLink.classList.remove('active');
-  els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.remove('active'));
+  setActiveNav(null);
 
   // D4 / Block 1 (zentrale Tag-Verwaltung): bewusst ALLE Notizen inkl.
   // archivierter — anders als Dashboard/Sidebar/normale Suche, die archivierte
@@ -10926,11 +10929,7 @@ async function renderTagsOverview(activeTag) {
 // ---------------------------------------------------------------------------
 async function renderTagsOverviewDesign2(activeTag) {
   setBreadcrumb(activeTag ? `Tags / ${activeTag}` : 'Tags');
-  els.homeLink.classList.remove('active');
-  els.incomingLink.classList.remove('active');
-  els.archiveLink.classList.remove('active');
-  els.knowledgeCareLink.classList.remove('active');
-  els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.remove('active'));
+  setActiveNav(null);
 
   const notes = fs.flattenNotes(state.tree);
   const tagCloud = buildTagCloudViewModel(notes);
@@ -11064,11 +11063,7 @@ function buildTagRowDesign2(entry, dateLabel) {
 // --- Statistik-Seite: ausführlicher als das kleine Dashboard-Widget ---
 async function renderStatsPage() {
   setBreadcrumb('Statistik');
-  els.homeLink.classList.remove('active');
-  els.incomingLink.classList.remove('active');
-  els.archiveLink.classList.remove('active');
-  els.knowledgeCareLink.classList.remove('active');
-  els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.remove('active'));
+  setActiveNav(null);
 
   // Baumbezogene Rohdaten bewusst VOR dem await erfassen (unverändert zum
   // bisherigen Ablauf), die eigentliche Berechnung übernimmt anschließend die
@@ -11133,11 +11128,7 @@ async function renderStatsPage() {
 // ---------------------------------------------------------------------------
 async function renderStatsPageDesign2() {
   setBreadcrumb('Statistik');
-  els.homeLink.classList.remove('active');
-  els.incomingLink.classList.remove('active');
-  els.archiveLink.classList.remove('active');
-  els.knowledgeCareLink.classList.remove('active');
-  els.navTree.querySelectorAll('.nav-link[data-relpath]').forEach(a => a.classList.remove('active'));
+  setActiveNav(null);
 
   const notes = fs.flattenNotes(state.tree);
   const mainCategoryCount = collectMainCategories(state.tree).length;

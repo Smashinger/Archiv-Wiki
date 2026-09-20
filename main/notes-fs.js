@@ -176,7 +176,7 @@ function getSearchDocuments(projectPath) {
 
           docs.push({
             relPath: entryRelPath,
-            title: frontmatter.title || entry.name,
+            title: frontmatter.title || entry.name.replace(/\.md$/i, ''),
             body,
             tags: frontmatter.tags || [],
             icon: frontmatter.icon || '',
