@@ -62,3 +62,12 @@ test('Phase 2: gebautes Editor-Bundle enthält die neue Sanitizer- und Token-Pol
   assert.match(bundle, /"summary"/);
   assert.match(bundle, /"open"/);
 });
+
+test('Phase 2: Vorschau behält den Zustand geöffneter details-Faltbereiche bei Re-Rendern bei', () => {
+  const editorSource = read('renderer/js/editor.js');
+  assert.ok(editorSource.includes('previewContainer.querySelectorAll(\'details\')'), 'editor.js muss details-Elemente vor Re-Render erfassen');
+  assert.ok(editorSource.includes('target.open = item.open'), 'editor.js muss den open-Zustand nach Re-Render wiederherstellen');
+
+  const appSource = read('renderer/js/app.js');
+  assert.ok(appSource.includes('e.stopPropagation();'), 'Checkbox-Klick muss stopPropagation aufrufen');
+});

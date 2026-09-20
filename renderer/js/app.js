@@ -7694,6 +7694,7 @@ async function renderNote(relPath) {
   previewEl.addEventListener('click', async (e) => {
     const checkbox = e.target.closest('input[type="checkbox"][data-task-index]');
     if (checkbox) {
+      e.stopPropagation();
       // Der Browser hat den Haken-Zustand zu diesem Zeitpunkt bereits nativ
       // umgeschaltet (checkbox.checked ist schon der NEUE Wert) — wir müssen
       // nur noch die entsprechende Zeile in der Markdown-Quelle nachziehen.

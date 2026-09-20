@@ -166,9 +166,53 @@ function mountEditorDocument({
   dirty = false;
   contentRevision = 0;
 
+  let initialRender = true;
+
   function updatePreview(text) {
     if (previewContainer) {
+      // Zustand interaktiv auf- oder zugeklappter <details>-Bereiche merken,
+      // damit z. B. beim Abhaken von Checklisten oder beim Tippen im Editor
+      // geöffnete Faltbereiche in der Vorschau nicht ungewollt zuschnappen.
+      const detailsStates = [];
+      if (!initialRender) {
+        const currentDetails = previewContainer.querySelectorAll('details');
+        for (let i = 0; i < currentDetails.length; i++) {
+          const d = currentDetails[i];
+          detailsStates.push({
+            index: i,
+            summary: d.querySelector('summary')?.textContent?.trim() || '',
+            open: d.open
+          });
+        }
+      }
+
       previewContainer.innerHTML = renderPreview(text, { noteIndex: getNoteIndex?.() || [], projectPath: currentProjectPath });
+
+      if (detailsStates.length > 0) {
+        const nextDetails = previewContainer.querySelectorAll('details');
+        const matched = new Set();
+        for (const item of detailsStates) {
+          let target = null;
+          if (item.summary) {
+            for (let j = 0; j < nextDetails.length; j++) {
+              if (!matched.has(j) && nextDetails[j].querySelector('summary')?.textContent?.trim() === item.summary) {
+                target = nextDetails[j];
+                matched.add(j);
+                break;
+              }
+            }
+          }
+          if (!target && item.index < nextDetails.length && !matched.has(item.index)) {
+            target = nextDetails[item.index];
+            matched.add(item.index);
+          }
+          if (target) {
+            target.open = item.open;
+          }
+        }
+      }
+
+      initialRender = false;
       onPreviewRendered?.(previewContainer, text);
       applyPreviewSearchHighlights();
     }
