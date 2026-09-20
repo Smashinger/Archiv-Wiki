@@ -60,6 +60,7 @@ test('KI-Chat UI 2: index.html enthält alle erforderlichen UI-Elemente und Styl
   assert.ok(indexHtml.includes('data-mode="safe"'), 'Safe-Button existiert');
   assert.ok(indexHtml.includes('data-mode="auto"'), 'Auto-Button existiert');
   assert.ok(indexHtml.includes('data-mode="plan"'), 'Plan-Button existiert');
+  assert.ok(indexHtml.includes('ai-suggestion-chip'), 'Suggestion-Chips existieren im Empty-State');
 });
 
 test('KI-Chat UI 3: ai-chat.css definiert alle relevanten Zustände und Animationen', () => {
@@ -86,6 +87,8 @@ test('KI-Chat UI 3: ai-chat.css definiert alle relevanten Zustände und Animatio
   assert.ok(chatCss.includes('.ai-proposal-card.is-danger-proposal{'), 'Gefahrenkarten-Klasse existiert');
   assert.ok(chatCss.includes('.ai-proposal-apply-btn.is-danger{'), 'Gefahren-Button-Klasse existiert');
   assert.ok(chatCss.includes('.ai-proposal-badge-danger{'), 'Papierkorb-Erfolgsbadge existiert');
+  assert.ok(chatCss.includes('.ai-suggestion-chip{'), 'Suggestion-Chip-Klasse existiert');
+  assert.ok(chatCss.includes('.kc-ai-btn{'), 'Wissenspflege-AI-Button-Klasse existiert');
 });
 
 test('KI-Chat UI 4: preload.js exponiert die vollständige KI-Schnittstelle ohne Leaks', () => {
@@ -118,12 +121,14 @@ test('KI-Chat UI 4: preload.js exponiert die vollständige KI-Schnittstelle ohne
   assert.ok(!preloadSource.includes('ipcRenderer.invoke(channel'), 'Kein unvalidierter generischer IPC in preload.js');
 });
 
-test('KI-Chat UI 5: app.js initialisiert initAiChat beim Start', () => {
+test('KI-Chat UI 5: app.js initialisiert initAiChat beim Start und bindet triggerAiPrompt ein', () => {
   const appJsSource = fs.readFileSync(path.join(__dirname, '../renderer/js/app.js'), 'utf8');
 
-  assert.ok(appJsSource.includes("import { initAiChat } from './ai-chat.js';"), 'initAiChat wird importiert');
+  assert.ok(appJsSource.includes('initAiChat'), 'initAiChat wird importiert');
+  assert.ok(appJsSource.includes('triggerAiPrompt'), 'triggerAiPrompt wird importiert');
   assert.ok(appJsSource.includes('initAiChat('), 'initAiChat(...) wird beim Anwendungsstart aufgerufen');
   assert.ok(appJsSource.includes('onProposalApplied:'), 'onProposalApplied wird an initAiChat übergeben');
+  assert.ok(appJsSource.includes('kcAiAnalyzeBtn'), 'Wissenspflege-Button kcAiAnalyzeBtn ist verdrahtet');
 });
 
 test('KI-Chat UI 6: formatToolLabel formatiert Werkzeug-Aufrufe mit passendem Icon und Parametern', async () => {
@@ -145,6 +150,10 @@ test('KI-Chat UI 6: formatToolLabel formatiert Werkzeug-Aufrufe mit passendem Ic
   assert.equal(formatToolLabel('propose_move_note', { relPath: 'A/B/C.md' }), '📦 Notiz verschieben „A/B/C.md“ …');
   assert.equal(formatToolLabel('propose_rename_note', { newTitle: 'Neuer Titel' }), '🏷️ Notiz umbenennen „Neuer Titel“ …');
   assert.equal(formatToolLabel('propose_delete_note', { relPath: 'A/B/C.md' }), '🗑️ Notiz löschen (Papierkorb) „A/B/C.md“ …');
+
+  assert.equal(formatToolLabel('audit_knowledge_base', {}), '🩺 Wissenspflege-Prüfung …');
+  assert.equal(formatToolLabel('find_duplicate_notes', { query: 'Docker' }), '👥 Duplikatsuche „Docker“ …');
+  assert.equal(formatToolLabel('find_duplicate_notes', {}), '👥 Duplikatsuche …');
 
   assert.equal(formatToolLabel('unknown_tool', {}), '⚙️ unknown_tool …');
 });
@@ -320,6 +329,31 @@ test('KI-Chat UI 9: renderProposalCard rendert Gefahrenkarte für delete und Erf
     global.window = prevWindow;
   }
 });
+
+test('KI-Chat UI 10: triggerAiPrompt versendet archiv:ai-prompt CustomEvent', async () => {
+  const { triggerAiPrompt } = await import('../renderer/js/ai-chat.js');
+
+  assert.equal(typeof triggerAiPrompt, 'function');
+
+  let dispatchedEvent = null;
+  const prevWindow = global.window;
+  global.window = {
+    dispatchEvent: (evt) => {
+      dispatchedEvent = evt;
+    }
+  };
+
+  try {
+    triggerAiPrompt('Wissenspflege starten', { autoSend: true });
+    assert.ok(dispatchedEvent);
+    assert.equal(dispatchedEvent.type, 'archiv:ai-prompt');
+    assert.equal(dispatchedEvent.detail?.prompt, 'Wissenspflege starten');
+    assert.equal(dispatchedEvent.detail?.autoSend, true);
+  } finally {
+    global.window = prevWindow;
+  }
+});
+
 
 
 

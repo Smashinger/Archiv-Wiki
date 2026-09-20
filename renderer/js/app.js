@@ -41,7 +41,7 @@ import { resolveUiDesign, applyUiDesign } from './ui-design.js';
 import { setupToolbarOverflow } from './toolbar-overflow.js';
 import { countLabel, pluralWord } from './count-label.js';
 import { findNotesLinkingToTitle, renameBreaksTitleLinks } from './wikilink-refs.js';
-import { initAiChat } from './ai-chat.js';
+import { initAiChat, triggerAiPrompt } from './ai-chat.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -10133,6 +10133,9 @@ async function renderKnowledgeCare() {
   els.contentScroll.innerHTML = `
     <h1 class="home-heading">Wissenspflege</h1>
     <p class="home-sub">Prüfe dein Wiki auf mögliche Verbesserungen.</p>
+    <div class="kc-ai-action-bar">
+      <button type="button" class="kc-ai-btn" id="kcAiAnalyzeBtn">🤖 Mit KI analysieren & beheben</button>
+    </div>
     <div class="dashboard-section" id="knowledgeLinksSection" aria-label="Verknüpfungen">
       <div class="dashboard-section-header">Verknüpfungen</div>
       <div class="empty-state">Wikilinks werden geprüft …</div>
@@ -10145,6 +10148,10 @@ async function renderKnowledgeCare() {
       <div class="dashboard-section-header">Inhalte</div>
       <div class="empty-state">Inhalte werden geprüft …</div>
     </div>`;
+
+  document.getElementById('kcAiAnalyzeBtn')?.addEventListener('click', () => {
+    triggerAiPrompt('Führe eine Wissenspflege-Prüfung meines Wikis durch und schlage mir konkrete Optimierungen vor.', { autoSend: true });
+  });
 
   try {
     const notes = fs.flattenNotes(state.tree);
@@ -10337,6 +10344,9 @@ async function renderKnowledgeCareDesign2() {
     <div class="knowledge-care-view-d2">
       <h1 class="home-heading">Wissenspflege</h1>
       <p class="home-sub">Prüfe dein Wiki auf mögliche Verbesserungen.</p>
+      <div class="kc-ai-action-bar">
+        <button type="button" class="kc-ai-btn" id="kcAiAnalyzeBtnD2">🤖 Mit KI analysieren & beheben</button>
+      </div>
       <div class="d2-kc-section" id="knowledgeLinksSectionD2" aria-label="Verknüpfungen">
         <div class="d2-kc-section-header"><span>Verknüpfungen</span><span class="d2-kc-section-rule"></span></div>
         <div class="empty-state">Wikilinks werden geprüft …</div>
@@ -10350,6 +10360,10 @@ async function renderKnowledgeCareDesign2() {
         <div class="empty-state">Inhalte werden geprüft …</div>
       </div>
     </div>`;
+
+  document.getElementById('kcAiAnalyzeBtnD2')?.addEventListener('click', () => {
+    triggerAiPrompt('Führe eine Wissenspflege-Prüfung meines Wikis durch und schlage mir konkrete Optimierungen vor.', { autoSend: true });
+  });
 
   try {
     const notes = fs.flattenNotes(state.tree);

@@ -60,6 +60,13 @@ export function formatToolLabel(tool, args) {
     const target = args?.relPath ? ` „${args.relPath}“` : '';
     return `🗑️ Notiz löschen (Papierkorb)${target} …`;
   }
+  if (tool === 'audit_knowledge_base') {
+    return '🩺 Wissenspflege-Prüfung …';
+  }
+  if (tool === 'find_duplicate_notes') {
+    const q = args?.query ? ` „${args.query}“` : '';
+    return `👥 Duplikatsuche${q} …`;
+  }
   return `⚙️ ${tool || 'Werkzeug'} …`;
 }
 
@@ -704,6 +711,33 @@ export function initAiChat({ onProposalApplied } = {}) {
     });
   }
 
+  const handleSuggestionClick = (event) => {
+    const chip = event.target.closest('.ai-suggestion-chip');
+    if (!chip) return;
+    const promptText = chip.dataset.prompt;
+    if (promptText) {
+      input.value = promptText;
+      resizeInput();
+      sendMessage();
+    }
+  };
+
+  const handleExternalPrompt = (event) => {
+    const promptText = event?.detail?.prompt;
+    if (!promptText) return;
+    setOpen(true);
+    input.value = promptText;
+    resizeInput();
+    if (event?.detail?.autoSend) {
+      sendMessage();
+    } else {
+      input.focus();
+    }
+  };
+
+  messagesContainer.addEventListener('click', handleSuggestionClick);
+  window.addEventListener('archiv:ai-prompt', handleExternalPrompt);
+
   window.addEventListener('resize', handleWindowResize);
   window.addEventListener('focus', handleWindowFocus);
 
@@ -717,6 +751,8 @@ export function initAiChat({ onProposalApplied } = {}) {
     resizeObserver?.disconnect();
     window.removeEventListener('resize', handleWindowResize);
     window.removeEventListener('focus', handleWindowFocus);
+    messagesContainer.removeEventListener('click', handleSuggestionClick);
+    window.removeEventListener('archiv:ai-prompt', handleExternalPrompt);
     removeChunkListener?.();
     removeToolCallListener?.();
     removeProposalListener?.();
@@ -729,4 +765,12 @@ export function initAiChat({ onProposalApplied } = {}) {
     input.removeEventListener('input', resizeInput);
     delete panel.dataset.initialized;
   };
+}
+
+export function triggerAiPrompt(prompt, { autoSend = true } = {}) {
+  try {
+    window.dispatchEvent(new CustomEvent('archiv:ai-prompt', { detail: { prompt, autoSend } }));
+  } catch (err) {
+    console.warn('triggerAiPrompt fehlgeschlagen:', err);
+  }
 }
