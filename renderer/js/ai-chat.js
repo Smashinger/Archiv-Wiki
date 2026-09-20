@@ -4,6 +4,24 @@ import { renderPreview } from './vendor/editor-bundle.js';
 import { showConfirmDialog } from './dialog.js';
 
 const INPUT_MAX_HEIGHT = 140;
+const STORAGE_KEY_BOUNDS = 'archiv-wiki:ai-chat-bounds';
+
+export function sanitizePanelBounds(bounds, { windowWidth = 1024, windowHeight = 768, minTop = 32 } = {}) {
+  const minWidth = 360;
+  const minHeight = 440;
+  const parsedWidth = Number(bounds?.width);
+  const parsedHeight = Number(bounds?.height);
+  const width = Math.min(Math.max(minWidth, windowWidth - 20), Number.isFinite(parsedWidth) ? Math.max(minWidth, parsedWidth) : 440);
+  const height = Math.min(Math.max(minHeight, windowHeight - minTop - 20), Number.isFinite(parsedHeight) ? Math.max(minHeight, parsedHeight) : 580);
+  const maxLeft = Math.max(0, windowWidth - width);
+  const maxTop = Math.max(minTop, windowHeight - height);
+
+  const parsedLeft = Number(bounds?.left);
+  const parsedTop = Number(bounds?.top);
+  const left = Math.min(maxLeft, Math.max(0, Number.isFinite(parsedLeft) ? parsedLeft : Math.max(0, maxLeft - 24)));
+  const top = Math.min(maxTop, Math.max(minTop, Number.isFinite(parsedTop) ? parsedTop : Math.max(minTop, maxTop - 36)));
+  return { left, top, width, height };
+}
 
 function generateMessageId() {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -261,12 +279,49 @@ export function initAiChat() {
     setGenerating(false);
   });
 
+  function saveBounds() {
+    try {
+      const bounds = {
+        left: panel.offsetLeft,
+        top: panel.offsetTop,
+        width: panel.offsetWidth,
+        height: panel.offsetHeight
+      };
+      localStorage.setItem(STORAGE_KEY_BOUNDS, JSON.stringify(bounds));
+    } catch {
+      // Storage-Fehler still ignorieren
+    }
+  }
+
+  function restoreBounds() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_BOUNDS);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const minTop = document.getElementById('appTitlebar')?.offsetHeight || 0;
+      const sanitized = sanitizePanelBounds(parsed, {
+        windowWidth: window.innerWidth,
+        windowHeight: window.innerHeight,
+        minTop
+      });
+      panel.style.width = `${sanitized.width}px`;
+      panel.style.height = `${sanitized.height}px`;
+      panel.style.left = `${sanitized.left}px`;
+      panel.style.top = `${sanitized.top}px`;
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+    } catch {
+      // Parsing-Fehler still ignorieren
+    }
+  }
+
   function setOpen(open) {
     panel.hidden = !open;
     openButton.classList.toggle('is-active', open);
     openButton.setAttribute('aria-pressed', String(open));
     openButton.setAttribute('aria-label', open ? 'KI-Assistent schließen' : 'KI-Assistent öffnen');
     if (open) {
+      restoreBounds();
       refreshModelsAndStatus();
       requestAnimationFrame(() => input.focus({ preventScroll: true }));
     }
@@ -312,6 +367,7 @@ export function initAiChat() {
     header.classList.remove('is-dragging');
     document.removeEventListener('mousemove', handleDragMove);
     document.removeEventListener('mouseup', stopDragging);
+    saveBounds();
   }
 
   function startDragging(event) {
@@ -330,6 +386,21 @@ export function initAiChat() {
     document.addEventListener('mouseup', stopDragging);
     event.preventDefault();
   }
+
+  const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+    if (!panel.hidden && !dragState) {
+      saveBounds();
+    }
+  }) : null;
+  resizeObserver?.observe(panel);
+
+  const handleWindowResize = () => {
+    if (!panel.hidden) restoreBounds();
+  };
+
+  const handleWindowFocus = () => {
+    refreshModelsAndStatus();
+  };
 
   openButton.addEventListener('click', togglePanel);
   closeButton.addEventListener('click', closePanel);
@@ -350,12 +421,19 @@ export function initAiChat() {
     }
   });
 
+  window.addEventListener('resize', handleWindowResize);
+  window.addEventListener('focus', handleWindowFocus);
+
+  restoreBounds();
   resizeInput();
   loadHistory();
   refreshModelsAndStatus();
 
   return () => {
     stopDragging();
+    resizeObserver?.disconnect();
+    window.removeEventListener('resize', handleWindowResize);
+    window.removeEventListener('focus', handleWindowFocus);
     removeChunkListener?.();
     removeEndListener?.();
     removeErrorListener?.();
