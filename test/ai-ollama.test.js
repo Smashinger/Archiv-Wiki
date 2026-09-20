@@ -448,3 +448,80 @@ test('KI 10: KI-IPC validiert Betriebsmodus und weist ungültige Modi fail-close
   assert.equal(receivedMode, 'auto');
 });
 
+test('KI 11: registerAiIpc registriert Proposal-Kanäle und leitet Vorschläge an den Renderer weiter', async () => {
+  const handlers = new Map();
+  const events = [];
+  const state = { aiSettings: { host: 'http://127.0.0.1:11434', enabled: true } };
+
+  const mockOllama = {
+    DEFAULT_HOST: 'http://127.0.0.1:11434',
+    normalizeHost: ollama.normalizeHost,
+    friendlyError: ollama.friendlyError,
+    streamChat: async ({ onToolResult, onChunk }) => {
+      onToolResult({
+        name: 'propose_create_note',
+        args: { title: 'Test' },
+        result: {
+          success: true,
+          data: {
+            proposalId: 'prop_test_123',
+            type: 'create',
+            title: 'Test',
+            relPath: 'Kategorie/Unterkategorie/Test.md',
+            requiresConfirmation: true
+          }
+        }
+      });
+      onChunk('Ich habe einen Vorschlag erstellt.');
+      return { done: true, fullText: 'Ich habe einen Vorschlag erstellt.', stats: {} };
+    }
+  };
+
+  registerAiIpc({
+    getCurrentProject: () => ({ path: '/tmp/test-wiki' }),
+    getMainWindow: () => ({
+      isDestroyed: () => false,
+      webContents: { send: (channel, payload) => events.push({ channel, payload }) }
+    }),
+    ipcMainApi: { handle: (channel, handler) => handlers.set(channel, handler) },
+    isTrustedSender: event => event?.trusted === true,
+    ollamaClient: mockOllama,
+    readState: () => state,
+    writeState: patch => Object.assign(state, patch)
+  });
+
+  const event = { trusted: true };
+
+  // Kanäle sind registriert
+  assert.ok(handlers.has('ai:getProposal'), 'ai:getProposal ist registriert');
+  assert.ok(handlers.has('ai:applyProposal'), 'ai:applyProposal ist registriert');
+  assert.ok(handlers.has('ai:rejectProposal'), 'ai:rejectProposal ist registriert');
+
+  // Ungültige Argumente abweisen
+  assert.throws(
+    () => handlers.get('ai:applyProposal')(event, { wrongKey: 'val' }),
+    err => err?.code === 'IPC_ARGUMENT_INVALID'
+  );
+
+  // Untrusted Sender abweisen
+  assert.throws(
+    () => handlers.get('ai:applyProposal')({ trusted: false }, { proposalId: 'prop_test_123' }),
+    err => err?.code === 'IPC_SENDER_INVALID'
+  );
+
+  // Vorschlags-Übermittlung via Stream-Event
+  await handlers.get('ai:sendMessage')(event, {
+    messageId: 'prop-msg-1',
+    text: 'Erstelle Notiz'
+  });
+
+  await waitFor(() => events.find(e => e.channel === 'ai:stream-end'));
+
+  const propEvent = events.find(e => e.channel === 'ai:stream-proposal');
+  assert.ok(propEvent, 'ai:stream-proposal Event muss an MainWindow gesendet werden');
+  assert.equal(propEvent.payload.messageId, 'prop-msg-1');
+  assert.equal(propEvent.payload.proposal.proposalId, 'prop_test_123');
+  assert.equal(propEvent.payload.proposal.type, 'create');
+});
+
+

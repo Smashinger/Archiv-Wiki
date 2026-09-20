@@ -88,6 +88,14 @@ contextBridge.exposeInMainWorld('archivAPI', {
       const listener = (_event, payload) => callback(payload);
       ipcRenderer.on('ai:stream-tool-call', listener);
       return () => ipcRenderer.removeListener('ai:stream-tool-call', listener);
+    },
+    getProposal: (proposalId) => ipcRenderer.invoke('ai:getProposal', { proposalId }),
+    applyProposal: (proposalId) => ipcRenderer.invoke('ai:applyProposal', { proposalId }),
+    rejectProposal: (proposalId) => ipcRenderer.invoke('ai:rejectProposal', { proposalId }),
+    onStreamProposal: (callback) => {
+      const listener = (_event, payload) => callback(payload);
+      ipcRenderer.on('ai:stream-proposal', listener);
+      return () => ipcRenderer.removeListener('ai:stream-proposal', listener);
     }
   },
   webClipper: {

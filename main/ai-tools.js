@@ -7,6 +7,7 @@
 
 const path = require('path');
 const notesFs = require('./notes-fs');
+const aiProposals = require('./ai-proposals');
 
 const AI_TOOLS_DEFINITIONS = [
   {
@@ -67,6 +68,70 @@ const AI_TOOLS_DEFINITIONS = [
             description: 'Maximale Anzahl zurückgegebener Notizen (Standard: 15, Maximum: 50).'
           }
         }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_create_note',
+      description: 'Schlägt das Erstellen einer neuen Notiz im Wiki vor. WICHTIG: Notizen können ausschließlich in einer Unterkategorie angelegt werden (z. B. "Hauptkategorie/Unterkategorie"). Erfordert eine explizite Bestätigung durch den Nutzer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          subCategoryRelPath: {
+            type: 'string',
+            description: 'Der relative Pfad der Unterkategorie (z. B. "Entwicklung/Workflows" oder "Erste Schritte/Grundlagen").'
+          },
+          title: {
+            type: 'string',
+            description: 'Der Titel der neuen Notiz.'
+          },
+          content: {
+            type: 'string',
+            description: 'Der vollständige Markdown-Textinhalt der neuen Notiz.'
+          },
+          tags: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optionale Liste von Schlagwörtern / Tags für die Notiz.'
+          },
+          reason: {
+            type: 'string',
+            description: 'Kurze Begründung für den Vorschlag (z. B. "Neue Dokumentation basierend auf Nutzeranfrage").'
+          }
+        },
+        required: ['subCategoryRelPath', 'title', 'content']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_update_note',
+      description: 'Schlägt eine Änderung oder Aktualisierung einer bestehenden Notiz vor. Gibt dem Nutzer eine Diff-Vorschau zur Freigabe. Erfordert eine explizite Bestätigung durch den Nutzer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          relPath: {
+            type: 'string',
+            description: 'Der relative Pfad der zu bearbeitenden Notiz (z. B. "Entwicklung/Workflows/Git und Release-Leitfaden.md").'
+          },
+          content: {
+            type: 'string',
+            description: 'Der vollständige neue Markdown-Inhalt der Notiz.'
+          },
+          tags: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optionale aktualisierte Schlagwörter / Tags.'
+          },
+          reason: {
+            type: 'string',
+            description: 'Kurze Erklärung der Änderungen für den Nutzer (z. B. "Schritt zur Checkliste hinzugefügt").'
+          }
+        },
+        required: ['relPath', 'content']
       }
     }
   }
@@ -221,6 +286,51 @@ async function executeAiTool(projectPath, name, args = {}) {
         return { success: true, data: readNote(projectPath, args) };
       case 'list_notes':
         return { success: true, data: listNotes(projectPath, args) };
+      case 'propose_create_note': {
+        const proposal = aiProposals.createProposal(projectPath, {
+          type: 'create',
+          subCategoryRelPath: args.subCategoryRelPath,
+          title: args.title,
+          content: args.content,
+          tags: args.tags,
+          reason: args.reason
+        });
+        return {
+          success: true,
+          data: {
+            proposalId: proposal.id,
+            type: proposal.type,
+            title: proposal.title,
+            relPath: proposal.relPath,
+            diff: proposal.diff,
+            reason: proposal.reason,
+            requiresConfirmation: true,
+            message: `Änderungsvorschlag für die neue Notiz „${proposal.title}“ wurde erstellt und wartet auf deine Freigabe.`
+          }
+        };
+      }
+      case 'propose_update_note': {
+        const proposal = aiProposals.createProposal(projectPath, {
+          type: 'update',
+          relPath: args.relPath,
+          content: args.content,
+          tags: args.tags,
+          reason: args.reason
+        });
+        return {
+          success: true,
+          data: {
+            proposalId: proposal.id,
+            type: proposal.type,
+            title: proposal.title,
+            relPath: proposal.relPath,
+            diff: proposal.diff,
+            reason: proposal.reason,
+            requiresConfirmation: true,
+            message: `Änderungsvorschlag für Notiz „${proposal.title}“ wurde erstellt und wartet auf deine Freigabe.`
+          }
+        };
+      }
       default:
         return { success: false, error: `Unbekanntes KI-Werkzeug: ${name}` };
     }

@@ -73,16 +73,18 @@ Dieser Inhalt ist archiviert.
   return wikiDir;
 }
 
-test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Read-Only Werkzeuge', () => {
+test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werkzeuge', () => {
   assert.ok(Array.isArray(AI_TOOLS_DEFINITIONS));
-  assert.equal(AI_TOOLS_DEFINITIONS.length, 3);
+  assert.equal(AI_TOOLS_DEFINITIONS.length, 5);
 
   const names = AI_TOOLS_DEFINITIONS.map(d => d.function?.name);
   assert.ok(names.includes('search_notes'), 'search_notes ist definiert');
   assert.ok(names.includes('read_note'), 'read_note ist definiert');
   assert.ok(names.includes('list_notes'), 'list_notes ist definiert');
+  assert.ok(names.includes('propose_create_note'), 'propose_create_note ist definiert');
+  assert.ok(names.includes('propose_update_note'), 'propose_update_note ist definiert');
 
-  // Keine Schreibwerkzeuge in Phase 3
+  // Keine direkten Schreibwerkzeuge (Human-in-the-Loop Zwang)
   assert.ok(!names.includes('write_note'), 'write_note darf nicht existieren');
   assert.ok(!names.includes('create_note'), 'create_note darf nicht existieren');
   assert.ok(!names.includes('delete_note'), 'delete_note darf nicht existieren');
@@ -165,3 +167,26 @@ test('KI-Tools 5: executeAiTool routet Aufrufe und fängt Fehler ab', async t =>
   const noProject = await executeAiTool(null, 'search_notes', { query: 'test' });
   assert.equal(noProject.success, false);
 });
+
+test('KI-Tools 6: executeAiTool routet propose_create_note und propose_update_note', async t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  const createRes = await executeAiTool(wikiDir, 'propose_create_note', {
+    subCategoryRelPath: 'Projekte/Archiv-Wiki',
+    title: 'Neues Modul',
+    content: '# Neues Modul\n\nBeschreibung',
+    tags: ['modul']
+  });
+  assert.equal(createRes.success, true);
+  assert.ok(createRes.data.proposalId);
+  assert.equal(createRes.data.requiresConfirmation, true);
+
+  const updateRes = await executeAiTool(wikiDir, 'propose_update_note', {
+    relPath: 'Projekte/Archiv-Wiki/Architektur.md',
+    content: '# Neue Architektur\n\nAktualisiert'
+  });
+  assert.equal(updateRes.success, true);
+  assert.ok(updateRes.data.proposalId);
+  assert.equal(updateRes.data.requiresConfirmation, true);
+});
+

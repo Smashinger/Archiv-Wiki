@@ -280,6 +280,7 @@ async function streamChat({
   tools = [],
   executeTool = null,
   onToolCall = () => {},
+  onToolResult = () => {},
   onChunk = () => {},
   idleTimeoutMs = CHAT_IDLE_TIMEOUT_MS
 }) {
@@ -367,6 +368,8 @@ async function streamChat({
       } catch (err) {
         toolResult = { error: err?.message || 'Fehler bei der Werkzeugausführung.' };
       }
+
+      onToolResult({ name: fnName, args: fnArgs, result: toolResult });
 
       messages.push({
         role: 'tool',

@@ -5,6 +5,7 @@ const appState = require('./app-state');
 const ollama = require('./ai-ollama');
 const { createAiHistory } = require('./ai-history');
 const { AI_TOOLS_DEFINITIONS, executeAiTool } = require('./ai-tools');
+const aiProposals = require('./ai-proposals');
 
 const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
@@ -117,6 +118,13 @@ function validateMessageIdArgument(args) {
   return args[0].messageId;
 }
 
+function validateProposalIdArgument(args) {
+  if (args.length !== 1) throw invalidArgument();
+  requireAllowedKeys(args[0], new Set(['proposalId']));
+  if (typeof args[0].proposalId !== 'string' || !/^[A-Za-z0-9._:-]{1,200}$/.test(args[0].proposalId)) throw invalidArgument('Ungültige Proposal-ID.');
+  return args[0].proposalId;
+}
+
 function registerAiIpc({
   getMainWindow,
   getCurrentProject,
@@ -188,6 +196,33 @@ function registerAiIpc({
     return { aborted: true };
   });
 
+  handle('ai:getProposal', validateProposalIdArgument, (_event, proposalId) => {
+    const proposal = aiProposals.getProposal(proposalId);
+    if (!proposal) return null;
+    return {
+      id: proposal.id,
+      type: proposal.type,
+      title: proposal.title,
+      relPath: proposal.relPath,
+      subCategoryRelPath: proposal.subCategoryRelPath,
+      diff: proposal.diff,
+      reason: proposal.reason,
+      tags: proposal.tags,
+      createdAt: proposal.createdAt
+    };
+  });
+
+  handle('ai:applyProposal', validateProposalIdArgument, (_event, proposalId) => {
+    const currentProject = typeof getCurrentProject === 'function' ? getCurrentProject() : null;
+    const projectPath = currentProject?.path || null;
+    if (!projectPath) throw invalidArgument('Kein geöffnetes Wiki-Projekt vorhanden.');
+    return aiProposals.applyProposal(proposalId, projectPath);
+  });
+
+  handle('ai:rejectProposal', validateProposalIdArgument, (_event, proposalId) => {
+    return aiProposals.rejectProposal(proposalId);
+  });
+
   handle('ai:sendMessage', validateSendRequest, (_event, request) => {
     if (activeRequests.has(request.messageId)) throw invalidArgument('Diese messageId wird bereits verwendet.');
     const settings = resolveSettings(readState);
@@ -242,6 +277,14 @@ function registerAiIpc({
               tool: toolCall.name,
               args: toolCall.args
             });
+          },
+          onToolResult: ({ name, args, result }) => {
+            if (result?.data?.proposalId) {
+              sendToMainWindow('ai:stream-proposal', {
+                messageId: request.messageId,
+                proposal: result.data
+              });
+            }
           },
           onChunk: queueChunk
         });
