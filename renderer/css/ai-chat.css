@@ -472,4 +472,28 @@
   font-size:11px;
   color:var(--danger, #ef4444);
 }
+.ai-proposal-card.is-danger-proposal{
+  border-left-color:var(--danger, #ef4444);
+  background:rgba(239, 68, 68, .04);
+}
+.ai-proposal-card.is-danger-proposal .ai-proposal-badge{
+  background:rgba(239, 68, 68, .15);
+  color:var(--danger, #ef4444);
+}
+.ai-proposal-apply-btn.is-danger{
+  background:var(--danger, #ef4444);
+  color:#fff;
+}
+.ai-proposal-apply-btn.is-danger:hover:not(:disabled){
+  filter:brightness(1.15);
+}
+.ai-proposal-badge-danger{
+  font-size:12px;
+  font-weight:600;
+  color:var(--danger, #ef4444);
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+}
+
 

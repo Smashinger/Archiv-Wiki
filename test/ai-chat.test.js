@@ -83,6 +83,9 @@ test('KI-Chat UI 3: ai-chat.css definiert alle relevanten Zustände und Animatio
   assert.ok(chatCss.includes('.ai-diff-line.is-remove{'), 'Diff-Remove-Klasse existiert');
   assert.ok(chatCss.includes('.ai-proposal-apply-btn{'), 'Apply-Button-Klasse existiert');
   assert.ok(chatCss.includes('.ai-proposal-reject-btn{'), 'Reject-Button-Klasse existiert');
+  assert.ok(chatCss.includes('.ai-proposal-card.is-danger-proposal{'), 'Gefahrenkarten-Klasse existiert');
+  assert.ok(chatCss.includes('.ai-proposal-apply-btn.is-danger{'), 'Gefahren-Button-Klasse existiert');
+  assert.ok(chatCss.includes('.ai-proposal-badge-danger{'), 'Papierkorb-Erfolgsbadge existiert');
 });
 
 test('KI-Chat UI 4: preload.js exponiert die vollständige KI-Schnittstelle ohne Leaks', () => {
@@ -137,6 +140,11 @@ test('KI-Chat UI 6: formatToolLabel formatiert Werkzeug-Aufrufe mit passendem Ic
 
   assert.equal(formatToolLabel('propose_create_note', { title: 'Neue Seite' }), '📝 Neuer Notizvorschlag „Neue Seite“ …');
   assert.equal(formatToolLabel('propose_update_note', { relPath: 'A/B/C.md' }), '✏️ Änderungsvorschlag „A/B/C.md“ …');
+
+  assert.equal(formatToolLabel('propose_create_category', { name: 'DevOps' }), '📁 Kategorie-Vorschlag „DevOps“ …');
+  assert.equal(formatToolLabel('propose_move_note', { relPath: 'A/B/C.md' }), '📦 Notiz verschieben „A/B/C.md“ …');
+  assert.equal(formatToolLabel('propose_rename_note', { newTitle: 'Neuer Titel' }), '🏷️ Notiz umbenennen „Neuer Titel“ …');
+  assert.equal(formatToolLabel('propose_delete_note', { relPath: 'A/B/C.md' }), '🗑️ Notiz löschen (Papierkorb) „A/B/C.md“ …');
 
   assert.equal(formatToolLabel('unknown_tool', {}), '⚙️ unknown_tool …');
 });
@@ -246,5 +254,72 @@ test('KI-Chat UI 8: renderProposalCard erzeugt Proposal-Karte und verdrahtet App
     global.window = prevWindow;
   }
 });
+
+test('KI-Chat UI 9: renderProposalCard rendert Gefahrenkarte für delete und Erfolgsbadges passend zum Typ', async () => {
+  const { renderProposalCard } = await import('../renderer/js/ai-chat.js');
+
+  function createMockElement(tag) {
+    const el = {
+      tagName: tag.toUpperCase(),
+      className: '',
+      innerHTML: '',
+      textContent: '',
+      dataset: {},
+      style: {},
+      children: [],
+      classList: {
+        _classes: new Set(),
+        add(c) { this._classes.add(c); },
+        remove(c) { this._classes.delete(c); },
+        contains(c) { return this._classes.has(c); }
+      },
+      appendChild(child) { el.children.push(child); return child; },
+      insertBefore(child) { el.children.unshift(child); return child; },
+      listeners: {},
+      addEventListener(type, handler) { el.listeners[type] = handler; },
+      click() { if (el.listeners.click) return el.listeners.click({ preventDefault: () => {} }); }
+    };
+    return el;
+  }
+
+  const prevDoc = global.document;
+  global.document = { createElement: createMockElement };
+
+  const prevWindow = global.window;
+  global.window = {
+    archivAPI: {
+      ai: {
+        applyProposal: async () => ({ success: true, action: 'deleted' })
+      }
+    }
+  };
+
+  try {
+    const delProposal = {
+      proposalId: 'prop_del',
+      type: 'delete',
+      title: 'Veraltete Notiz',
+      relPath: 'Kategorie/Unterkategorie/Veraltete Notiz.md',
+      reason: 'Wird gelöscht',
+      diff: [{ type: 'remove', line: '- Veraltete Notiz' }]
+    };
+
+    const card = renderProposalCard(delProposal);
+    assert.ok(card.classList.contains('is-danger-proposal'), 'Gefahrenkarte hat is-danger-proposal');
+
+    const actions = card.children.find(c => c.className === 'ai-proposal-actions');
+    const applyBtn = actions.children.find(c => c.className.includes('ai-proposal-apply-btn'));
+    assert.ok(applyBtn.className.includes('is-danger'), 'Lösch-Button hat is-danger');
+    assert.ok(applyBtn.textContent.includes('Papierkorb'), 'Lösch-Button erwähnt Papierkorb');
+
+    await applyBtn.click();
+    assert.ok(card.classList.contains('is-applied'));
+    assert.ok(actions.innerHTML.includes('ai-proposal-badge-danger'), 'Erfolgsbadge für Papierkorb ist gerendert');
+  } finally {
+    global.document = prevDoc;
+    global.window = prevWindow;
+  }
+});
+
 
 

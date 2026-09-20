@@ -44,6 +44,22 @@ export function formatToolLabel(tool, args) {
     const target = args?.relPath ? ` „${args.relPath}“` : '';
     return `✏️ Änderungsvorschlag${target} …`;
   }
+  if (tool === 'propose_create_category') {
+    const name = args?.name ? ` „${args.name}“` : '';
+    return `📁 Kategorie-Vorschlag${name} …`;
+  }
+  if (tool === 'propose_move_note') {
+    const target = args?.relPath ? ` „${args.relPath}“` : '';
+    return `📦 Notiz verschieben${target} …`;
+  }
+  if (tool === 'propose_rename_note') {
+    const title = args?.newTitle ? ` „${args.newTitle}“` : '';
+    return `🏷️ Notiz umbenennen${title} …`;
+  }
+  if (tool === 'propose_delete_note') {
+    const target = args?.relPath ? ` „${args.relPath}“` : '';
+    return `🗑️ Notiz löschen (Papierkorb)${target} …`;
+  }
   return `⚙️ ${tool || 'Werkzeug'} …`;
 }
 
@@ -73,10 +89,34 @@ export function renderProposalCard(proposal, { onApply, onReject } = {}) {
   const proposalId = proposal.proposalId || proposal.id;
   card.dataset.proposalId = proposalId;
 
-  const isCreate = proposal.type === 'create';
-  const badgeLabel = isCreate ? '📝 Neue Notiz' : '✏️ Notiz bearbeiten';
+  const type = proposal.type || 'create';
+  const isDelete = type === 'delete';
+  if (isDelete) {
+    card.classList.add('is-danger-proposal');
+  }
+
+  let badgeLabel = '📝 Neue Notiz';
+  let applyBtnText = '✓ Notiz erstellen';
+
+  if (type === 'update') {
+    badgeLabel = '✏️ Notiz bearbeiten';
+    applyBtnText = '✓ Änderung anwenden';
+  } else if (type === 'create_category') {
+    badgeLabel = '📁 Kategorie anlegen';
+    applyBtnText = '✓ Kategorie anlegen';
+  } else if (type === 'move') {
+    badgeLabel = '📦 Notiz verschieben';
+    applyBtnText = '✓ Notiz verschieben';
+  } else if (type === 'rename') {
+    badgeLabel = '🏷️ Notiz umbenennen';
+    applyBtnText = '✓ Notiz umbenennen';
+  } else if (type === 'delete') {
+    badgeLabel = '🗑️ In den Papierkorb verschieben';
+    applyBtnText = '🗑️ In den Papierkorb verschieben';
+  }
+
   const titleText = proposal.title || 'Notiz';
-  const targetPath = proposal.relPath || '';
+  const targetPath = proposal.relPath || proposal.sourceRelPath || '';
 
   const headerEl = document.createElement('div');
   headerEl.className = 'ai-proposal-header';
@@ -103,9 +143,9 @@ export function renderProposalCard(proposal, { onApply, onReject } = {}) {
   actionsEl.className = 'ai-proposal-actions';
 
   const applyBtn = document.createElement('button');
-  applyBtn.className = 'ai-proposal-apply-btn';
+  applyBtn.className = 'ai-proposal-apply-btn' + (isDelete ? ' is-danger' : '');
   applyBtn.type = 'button';
-  applyBtn.textContent = isCreate ? '✓ Notiz erstellen' : '✓ Änderung anwenden';
+  applyBtn.textContent = applyBtnText;
 
   const rejectBtn = document.createElement('button');
   rejectBtn.className = 'ai-proposal-reject-btn';
@@ -128,10 +168,21 @@ export function renderProposalCard(proposal, { onApply, onReject } = {}) {
       const res = await window.archivAPI.ai.applyProposal(proposalId);
       if (res?.success) {
         card.classList.add('is-applied');
-        actionsEl.innerHTML = `
-          <span class="ai-proposal-badge-success">✓ Übernommen</span>
-          <a class="ai-proposal-open-btn" href="#note/${encodeURIComponent(proposal.relPath || '')}">Notiz im Editor öffnen ↗</a>
-        `;
+        if (type === 'delete') {
+          actionsEl.innerHTML = `
+            <span class="ai-proposal-badge-danger">🗑️ In Papierkorb verschoben</span>
+          `;
+        } else if (type === 'create_category') {
+          actionsEl.innerHTML = `
+            <span class="ai-proposal-badge-success">✓ Kategorie angelegt</span>
+          `;
+        } else {
+          const finalRelPath = res.relPath || proposal.relPath || '';
+          actionsEl.innerHTML = `
+            <span class="ai-proposal-badge-success">✓ Übernommen</span>
+            <a class="ai-proposal-open-btn" href="#note/${encodeURIComponent(finalRelPath)}">Notiz im Editor öffnen ↗</a>
+          `;
+        }
         onApply?.(res);
       } else {
         applyBtn.disabled = false;

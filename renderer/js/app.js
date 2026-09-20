@@ -11653,8 +11653,15 @@ function resolveAccentForActiveDesign(config) {
   initAiChat({
     onProposalApplied: async (result) => {
       try {
+        if (result?.action === 'deleted') {
+          const openRelPath = getOpenRelPath();
+          if (openRelPath && (openRelPath === result.relPath || openRelPath.startsWith(result.relPath + '/'))) {
+            closeEditor();
+            void navigateAfterEntryMutation('#home');
+          }
+        }
         await refreshAll();
-        if (result?.relPath) {
+        if (result?.relPath && result.action !== 'deleted' && result.action !== 'created_category') {
           await navigateTo('#note/' + encodeURIComponent(result.relPath));
         }
       } catch (err) {
