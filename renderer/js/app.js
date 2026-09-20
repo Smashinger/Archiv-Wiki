@@ -11650,7 +11650,18 @@ function resolveAccentForActiveDesign(config) {
 }
 
 (async function init() {
-  initAiChat();
+  initAiChat({
+    onProposalApplied: async (result) => {
+      try {
+        await refreshAll();
+        if (result?.relPath) {
+          await navigateTo('#note/' + encodeURIComponent(result.relPath));
+        }
+      } catch (err) {
+        console.error('[Archiv Wiki] Aktualisierung nach KI-Vorschlag fehlgeschlagen:', err);
+      }
+    }
+  });
   state.project = await window.archivAPI.getCurrentProject();
   // Bewusst VOR waitForUnlock() (im Gegensatz zu Akzentfarbe/Sidebar-Größe/
   // Lesebreite weiter unten): ein falsches Theme wäre bei aktivem App-Lock

@@ -119,7 +119,8 @@ test('KI-Chat UI 5: app.js initialisiert initAiChat beim Start', () => {
   const appJsSource = fs.readFileSync(path.join(__dirname, '../renderer/js/app.js'), 'utf8');
 
   assert.ok(appJsSource.includes("import { initAiChat } from './ai-chat.js';"), 'initAiChat wird importiert');
-  assert.ok(appJsSource.includes('initAiChat();'), 'initAiChat() wird beim Anwendungsstart aufgerufen');
+  assert.ok(appJsSource.includes('initAiChat('), 'initAiChat(...) wird beim Anwendungsstart aufgerufen');
+  assert.ok(appJsSource.includes('onProposalApplied:'), 'onProposalApplied wird an initAiChat übergeben');
 });
 
 test('KI-Chat UI 6: formatToolLabel formatiert Werkzeug-Aufrufe mit passendem Icon und Parametern', async () => {

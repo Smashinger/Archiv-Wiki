@@ -167,7 +167,7 @@ function generateMessageId() {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function initAiChat() {
+export function initAiChat({ onProposalApplied } = {}) {
   const panel = document.getElementById('aiChatPanel');
   const openButton = document.getElementById('titlebarAiChatBtn');
   const closeButton = document.getElementById('aiChatCloseBtn');
@@ -420,7 +420,14 @@ export function initAiChat() {
       const proposalId = payload.proposal.proposalId || payload.proposal.id;
       const existing = targetBubble.querySelector(`[data-proposal-id="${proposalId}"]`);
       if (!existing) {
-        const card = renderProposalCard(payload.proposal);
+        const card = renderProposalCard(payload.proposal, {
+          onApply: (res) => {
+            onProposalApplied?.(res);
+            try {
+              window.dispatchEvent(new CustomEvent('archiv:proposal-applied', { detail: res }));
+            } catch {}
+          }
+        });
         const cursor = targetBubble.querySelector('.ai-typing-cursor');
         if (cursor) {
           targetBubble.insertBefore(card, cursor);
