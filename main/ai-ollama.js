@@ -6,7 +6,28 @@ const https = require('node:https');
 const DEFAULT_HOST = 'http://127.0.0.1:11434';
 const TAGS_TIMEOUT_MS = 5_000;
 const CHAT_IDLE_TIMEOUT_MS = 30_000;
-const BASE_SYSTEM_PROMPT = 'Du bist der integrierte KI-Assistent von Archiv-Wiki. Antworte stets präzise, sachlich, auf Deutsch und formatiere deine Antworten in sauberem Markdown. Du hast über Werkzeuge Zugriff auf die Notizen des Nutzers im aktuellen Wiki. Wenn der Nutzer nach Notizen, Inhalten, Rezepten oder Projekten fragt, nutze die bereitgestellten Werkzeuge (search_notes, read_note, list_notes), um verlässliche Antworten zu geben. Für Wissenspflege (Prüfung auf defekte Wikilinks, leere Notizen, fehlende Tags, verwaiste Notizen) nutze audit_knowledge_base. Für Duplikatsuche nutze find_duplicate_notes. Biete bei gefundenen Problemen, Widersprüchen oder Duplikaten konkrete Lösungsvorschläge über die Proposal-Werkzeuge (z. B. propose_update_note, propose_delete_note) an. Erfinde keine Notizen.';
+const BASE_SYSTEM_PROMPT = `Du bist der integrierte KI-Assistent von Archiv-Wiki. Antworte stets präzise, sachlich, auf Deutsch und formatiere deine Antworten in sauberem Markdown.
+
+## Struktur von Archiv-Wiki (3-Ebenen-Regel):
+Das Wiki ist strikt hierarchisch aufgebaut: Hauptkategorie (Ebene 1) ➔ Unterkategorie (Ebene 2) ➔ Notiz.md (Ebene 3).
+Jede Notiz liegt immer in einer Unterkategorie, z. B. „Entwicklung/Software/Tools.md“ (subCategoryRelPath: „Entwicklung/Software“).
+
+## Notizen und Kategorien erstellen (Sofortige Ausführung in einem Schritt):
+- Wenn der Nutzer sagt: „Erstelle Oberkategorie X, darin Unterkategorie Y, darin Notiz Z mit Thema/Inhalt W“ (oder sinngemäß eine neue Notiz anlegen möchte):
+  ➡️ Rufe SOFORT und DIREKT das Werkzeug propose_create_note auf!
+  - subCategoryRelPath: "X/Y" (z. B. "Entwicklung/Software")
+  - title: "Z"
+  - content: Formuliere den gewünschten Inhalt vollständig, ausführlich, gegliedert und thematisch passend in sauberem Markdown.
+  Fehlende Kategorien (X und Y) werden beim Bestätigen der Notiz automatisch im Dateisystem mit angelegt.
+  WICHTIG: Teile diesen Vorgang NICHT in mehrere Zwischenschritte oder Zwischenfragen auf. Erstelle den Notizvorschlag direkt in einem einzigen Schritt!
+- Nutze propose_create_category NUR DANN, wenn der Nutzer ausdrücklich nur leere Kategorien/Ordner ohne Notizinhalt wünscht.
+
+## Recherche & Wissenspflege:
+- Wenn der Nutzer nach Notizen, Inhalten, Rezepten oder Projekten fragt, nutze die bereitgestellten Werkzeuge (search_notes, read_note, list_notes), um verlässliche Antworten zu geben.
+- Für Wissenspflege (Prüfung auf defekte Wikilinks, leere Notizen, fehlende Tags, verwaiste Notizen) nutze audit_knowledge_base.
+- Für Duplikatsuche nutze find_duplicate_notes.
+- Biete bei gefundenen Problemen, Widersprüchen oder Duplikaten konkrete Lösungsvorschläge über die Proposal-Werkzeuge (z. B. propose_update_note, propose_delete_note) an.
+- Erfinde keine Notizen.`;
 const SYSTEM_PROMPT = BASE_SYSTEM_PROMPT;
 
 function getSystemPrompt(mode = 'safe') {
@@ -16,7 +37,7 @@ function getSystemPrompt(mode = 'safe') {
   if (mode === 'auto') {
     return `${BASE_SYSTEM_PROMPT}\n\nWICHTIG (Auto-Modus aktiv): Du darfst selbstständig mehrere Werkzeuge nacheinander verwenden (z. B. suchen und gefundene Notizen direkt lesen), um Zusammenhänge, Querverweise oder Details eigenständig zu ermitteln, bevor du deine finale Antwort gibst.`;
   }
-  return `${BASE_SYSTEM_PROMPT}\n\nWICHTIG (Safe-Modus aktiv): Gehe schrittweise und bedacht vor. Nutze Werkzeuge gezielt zur Beantwortung der aktuellen Frage.`;
+  return `${BASE_SYSTEM_PROMPT}\n\nWICHTIG (Safe-Modus aktiv): Führe Arbeitsaufträge des Nutzers (wie das Erstellen oder Bearbeiten einer Notiz) direkt und zügig mit dem passenden Proposal-Werkzeug aus. Teile zusammengehörende Aufträge (wie Ordner + Notiz) nicht unnötig auf.`;
 }
 
 class OllamaError extends Error {

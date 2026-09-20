@@ -3,6 +3,7 @@
 
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const notesFs = require('./notes-fs');
@@ -202,6 +203,13 @@ function applyProposal(proposalId, currentProjectPath) {
 
   let result;
   if (proposal.type === 'create') {
+    const subCategoryDir = notesFs.resolveSafe(proposal.projectPath, proposal.subCategoryRelPath);
+    if (notesFs.getDepth(proposal.subCategoryRelPath) !== 2) {
+      throw new Error('Notizen können ausschließlich in einer Unterkategorie (Tiefe 2) angelegt werden.');
+    }
+    if (!fs.existsSync(subCategoryDir)) {
+      fs.mkdirSync(subCategoryDir, { recursive: true });
+    }
     result = notesFs.createNote(
       proposal.projectPath,
       proposal.subCategoryRelPath,
@@ -242,6 +250,10 @@ function applyProposal(proposalId, currentProjectPath) {
     };
   } else if (proposal.type === 'create_category') {
     if (proposal.parentCategoryRelPath) {
+      const parentDir = notesFs.resolveSafe(proposal.projectPath, proposal.parentCategoryRelPath);
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true });
+      }
       result = notesFs.createSubCategory(proposal.projectPath, proposal.parentCategoryRelPath, proposal.name);
     } else {
       result = notesFs.createMainCategory(proposal.projectPath, proposal.name);
@@ -254,6 +266,10 @@ function applyProposal(proposalId, currentProjectPath) {
       name: result.name
     };
   } else if (proposal.type === 'move') {
+    const targetDir = notesFs.resolveSafe(proposal.projectPath, proposal.targetSubCategoryRelPath);
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
     result = notesFs.moveEntry(proposal.projectPath, proposal.sourceRelPath, proposal.targetSubCategoryRelPath);
     activeProposals.delete(proposalId);
     return {

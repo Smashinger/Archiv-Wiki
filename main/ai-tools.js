@@ -76,13 +76,13 @@ const AI_TOOLS_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'propose_create_note',
-      description: 'Schlägt das Erstellen einer neuen Notiz im Wiki vor. WICHTIG: Notizen können ausschließlich in einer Unterkategorie angelegt werden (z. B. "Hauptkategorie/Unterkategorie"). Erfordert eine explizite Bestätigung durch den Nutzer.',
+      description: 'Schlägt das Erstellen einer neuen Notiz im Wiki vor. WICHTIG: Notizen liegen immer in einer Unterkategorie (Format: "Hauptkategorie/Unterkategorie"). Falls die Hauptkategorie oder Unterkategorie noch nicht existiert, wird sie beim Anwenden der Notiz AUTOMATISCH mit angelegt! Wenn der Nutzer darum bittet, eine Oberkategorie, eine Unterkategorie und eine Notiz mit Inhalt zu erstellen (oder eine Notiz in einer neuen Kategorie wünscht), rufe SOFORT und DIREKT dieses Werkzeug mit "subCategoryRelPath": "Hauptkategorie/Unterkategorie", dem Titel und dem vollständigen Markdown-Inhalt auf. Erfordert Freigabe durch den Nutzer.',
       parameters: {
         type: 'object',
         properties: {
           subCategoryRelPath: {
             type: 'string',
-            description: 'Der relative Pfad der Unterkategorie (z. B. "Entwicklung/Workflows" oder "Erste Schritte/Grundlagen").'
+            description: 'Der relative Pfad der Unterkategorie im Format "Hauptkategorie/Unterkategorie" (z. B. "Entwicklung/Workflows" oder "Wissen/Software"). Noch nicht existierende Ordner werden automatisch mit erstellt.'
           },
           title: {
             type: 'string',
@@ -90,7 +90,7 @@ const AI_TOOLS_DEFINITIONS = [
           },
           content: {
             type: 'string',
-            description: 'Der vollständige Markdown-Textinhalt der neuen Notiz.'
+            description: 'Der vollständige, strukturierte Markdown-Textinhalt der neuen Notiz.'
           },
           tags: {
             type: 'array',
@@ -99,7 +99,7 @@ const AI_TOOLS_DEFINITIONS = [
           },
           reason: {
             type: 'string',
-            description: 'Kurze Begründung für den Vorschlag (z. B. "Neue Dokumentation basierend auf Nutzeranfrage").'
+            description: 'Kurze Begründung für den Vorschlag (z. B. "Neue Notiz und Kategorie basierend auf Nutzeranfrage").'
           }
         },
         required: ['subCategoryRelPath', 'title', 'content']
@@ -140,7 +140,7 @@ const AI_TOOLS_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'propose_create_category',
-      description: 'Schlägt das Erstellen einer neuen Kategorie im Wiki vor. Wenn parentCategoryRelPath angegeben ist, wird eine Unterkategorie in dieser Hauptkategorie angelegt (z. B. "Entwicklung"). Andernfalls wird eine neue Hauptkategorie erstellt. Erfordert explizite Bestätigung durch den Nutzer.',
+      description: 'Schlägt das Erstellen einer leeren Kategorie im Wiki vor. WICHTIG: Nutze dieses Werkzeug NUR DANN, wenn der Nutzer AUSSCHLIESSLICH leere Kategorien/Ordner ohne Notizen anlegen möchte. Wenn der Nutzer eine Notiz in neuen Kategorien wünscht, nutze stattdessen direkt propose_create_note, da fehlende Ordner dort automatisch mit angelegt werden. Erfordert Bestätigung durch den Nutzer.',
       parameters: {
         type: 'object',
         properties: {

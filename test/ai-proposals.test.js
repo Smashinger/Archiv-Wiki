@@ -331,3 +331,43 @@ test('AI-Proposals 11: delete Proposal verschiebt Notiz in den Papierkorb (.wiki
   assert.ok(trashItems.some(item => item.originalRelPath?.includes('Git Leitfaden') || item.title?.includes('Git Leitfaden') || item.trashRelPath?.includes('Git Leitfaden')));
 });
 
+test('AI-Proposals 12: applyProposal legt fehlende Haupt- und Unterkategorie beim Notiz-Erstellen automatisch an', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  // Weder "Wissen" noch "Wissen/Rezepte" existieren bisher im Test-Wiki
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Wissen')), false);
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Wissen/Rezepte')), false);
+
+  const proposal = aiProposals.createProposal(wikiDir, {
+    type: 'create',
+    subCategoryRelPath: 'Wissen/Rezepte',
+    title: 'Käsekuchen',
+    content: '# Käsekuchen\n\nRezept für leckeren Kuchen.',
+    tags: ['rezept', 'backen'],
+    reason: 'Neue Kategorie und Notiz in einem Schritt angelegt'
+  });
+
+  assert.equal(proposal.type, 'create');
+  assert.equal(proposal.subCategoryRelPath, 'Wissen/Rezepte');
+  assert.ok(proposal.relPath.includes('Käsekuchen.md'));
+
+  // Vor Freigabe existiert noch nichts
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Wissen')), false);
+
+  // Freigabe ausführen
+  const result = aiProposals.applyProposal(proposal.id, wikiDir);
+  assert.equal(result.success, true);
+  assert.equal(result.action, 'created');
+
+  // Jetzt existieren Ordner und Datei
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Wissen')));
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Wissen/Rezepte')));
+  const noteFile = path.join(wikiDir, 'Wissen/Rezepte/Käsekuchen.md');
+  assert.ok(fs.existsSync(noteFile));
+
+  const note = notesFs.readNote(wikiDir, 'Wissen/Rezepte/Käsekuchen.md');
+  assert.equal(note.frontmatter.title, 'Käsekuchen');
+  assert.equal(note.frontmatter.category, 'Rezepte');
+  assert.equal(note.frontmatter.mainCategory, 'Wissen');
+});
+
