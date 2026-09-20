@@ -5,6 +5,40 @@
 // ausschließlich den Datensatz, dessen Version der installierten App entspricht.
 
 export const RELEASE_NOTES_BY_VERSION = Object.freeze({
+  '2.3.1': Object.freeze({
+    intro: 'Dieses Update behebt mehrere Fehler im Editor, verbessert die Datensicherheit beim Speichern und bringt spürbare Komfortverbesserungen für die tägliche Notizverwaltung.',
+    sections: Object.freeze([
+      Object.freeze({
+        title: '🐛 BEHOBEN',
+        items: Object.freeze([
+          'Kein Eingabeverlust im Editor: Schnelles Tippen direkt nach dem Anlegen einer Notiz („+ Notiz“) oder beim Ändern des Titels verliert keine Zeichen mehr.',
+          'Faltbereiche mit Checklisten: Beim Abhaken von Aufgaben in Faltbereichen bleibt deren Auf- oder Zuklapp-Zustand in der Vorschau erhalten.',
+          'Cursor-Position bei neuen Notizen: Der Schreibcursor startet beim Erstellen einer Notiz direkt unter der Titelzeile im Textbereich.',
+          'Darstellung im geteilten Modus: Im Split-Modus verdeckt die Lesezeitanzeige nicht mehr die Vorschau-Überschrift.',
+          'Wikilinks in Codeblöcken: Codeblöcke wandeln enthaltene Klammern nicht mehr fälschlicherweise in Links um.',
+          'Fenster schließen: Ungespeicherte Änderungen werden beim Schließen des Fensters zuverlässig erkannt und abgefragt.',
+          'Einstellungen bei kleinen Bildschirmen: Alle Einstellungsbereiche lassen sich auch bei verkleinertem Fenster vollständig erreichen und bedienen.'
+        ])
+      }),
+      Object.freeze({
+        title: '📝 SONSTIGES',
+        items: Object.freeze([
+          'Klarere Meldungen & Zähler: Korrekte Mengenangaben im Papierkorb („0 Einträge“) sowie zeitlich begrenzte Rückgängig-Hinweise nach Löschaktionen.',
+          'Verbesserte Hilfetexte & Dialoge: Klarere Beschriftungen im leeren Dashboard und Schutz vor versehentlich leeren Eingaben bei neuen Kategorien.'
+        ])
+      }),
+      Object.freeze({
+        title: '✅ GEMACHT',
+        items: Object.freeze([
+          'Werkzeugleiste für schmale Fenster: Auf kleineren Bildschirmen werden überzählige Schaltflächen übersichtlich in einem „Weitere …“-Menü gebündelt, statt abgeschnitten zu werden.',
+          'Warnung vor doppelten Titeln: Der Editor warnt davor, wenn in derselben Kategorie bereits eine Notiz mit demselben Namen existiert.',
+          'Bessere Tastaturbedienung: Klarere Fokus-Hervorhebungen und flüssigere Navigation mit der Tastatur.',
+          'Moderneres Standard-Design: Neu erstellte Wikis starten direkt im modernen Design 2.',
+          'Höhere Datensicherheit: Verbesserte Schutzmechanismen beim Speichern von Notizen.'
+        ])
+      })
+    ])
+  }),
   '2.3.0': Object.freeze({
     intro: 'Dieses Update erweitert die Editor-Werkzeugleiste um neue Formatierungs- und Bildfunktionen, verbessert den Einrichtungsassistenten und bringt automatische Browsererkennung sowie Unterstützung für System-Chromium in den Web Clipper.',
     sections: Object.freeze([
