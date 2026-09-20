@@ -307,3 +307,169 @@
   }
   .ai-chat-model-select{ width:104px; }
 }
+
+/* AI Proposal Cards & Diff View (Phase 5) */
+.ai-proposal-card{
+  margin:8px 0;
+  background:var(--bg-color);
+  border:1px solid var(--accent-dim, rgba(66, 133, 244, .3));
+  border-radius:var(--radius-md);
+  padding:10px 12px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  box-shadow:0 2px 8px rgba(0, 0, 0, .08);
+}
+.ai-proposal-card.is-applied{
+  border-color:rgba(34, 197, 94, .4);
+  background:rgba(34, 197, 94, .04);
+}
+.ai-proposal-card.is-rejected{
+  opacity:0.65;
+  border-color:var(--c-border, var(--border-soft));
+}
+.ai-proposal-header{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.ai-proposal-badge{
+  font-size:11px;
+  font-weight:600;
+  color:var(--accent-color);
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+}
+.ai-proposal-title{
+  font-size:13px;
+  font-weight:600;
+  color:var(--text-main);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.ai-proposal-target{
+  font-size:11px;
+  color:var(--text-muted);
+  font-family:var(--mono);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.ai-proposal-reason{
+  font-size:12px;
+  color:var(--text-muted);
+  font-style:italic;
+  background:var(--bg-elev-1, rgba(0, 0, 0, .04));
+  padding:4px 8px;
+  border-radius:var(--radius-sm);
+}
+.ai-proposal-diff{
+  max-height:160px;
+  overflow-y:auto;
+  background:var(--bg-elev-1, rgba(0, 0, 0, .15));
+  border:1px solid var(--c-border, var(--border-soft));
+  border-radius:var(--radius-sm);
+  padding:6px 8px;
+  font-family:var(--mono);
+  font-size:11px;
+  line-height:1.45;
+}
+.ai-diff-line{
+  white-space:pre-wrap;
+  word-break:break-all;
+  display:flex;
+  gap:4px;
+}
+.ai-diff-prefix{
+  flex:0 0 14px;
+  user-select:none;
+  font-weight:bold;
+}
+.ai-diff-text{
+  flex:1;
+}
+.ai-diff-line.is-add{
+  color:#22c55e;
+  background:rgba(34, 197, 94, .1);
+}
+.ai-diff-line.is-remove{
+  color:#ef4444;
+  background:rgba(239, 68, 68, .1);
+}
+.ai-diff-line.is-same{
+  color:var(--text-muted);
+}
+.ai-diff-empty{
+  color:var(--text-faint);
+  font-style:italic;
+}
+.ai-proposal-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:2px;
+}
+.ai-proposal-apply-btn{
+  font-size:12px;
+  font-weight:500;
+  padding:5px 12px;
+  background:var(--accent-color);
+  color:var(--bg-color, #fff);
+  border:none;
+  border-radius:var(--radius-sm);
+  cursor:pointer;
+  transition:filter .15s ease;
+}
+.ai-proposal-apply-btn:hover:not(:disabled){
+  filter:brightness(1.1);
+}
+.ai-proposal-apply-btn:disabled{
+  opacity:0.6;
+  cursor:not-allowed;
+}
+.ai-proposal-reject-btn{
+  font-size:12px;
+  padding:5px 10px;
+  background:transparent;
+  color:var(--text-muted);
+  border:1px solid var(--c-border, var(--border-soft));
+  border-radius:var(--radius-sm);
+  cursor:pointer;
+  transition:color .15s, border-color .15s;
+}
+.ai-proposal-reject-btn:hover:not(:disabled){
+  color:var(--danger, #ef4444);
+  border-color:var(--danger, #ef4444);
+}
+.ai-proposal-reject-btn:disabled{
+  opacity:0.6;
+  cursor:not-allowed;
+}
+.ai-proposal-badge-success{
+  font-size:12px;
+  font-weight:600;
+  color:#22c55e;
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+}
+.ai-proposal-badge-rejected{
+  font-size:12px;
+  color:var(--text-muted);
+}
+.ai-proposal-open-btn{
+  font-size:12px;
+  color:var(--accent-color);
+  text-decoration:none;
+  margin-left:auto;
+}
+.ai-proposal-open-btn:hover{
+  text-decoration:underline;
+}
+.ai-proposal-status{
+  font-size:11px;
+  color:var(--danger, #ef4444);
+}
+

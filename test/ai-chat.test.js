@@ -77,6 +77,12 @@ test('KI-Chat UI 3: ai-chat.css definiert alle relevanten Zustände und Animatio
   assert.ok(chatCss.includes('.ai-chat-toolbar{'), 'Toolbar-Klasse existiert');
   assert.ok(chatCss.includes('.ai-mode-btn{'), 'Modus-Button-Klasse existiert');
   assert.ok(chatCss.includes('.ai-mode-btn.is-active{'), 'Aktiver Modus-Button existiert');
+  assert.ok(chatCss.includes('.ai-proposal-card{'), 'Proposal-Karten-Klasse existiert');
+  assert.ok(chatCss.includes('.ai-proposal-diff{'), 'Diff-Container-Klasse existiert');
+  assert.ok(chatCss.includes('.ai-diff-line.is-add{'), 'Diff-Add-Klasse existiert');
+  assert.ok(chatCss.includes('.ai-diff-line.is-remove{'), 'Diff-Remove-Klasse existiert');
+  assert.ok(chatCss.includes('.ai-proposal-apply-btn{'), 'Apply-Button-Klasse existiert');
+  assert.ok(chatCss.includes('.ai-proposal-reject-btn{'), 'Reject-Button-Klasse existiert');
 });
 
 test('KI-Chat UI 4: preload.js exponiert die vollständige KI-Schnittstelle ohne Leaks', () => {
@@ -94,7 +100,11 @@ test('KI-Chat UI 4: preload.js exponiert die vollständige KI-Schnittstelle ohne
     'onStreamChunk',
     'onStreamEnd',
     'onStreamError',
-    'onStreamToolCall'
+    'onStreamToolCall',
+    'getProposal',
+    'applyProposal',
+    'rejectProposal',
+    'onStreamProposal'
   ];
 
   for (const method of requiredMethods) {
@@ -124,5 +134,116 @@ test('KI-Chat UI 6: formatToolLabel formatiert Werkzeug-Aufrufe mit passendem Ic
   assert.equal(formatToolLabel('list_notes', { category: 'Rezepte' }), '📋 Liste Notizen auf (Rezepte) …');
   assert.equal(formatToolLabel('list_notes', {}), '📋 Liste Notizen auf …');
 
+  assert.equal(formatToolLabel('propose_create_note', { title: 'Neue Seite' }), '📝 Neuer Notizvorschlag „Neue Seite“ …');
+  assert.equal(formatToolLabel('propose_update_note', { relPath: 'A/B/C.md' }), '✏️ Änderungsvorschlag „A/B/C.md“ …');
+
   assert.equal(formatToolLabel('unknown_tool', {}), '⚙️ unknown_tool …');
 });
+
+test('KI-Chat UI 7: renderDiffLines und escapeHtml formatieren Diffs sicher', async () => {
+  const { renderDiffLines, escapeHtml } = await import('../renderer/js/ai-chat.js');
+
+  assert.equal(escapeHtml('<script>alert("xss")</script>'), '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
+
+  const diffEmpty = renderDiffLines([]);
+  assert.ok(diffEmpty.includes('ai-diff-empty'));
+
+  const diff = [
+    { type: 'same', line: 'Unverändert' },
+    { type: 'remove', line: 'Gelöscht' },
+    { type: 'add', line: '<script>neu</script>' }
+  ];
+  const rendered = renderDiffLines(diff);
+  assert.ok(rendered.includes('is-same'));
+  assert.ok(rendered.includes('is-remove'));
+  assert.ok(rendered.includes('is-add'));
+  assert.ok(!rendered.includes('<script>neu</script>'), 'HTML in Diff muss escaped sein');
+  assert.ok(rendered.includes('&lt;script&gt;neu&lt;/script&gt;'));
+});
+
+test('KI-Chat UI 8: renderProposalCard erzeugt Proposal-Karte und verdrahtet Apply- und Reject-Buttons', async () => {
+  const { renderProposalCard } = await import('../renderer/js/ai-chat.js');
+
+  function createMockElement(tag) {
+    const el = {
+      tagName: tag.toUpperCase(),
+      className: '',
+      innerHTML: '',
+      textContent: '',
+      dataset: {},
+      style: {},
+      children: [],
+      classList: {
+        _classes: new Set(),
+        add(c) { this._classes.add(c); },
+        remove(c) { this._classes.delete(c); },
+        contains(c) { return this._classes.has(c); }
+      },
+      appendChild(child) { el.children.push(child); return child; },
+      insertBefore(child) { el.children.unshift(child); return child; },
+      listeners: {},
+      addEventListener(type, handler) { el.listeners[type] = handler; },
+      click() { if (el.listeners.click) return el.listeners.click({ preventDefault: () => {} }); }
+    };
+    return el;
+  }
+
+  const prevDoc = global.document;
+  global.document = { createElement: createMockElement };
+
+  let applyCalled = false;
+  let rejectCalled = false;
+  const prevWindow = global.window;
+  global.window = {
+    archivAPI: {
+      ai: {
+        applyProposal: async (id) => {
+          assert.equal(id, 'prop_abc');
+          return { success: true };
+        },
+        rejectProposal: async (id) => {
+          assert.equal(id, 'prop_abc');
+          return { success: true };
+        }
+      }
+    }
+  };
+
+  try {
+    const proposal = {
+      proposalId: 'prop_abc',
+      type: 'create',
+      title: 'Neue Notiz',
+      relPath: 'Kategorie/Unterkategorie/Neue Notiz.md',
+      reason: 'Wichtig',
+      diff: [{ type: 'add', line: '# Neue Notiz' }]
+    };
+
+    const card = renderProposalCard(proposal, {
+      onApply: () => { applyCalled = true; }
+    });
+
+    assert.equal(card.dataset.proposalId, 'prop_abc');
+    const actions = card.children.find(c => c.className === 'ai-proposal-actions');
+    const applyBtn = actions.children.find(c => c.className === 'ai-proposal-apply-btn');
+
+    await applyBtn.click();
+    assert.equal(applyCalled, true);
+    assert.ok(card.classList.contains('is-applied'));
+
+    const card2 = renderProposalCard(proposal, {
+      onReject: () => { rejectCalled = true; }
+    });
+    const actions2 = card2.children.find(c => c.className === 'ai-proposal-actions');
+    const rejectBtn2 = actions2.children.find(c => c.className === 'ai-proposal-reject-btn');
+
+    await rejectBtn2.click();
+    assert.equal(rejectCalled, true);
+    assert.ok(card2.classList.contains('is-rejected'));
+  } finally {
+    global.document = prevDoc;
+    global.window = prevWindow;
+  }
+});
+
+

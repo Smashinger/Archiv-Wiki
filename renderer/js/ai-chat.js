@@ -36,7 +36,131 @@ export function formatToolLabel(tool, args) {
     const cat = args?.category ? ` (${args.category})` : '';
     return `📋 Liste Notizen auf${cat} …`;
   }
+  if (tool === 'propose_create_note') {
+    const title = args?.title ? ` „${args.title}“` : '';
+    return `📝 Neuer Notizvorschlag${title} …`;
+  }
+  if (tool === 'propose_update_note') {
+    const target = args?.relPath ? ` „${args.relPath}“` : '';
+    return `✏️ Änderungsvorschlag${target} …`;
+  }
   return `⚙️ ${tool || 'Werkzeug'} …`;
+}
+
+export function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export function renderDiffLines(diff = []) {
+  if (!Array.isArray(diff) || diff.length === 0) {
+    return '<div class="ai-diff-empty">Keine Änderungen</div>';
+  }
+  return diff.map(line => {
+    const typeClass = line.type === 'add' ? 'is-add' : line.type === 'remove' ? 'is-remove' : 'is-same';
+    const prefix = line.type === 'add' ? '+ ' : line.type === 'remove' ? '- ' : '  ';
+    return `<div class="ai-diff-line ${typeClass}"><span class="ai-diff-prefix">${prefix}</span><span class="ai-diff-text">${escapeHtml(line.line)}</span></div>`;
+  }).join('');
+}
+
+export function renderProposalCard(proposal, { onApply, onReject } = {}) {
+  const card = document.createElement('div');
+  card.className = 'ai-proposal-card';
+  const proposalId = proposal.proposalId || proposal.id;
+  card.dataset.proposalId = proposalId;
+
+  const isCreate = proposal.type === 'create';
+  const badgeLabel = isCreate ? '📝 Neue Notiz' : '✏️ Notiz bearbeiten';
+  const titleText = proposal.title || 'Notiz';
+  const targetPath = proposal.relPath || '';
+
+  const headerEl = document.createElement('div');
+  headerEl.className = 'ai-proposal-header';
+  headerEl.innerHTML = `
+    <div class="ai-proposal-badge">${badgeLabel}</div>
+    <div class="ai-proposal-title" title="${escapeHtml(titleText)}">${escapeHtml(titleText)}</div>
+    <div class="ai-proposal-target" title="${escapeHtml(targetPath)}">${escapeHtml(targetPath)}</div>
+  `;
+  card.appendChild(headerEl);
+
+  if (proposal.reason) {
+    const reasonEl = document.createElement('div');
+    reasonEl.className = 'ai-proposal-reason';
+    reasonEl.textContent = proposal.reason;
+    card.appendChild(reasonEl);
+  }
+
+  const diffContainer = document.createElement('div');
+  diffContainer.className = 'ai-proposal-diff';
+  diffContainer.innerHTML = renderDiffLines(proposal.diff);
+  card.appendChild(diffContainer);
+
+  const actionsEl = document.createElement('div');
+  actionsEl.className = 'ai-proposal-actions';
+
+  const applyBtn = document.createElement('button');
+  applyBtn.className = 'ai-proposal-apply-btn';
+  applyBtn.type = 'button';
+  applyBtn.textContent = isCreate ? '✓ Notiz erstellen' : '✓ Änderung anwenden';
+
+  const rejectBtn = document.createElement('button');
+  rejectBtn.className = 'ai-proposal-reject-btn';
+  rejectBtn.type = 'button';
+  rejectBtn.textContent = '✕ Verwerfen';
+
+  actionsEl.appendChild(applyBtn);
+  actionsEl.appendChild(rejectBtn);
+  card.appendChild(actionsEl);
+
+  const statusEl = document.createElement('div');
+  statusEl.className = 'ai-proposal-status';
+  statusEl.hidden = true;
+  card.appendChild(statusEl);
+
+  applyBtn.addEventListener('click', async () => {
+    applyBtn.disabled = true;
+    rejectBtn.disabled = true;
+    try {
+      const res = await window.archivAPI.ai.applyProposal(proposalId);
+      if (res?.success) {
+        card.classList.add('is-applied');
+        actionsEl.innerHTML = `
+          <span class="ai-proposal-badge-success">✓ Übernommen</span>
+          <a class="ai-proposal-open-btn" href="#note/${encodeURIComponent(proposal.relPath || '')}">Notiz im Editor öffnen ↗</a>
+        `;
+        onApply?.(res);
+      } else {
+        applyBtn.disabled = false;
+        rejectBtn.disabled = false;
+        statusEl.textContent = res?.error || 'Fehler beim Anwenden des Vorschlags.';
+        statusEl.hidden = false;
+      }
+    } catch (err) {
+      applyBtn.disabled = false;
+      rejectBtn.disabled = false;
+      statusEl.textContent = err?.message || 'Fehler beim Anwenden des Vorschlags.';
+      statusEl.hidden = false;
+    }
+  });
+
+  rejectBtn.addEventListener('click', async () => {
+    applyBtn.disabled = true;
+    rejectBtn.disabled = true;
+    try {
+      await window.archivAPI.ai.rejectProposal(proposalId);
+    } catch {
+      // Still ignorieren falls bereits abgewickelt
+    }
+    card.classList.add('is-rejected');
+    actionsEl.innerHTML = `<span class="ai-proposal-badge-rejected">✕ Verworfen</span>`;
+    onReject?.();
+  });
+
+  return card;
 }
 
 function generateMessageId() {
@@ -286,6 +410,28 @@ export function initAiChat() {
     }
   });
 
+  const removeProposalListener = window.archivAPI.ai.onStreamProposal?.((payload) => {
+    if (!payload || !payload.proposal) return;
+    const targetBubble = (payload.messageId === activeMessageId && activeBubbleEl)
+      ? activeBubbleEl
+      : messagesContainer.querySelector('.ai-msg-assistant:last-child');
+
+    if (targetBubble) {
+      const proposalId = payload.proposal.proposalId || payload.proposal.id;
+      const existing = targetBubble.querySelector(`[data-proposal-id="${proposalId}"]`);
+      if (!existing) {
+        const card = renderProposalCard(payload.proposal);
+        const cursor = targetBubble.querySelector('.ai-typing-cursor');
+        if (cursor) {
+          targetBubble.insertBefore(card, cursor);
+        } else {
+          targetBubble.appendChild(card);
+        }
+        scrollToBottom();
+      }
+    }
+  });
+
   const removeEndListener = window.archivAPI.ai.onStreamEnd((payload) => {
     if (!payload || payload.messageId !== activeMessageId) return;
     const fullText = payload.fullText || activeDeltaBuffer;
@@ -515,6 +661,7 @@ export function initAiChat() {
     window.removeEventListener('focus', handleWindowFocus);
     removeChunkListener?.();
     removeToolCallListener?.();
+    removeProposalListener?.();
     removeEndListener?.();
     removeErrorListener?.();
     openButton.removeEventListener('click', togglePanel);
