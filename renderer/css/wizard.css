@@ -96,8 +96,6 @@ body { font-family:var(--wf); -webkit-font-smoothing:antialiased; }
 .wz-note { display:block; font-family:var(--wf); font-size:12px; line-height:1.5; color:var(--w-faint); margin-top:2px; }
 .wz-ctl { flex:1; max-width:270px; margin-left:auto; min-width:0; display:flex; flex-direction:column; align-items:stretch; gap:8px; }
 .wz-ctl-wide { max-width:330px; }
-.wz-ctl-duo { flex-direction:row; gap:8px; }
-.wz-ctl-duo .wz-select { flex:1; }
 .wz-ctl-stack { align-items:stretch; }
 .wz-ctl-switchline { flex-direction:row; align-items:center; gap:10px; max-width:none; }
 .wz-self-end { align-self:flex-end; }
@@ -141,12 +139,6 @@ body { font-family:var(--wf); -webkit-font-smoothing:antialiased; }
 .wz-swatch-custom { background:var(--w-s3); display:flex; align-items:center; justify-content:center; color:var(--w-muted); }
 .wz-color-input { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
 
-.wz-radios { display:flex; flex-direction:column; gap:6px; }
-.wz-radio { display:flex; align-items:center; gap:10px; cursor:pointer; font-family:var(--wf); font-size:13px; color:var(--w-dim); }
-.wz-radio input { position:absolute; opacity:0; width:0; height:0; }
-.wz-radio-dot { width:11px; height:11px; border-radius:50%; background:var(--w-s3); flex:none; }
-.wz-radio input:checked + .wz-radio-dot { background:var(--w-copper); box-shadow:inset 0 0 0 3px var(--w-ground), inset 0 0 0 4px var(--w-copper); }
-.wz-radio-rec { font-family:var(--wf); font-size:12px; color:var(--w-faint); margin-left:8px; }
 
 .wz-switch { display:inline-flex; align-items:center; }
 .wz-switch input { position:absolute; opacity:0; width:0; height:0; }

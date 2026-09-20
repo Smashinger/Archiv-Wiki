@@ -19,7 +19,7 @@ import {
   showEditorRightClickMenu
 } from './context-menu.js';
 import { buildSyncIntervalOptionsHtml } from './sync-shared.js';
-import { applyAccentPalette, buildAccentSwatchesHtml, SIDEBAR_DENSITY_PRESETS, applySidebarDensity, applyEditorFontSize, EDITOR_FONT_SIZE_DEFAULT, setFocusMode, applyReadingWidth, applyThemeMode } from './theme.js';
+import { applyAccentPalette, applySidebarDensity, applyEditorFontSize, EDITOR_FONT_SIZE_DEFAULT, setFocusMode, applyReadingWidth, applyThemeMode } from './theme.js';
 import { ICON_LIBRARY, ICON_CATEGORIES, searchIconLibrary, resolveIconLibraryPath } from './icon-library.js';
 import { escapeHtml, buildStandaloneNoteHtml } from './html-export.js';
 import { fetchUpdateStatus, requestUpdateCheck, onUpdateStatusChanged, renderUpdateStatus } from './update-check.js';
@@ -29,7 +29,7 @@ import { animateIn, animateOut } from './motion.js';
 import { manageModalDialog, closeManagedDialogs, showMessageDialog, showConfirmDialog } from './dialog.js';
 import { initEllipsisTooltips } from './tooltip.js';
 import { openNoteInEditor, openIncomingInEditor, openNoteDraftInEditor, saveNow, saveUntilClean, isDirty, getOpenRelPath, getOpenNoteIdentity, isSameOpenNoteIdentity, getEditorGeneration, retargetOpenNote, closeEditor, insertAtCursor, wrapSelection, editorHasSelection, getEditorSelectionText, deleteEditorSelection, selectAllInEditor, moveEditorCursorToCoords, transformCurrentLine, getEditorContent, renderMarkdownForExport, setEditorContent, jumpToMatchInEditor, focusEditor, editorHasFocus, restoreEditorViewState, placeCursorBelowLeadingHeading, setSyncScrollEnabled, setAutoSaveSeconds, openDocumentSearch } from './editor.js';
-import { rebuildIndex, getSearchState, search as searchNotes, searchWithDetails, getFilterOptions, SEARCH_SCOPES } from './search.js';
+import { rebuildIndex, getSearchState, searchWithDetails, getFilterOptions, SEARCH_SCOPES } from './search.js';
 import { buildKnowledgeCareViewModel } from './knowledge-care-data.js';
 import { buildStatsViewModel } from './stats-data.js';
 import { buildTrashViewModel } from './trash-data.js';

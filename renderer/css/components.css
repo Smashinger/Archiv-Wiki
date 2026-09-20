@@ -4,32 +4,6 @@
 
 /* --- Suchfeld: einziges Element, volle Breite, trägt seine Box-Optik selbst
    (kein umschließender Container mehr nötig, seit die Stats-Chips weg sind). --- */
-/* --- Branding-Zeile ("Wiki von [Name]") über dem Durchsuchen-Feld ---
-   steps(1) statt einer weichen Opacity-Transition: klassisches, hartes
-   Terminal-Cursor-Blinken, in jedem Browser/Chromium-Renderer gleich
-   stabil, keine Timing-Abhängigkeit von Easing-Kurven. */
-.sidebar-brand{
-  display:flex; align-items:baseline; gap:3px;
-  font-family: var(--font-brand); font-size:15px; font-weight:600;
-  color: var(--accent-color); letter-spacing:.02em;
-  padding: 2px 2px 12px;
-}
-.brand-cursor{
-  display:inline-block; width:7px; height:14px; flex-shrink:0;
-  background: var(--accent-color);
-  animation: brand-cursor-blink 1s steps(1) infinite;
-}
-/* Notizanzahl neben dem Branding-Namen (Phase 5I-B, Composition Correction):
-   Classic zeigt diesen Zähler nicht (bereits bestehendes, unverändertes
-   Erscheinungsbild) — nur Design2 blendet ihn ein, siehe design2.css.
-   Gleiches Muster wie .sidebar-section-label direkt unten: eine gemeinsame
-   Markup-Stelle, global per Default verborgen, designspezifisch wieder
-   sichtbar gemacht. */
-.sidebar-brand-count{ display:none; }
-@keyframes brand-cursor-blink{
-  0%, 49%  { opacity: 1; }
-  50%, 100%{ opacity: 0; }
-}
 
 .search-zone{ position:relative; width:100%; margin: 0 0 14px; }
 .search-wrap{ position:relative; width:100%; margin: 2px 0 0; }
@@ -619,7 +593,6 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
   .dashboard-row{ grid-template-columns: 22px minmax(80px,1fr) 70px 70px; }
   .dashboard-row .dr-excerpt{ display:none; }
 }
-@media (max-width:560px){ .note-grid{ grid-template-columns: 1fr; } }
 
 /* --- Notiz-Ansicht: Titel + Kategorie + Tags in EINER Zeile (Zeitstempel sitzt jetzt in der Topbar) --- */
 .note-header{ display:flex; align-items:center; gap:10px; margin-bottom: 14px; flex-wrap: nowrap; }
@@ -721,11 +694,6 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
   background: conic-gradient(from 180deg, #D9A05B, #5B9BF8, #7FB08A, #A98BC8, #CF8A94, #D9A05B);
   font-size: 13px; display:flex; align-items:center; justify-content:center;
 }
-.color-swatch-random{
-  background: var(--bg-color); border-color: var(--border);
-  font-size: 14px; display:flex; align-items:center; justify-content:center;
-}
-.color-swatch-random:hover{ border-color: var(--accent-dim); }
 /* Eigener Hex-Code (Nutzer-Feature): Ersatzweg zum nativen Systemdialog, der
    unter manchen Linux-Desktops die Hex-Eingabe hinter einem zusätzlichen
    Klick auf eine "+"-Kachel versteckt — mit diesem Feld ist man davon
@@ -827,7 +795,6 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
 .btn.primary:hover{ filter:brightness(1.08); color:#ffffff; }
 .btn.danger:hover{ color: var(--red); border-color: rgba(226,88,90,.4); }
 .btn.small{ padding:8px 10px; font-size:14px; line-height:1; }
-.btn-mt{ margin-top: 16px; }
 .icon-btn.danger:hover{ color: var(--red); border-color: rgba(226,88,90,.4); }
 /* Politur (Editor-Höhenvereinheitlichung): bewusst nur auf den Speichern-
    Knopf INNERHALB der Editor-Werkzeugleiste beschränkt, nicht die

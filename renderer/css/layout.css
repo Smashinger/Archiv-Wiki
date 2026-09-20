@@ -28,24 +28,6 @@
   -webkit-user-select: none;
   user-select: none;
 }
-/* Classic Brand/Menu/Spacer/Controls — sichtbar in Classic, verborgen in Design2 */
-.app-titlebar-brand{
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  min-width: 0;
-  margin-right: 10px;
-  color: var(--text-muted);
-}
-.app-titlebar-icon{ width: 15px; height: 15px; flex-shrink: 0; display: block; }
-.app-titlebar-brand span{
-  font-family: var(--font-brand);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
 .app-titlebar-menu{
   display: flex;
   align-items: center;
@@ -708,8 +690,6 @@ body[data-ui-design="design2"]{ --topbar-h: 0px; }
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.breadcrumb .crumb-current{ color: var(--text-muted); }
-.breadcrumb .crumb-sep{ margin: 0 6px; color: var(--border); }
 .topbar .spacer{ flex: 1; }
 .icon-btn{
   width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid var(--border);

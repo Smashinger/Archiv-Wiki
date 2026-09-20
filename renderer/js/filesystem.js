@@ -65,9 +65,6 @@ export function flattenNotes(tree) {
   return out;
 }
 
-export function listCategories(tree) {
-  return tree.filter(n => n.type === 'folder');
-}
 
 export async function createMainCategory(name) {
   return window.archivAPI.fs.createMainCategory(name);

@@ -58,35 +58,6 @@ export function getContrastTextColor(hex) {
   return luminance > 0.55 ? '#12151a' : '#f5f5f5';
 }
 
-// Zufalls-Akzentfarbe (Nutzer-Feature): NUR der Farbton wird zufällig über
-// den ganzen Kreis gewählt (0-360°) — Sättigung und Helligkeit bleiben in
-// dem engen Band, das die bestehenden 11 Paletten-Farben (siehe
-// ACCENT_PALETTES oben) bereits nutzen (per HSL-Umrechnung ermittelt: gut
-// 32-50% Sättigung, 46-57% Helligkeit, siehe "Slate" als bewusster
-// Ausreißer für einen neutralen Grauton). Dadurch fühlt sich eine
-// Zufallsfarbe wie eine zwölfte, dreizehnte usw. Variante der bestehenden
-// Palette an, statt wie ein Fremdkörper — und die Kontrast-Frage stellt
-// sich praktisch nie, weil dieses Band nie "fast weiß" oder "fast schwarz"
-// erzeugen kann. Ergebnis wird wie jede andere frei gewählte Farbe
-// behandelt (siehe Aufrufer in settings-window.js) — keine eigene,
-// parallele Logik dafür nötig.
-function hslToHex(h, s, l) {
-  s /= 100; l /= 100;
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
-  const m = l - c / 2;
-  let [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x]
-    : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
-  const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-}
-
-export function generateRandomAccentColor() {
-  const hue = Math.floor(Math.random() * 360);
-  const saturation = 35 + Math.random() * 13; // 35–48%, angelehnt an die bestehenden Farben
-  const lightness = 47 + Math.random() * 8;   // 47–55%, angelehnt an die bestehenden Farben
-  return hslToHex(hue, saturation, lightness);
-}
 
 // key: entweder einer der 11 Preset-Schlüssel, ODER 'custom' (dann customHex
 // verwenden, dessen dim/soft-Abstufungen automatisch abgeleitet werden).
@@ -108,22 +79,6 @@ export function applyAccentPalette(key, customHex, shadeOverrides = null) {
   root.setProperty('--accent-contrast-text', key === 'custom' && customHex ? getContrastTextColor(customHex) : '#12151a');
 }
 
-// Baut die Farbkreis-Auswahl als feste CSS-Klassen (.color-swatch-<name>)
-// statt Inline-Style (style="background:..."). Grund: wizard.html hat eine
-// strengere Content-Security-Policy (style-src 'self', ohne 'unsafe-inline')
-// als index.html — Inline-Styles wurden dort lautlos blockiert, die Kreise
-// erschienen komplett weiß. Feste Klassen umgehen das, ohne die CSP
-// aufzuweichen. Von Wizard UND dem In-App-"Akzentfarben ändern"-Menü genutzt.
-export function buildAccentSwatchesHtml(selectedKey) {
-  const presets = Object.entries(ACCENT_PALETTES).map(([key, p]) =>
-    `<button type="button" class="color-swatch color-swatch-${key}${key === selectedKey ? ' active' : ''}" data-accent="${key}" title="${p.label}"></button>`
-  ).join('');
-  // Bewusst OHNE Inline-Style (würde im Wizard durch dessen strengere CSP
-  // stillschweigend blockiert, siehe Kommentar oben) — Auswahl-Zustand läuft
-  // nur über die "active"-Klasse mit Rahmen, wie bei den festen Farben auch.
-  const custom = `<button type="button" class="color-swatch color-swatch-custom${selectedKey === 'custom' ? ' active' : ''}" data-accent="custom" title="Eigene Farbe wählen…">🎨</button>`;
-  return presets + custom;
-}
 
 // Drei wählbare Sidebar-Dichte-Stufen. "Standard" entspricht der neuen,
 // bereits verdichteten Basis (siehe --density-* Variablen in styles.css) —

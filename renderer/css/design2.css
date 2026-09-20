@@ -1445,17 +1445,6 @@ body[data-ui-design="design2"]{
   background: var(--d2-chrome);
 }
 
-/* Branding-Zeile: Fließtext-Schrift statt der Marken-/Terminal-Schrift,
-   etwas zurückhaltender als Classic (keine Akzentfarbe auf dem gesamten
-   Namen), wie in der Referenz. */
-[data-ui-design="design2"] .sidebar .sidebar-brand{
-  font-family: var(--d2-font-body); font-weight:600; font-size:15.5px; letter-spacing:-0.01em;
-  color: var(--d2-text); min-width:0; gap:9px; padding:0 6px 12px; white-space:nowrap;
-}
-[data-ui-design="design2"] .sidebar #sidebarBrandText{
-  flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
-[data-ui-design="design2"] .sidebar .brand-cursor{ display:none; }
 [data-ui-design="design2"] .sidebar{ transition: background .15s ease; }
 
 /* Suchfeld/Aktionsreihe: reine Optik (Fläche statt Rahmen, Fließtext-Schrift
@@ -1877,7 +1866,6 @@ body[data-ui-design="design2"]{
 /* Marke und die vier einzelnen Classic-Menüpunkte weichen dem kompakten
    Menü-Button — reine Optik, dieselben vier echten Electron-Menüs bleiben
    über den neuen Button erreichbar (siehe app.js). */
-[data-ui-design="design2"] .app-titlebar-brand{ display:none; }
 [data-ui-design="design2"] .app-titlebar-menu{ display:none; }
 
 [data-ui-design="design2"] .d2-titlebar-menu-btn{
@@ -3317,13 +3305,6 @@ body[data-ui-design="design2"]:not(.reading-width) .preview-content{
    (dieselbe Ausschlusslogik wie die Kategorie-Zähler: archivierte Notizen
    zählen nicht mit, siehe app.js) — keine neue Zähllogik. In Classic per
    Default verborgen (components.css), hier sichtbar gemacht. */
-[data-ui-design="design2"] .sidebar .sidebar-brand-count{
-  display:inline; font-family: var(--d2-font-mono); font-size:10px;
-  font-weight:400; color: var(--d2-faint); letter-spacing:normal; flex:0 0 auto; white-space:nowrap;
-}
-[data-ui-design="design2"] .sidebar .sidebar-brand-count::before{
-  content:none;
-}
 
 /* ===========================================================================
    Design2 UI Consistency Fix — Filter-Overlay-Farben/-Typografie +
