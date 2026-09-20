@@ -199,3 +199,135 @@ test('AI-Proposals 7: rejectProposal verwirft Vorschlag ohne Dateiänderung', t 
   const targetFile = path.join(wikiDir, proposal.relPath);
   assert.equal(fs.existsSync(targetFile), false);
 });
+
+test('AI-Proposals 8: create_category Proposal erstellt Haupt- oder Unterkategorie nach Freigabe', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  // 1. Unterkategorie in bestehender Hauptkategorie
+  const subProp = aiProposals.createProposal(wikiDir, {
+    type: 'create_category',
+    name: 'CI-CD',
+    parentCategoryRelPath: 'Entwicklung',
+    reason: 'Neuer Bereich für Automatisierung'
+  });
+  assert.equal(subProp.type, 'create_category');
+  assert.equal(subProp.relPath, 'Entwicklung/CI-CD');
+  // Noch nicht auf der Festplatte
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Entwicklung', 'CI-CD')), false);
+
+  const subRes = aiProposals.applyProposal(subProp.id, wikiDir);
+  assert.equal(subRes.success, true);
+  assert.equal(subRes.action, 'created_category');
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Entwicklung', 'CI-CD')), 'Unterkategorie muss angelegt sein');
+
+  // 2. Neue Hauptkategorie
+  const mainProp = aiProposals.createProposal(wikiDir, {
+    type: 'create_category',
+    name: 'Wissen',
+    reason: 'Neues Hauptthema'
+  });
+  assert.equal(mainProp.relPath, 'Wissen');
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Wissen')), false);
+
+  const mainRes = aiProposals.applyProposal(mainProp.id, wikiDir);
+  assert.equal(mainRes.success, true);
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Wissen')), 'Hauptkategorie muss angelegt sein');
+
+  // 3. Ungültige Parent-Tiefe wird abgewiesen
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, {
+      type: 'create_category',
+      name: 'ZuTief',
+      parentCategoryRelPath: 'Entwicklung/Workflows' // Tiefe 2 statt 1
+    });
+  }, /Tiefe 1/);
+});
+
+test('AI-Proposals 9: move Proposal verschiebt Notiz erst nach Bestätigung', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  // Ziel-Unterkategorie anlegen
+  const targetSubDir = path.join(wikiDir, 'Entwicklung', 'DevOps');
+  fs.mkdirSync(targetSubDir, { recursive: true });
+
+  const moveProp = aiProposals.createProposal(wikiDir, {
+    type: 'move',
+    relPath: 'Entwicklung/Workflows/Git Leitfaden.md',
+    targetSubCategoryRelPath: 'Entwicklung/DevOps',
+    reason: 'Passt besser zu DevOps'
+  });
+  assert.equal(moveProp.type, 'move');
+  assert.ok(moveProp.relPath.includes('Entwicklung/DevOps/Git Leitfaden.md'));
+
+  // Vor Freigabe noch am alten Ort
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md')));
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Entwicklung/DevOps/Git Leitfaden.md')), false);
+
+  const moveRes = aiProposals.applyProposal(moveProp.id, wikiDir);
+  assert.equal(moveRes.success, true);
+  assert.equal(moveRes.action, 'moved');
+
+  // Nach Freigabe verschoben
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md')), false);
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Entwicklung/DevOps/Git Leitfaden.md')));
+
+  const movedNote = notesFs.readNote(wikiDir, 'Entwicklung/DevOps/Git Leitfaden.md');
+  assert.equal(movedNote.frontmatter.category, 'DevOps');
+  assert.equal(movedNote.frontmatter.mainCategory, 'Entwicklung');
+});
+
+test('AI-Proposals 10: rename Proposal benennt Notiz und Frontmatter-Titel um', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  const renameProp = aiProposals.createProposal(wikiDir, {
+    type: 'rename',
+    relPath: 'Entwicklung/Workflows/Git Leitfaden.md',
+    newTitle: 'Git und GitHub Handbuch',
+    reason: 'Ausführlicherer Titel'
+  });
+  assert.equal(renameProp.type, 'rename');
+  assert.ok(renameProp.relPath.includes('Git und GitHub Handbuch.md'));
+
+  // Vor Freigabe noch alter Name
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md')));
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Entwicklung/Workflows/Git und GitHub Handbuch.md')), false);
+
+  const renameRes = aiProposals.applyProposal(renameProp.id, wikiDir);
+  assert.equal(renameRes.success, true);
+  assert.equal(renameRes.action, 'renamed');
+
+  // Nach Freigabe umbenannt
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md')), false);
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Entwicklung/Workflows/Git und GitHub Handbuch.md')));
+
+  const renamedNote = notesFs.readNote(wikiDir, 'Entwicklung/Workflows/Git und GitHub Handbuch.md');
+  assert.equal(renamedNote.frontmatter.title, 'Git und GitHub Handbuch');
+});
+
+test('AI-Proposals 11: delete Proposal verschiebt Notiz in den Papierkorb (.wiki-trash/)', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  const delProp = aiProposals.createProposal(wikiDir, {
+    type: 'delete',
+    relPath: 'Entwicklung/Workflows/Git Leitfaden.md',
+    reason: 'Veraltet, wird nicht mehr benötigt'
+  });
+  assert.equal(delProp.type, 'delete');
+
+  // Vor Freigabe noch vorhanden
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md')));
+
+  const delRes = aiProposals.applyProposal(delProp.id, wikiDir);
+  assert.equal(delRes.success, true);
+  assert.equal(delRes.action, 'deleted');
+  assert.ok(delRes.trashRelPath);
+
+  // Nach Freigabe nicht mehr im Wiki-Ordner
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md')), false);
+
+  // Aber im Papierkorb auffindbar
+  const trashItems = notesFs.listTrash(wikiDir);
+  assert.ok(trashItems.length >= 1);
+  assert.ok(trashItems.some(item => item.originalRelPath?.includes('Git Leitfaden') || item.title?.includes('Git Leitfaden') || item.trashRelPath?.includes('Git Leitfaden')));
+});
+

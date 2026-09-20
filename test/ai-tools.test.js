@@ -75,7 +75,7 @@ Dieser Inhalt ist archiviert.
 
 test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werkzeuge', () => {
   assert.ok(Array.isArray(AI_TOOLS_DEFINITIONS));
-  assert.equal(AI_TOOLS_DEFINITIONS.length, 5);
+  assert.equal(AI_TOOLS_DEFINITIONS.length, 9);
 
   const names = AI_TOOLS_DEFINITIONS.map(d => d.function?.name);
   assert.ok(names.includes('search_notes'), 'search_notes ist definiert');
@@ -83,6 +83,10 @@ test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werk
   assert.ok(names.includes('list_notes'), 'list_notes ist definiert');
   assert.ok(names.includes('propose_create_note'), 'propose_create_note ist definiert');
   assert.ok(names.includes('propose_update_note'), 'propose_update_note ist definiert');
+  assert.ok(names.includes('propose_create_category'), 'propose_create_category ist definiert');
+  assert.ok(names.includes('propose_move_note'), 'propose_move_note ist definiert');
+  assert.ok(names.includes('propose_rename_note'), 'propose_rename_note ist definiert');
+  assert.ok(names.includes('propose_delete_note'), 'propose_delete_note ist definiert');
 
   // Keine direkten Schreibwerkzeuge (Human-in-the-Loop Zwang)
   assert.ok(!names.includes('write_note'), 'write_note darf nicht existieren');
@@ -189,4 +193,53 @@ test('KI-Tools 6: executeAiTool routet propose_create_note und propose_update_no
   assert.ok(updateRes.data.proposalId);
   assert.equal(updateRes.data.requiresConfirmation, true);
 });
+
+test('KI-Tools 7: executeAiTool routet die Phase-6-Werkzeuge (Kategorie, Verschieben, Umbenennen, Löschen)', async t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  // 1. propose_create_category
+  const catRes = await executeAiTool(wikiDir, 'propose_create_category', {
+    name: 'Dokumentation',
+    parentCategoryRelPath: 'Projekte',
+    reason: 'Neuer Bereich für Dokumentation'
+  });
+  assert.equal(catRes.success, true);
+  assert.equal(catRes.data.type, 'create_category');
+  assert.equal(catRes.data.requiresConfirmation, true);
+  assert.ok(catRes.data.proposalId);
+
+  // 2. propose_move_note
+  const moveRes = await executeAiTool(wikiDir, 'propose_move_note', {
+    relPath: 'Privat/Küche/Pfannkuchen.md',
+    targetSubCategoryRelPath: 'Projekte/Archiv-Wiki',
+    reason: 'Falsch abgelegt'
+  });
+  assert.equal(moveRes.success, true);
+  assert.equal(moveRes.data.type, 'move');
+  assert.equal(moveRes.data.requiresConfirmation, true);
+  assert.ok(moveRes.data.proposalId);
+
+  // 3. propose_rename_note
+  const renameRes = await executeAiTool(wikiDir, 'propose_rename_note', {
+    relPath: 'Privat/Küche/Pfannkuchen.md',
+    newTitle: 'Pfannkuchen Klassisch',
+    reason: 'Präzisere Benennung'
+  });
+  assert.equal(renameRes.success, true);
+  assert.equal(renameRes.data.type, 'rename');
+  assert.equal(renameRes.data.requiresConfirmation, true);
+  assert.ok(renameRes.data.proposalId);
+
+  // 4. propose_delete_note
+  const deleteRes = await executeAiTool(wikiDir, 'propose_delete_note', {
+    relPath: 'Privat/Küche/Pfannkuchen.md',
+    reason: 'Nicht mehr relevant'
+  });
+  assert.equal(deleteRes.success, true);
+  assert.equal(deleteRes.data.type, 'delete');
+  assert.equal(deleteRes.data.isDanger, true);
+  assert.equal(deleteRes.data.requiresConfirmation, true);
+  assert.ok(deleteRes.data.proposalId);
+});
+
 

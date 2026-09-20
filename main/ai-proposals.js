@@ -47,13 +47,17 @@ function computeLineDiff(oldText = '', newText = '') {
 }
 
 function createProposal(projectPath, {
-  type = 'create', // 'create' | 'update'
+  type = 'create', // 'create' | 'update' | 'create_category' | 'move' | 'rename' | 'delete'
   subCategoryRelPath,
   relPath,
   title,
   content = '',
   tags = [],
-  reason = ''
+  reason = '',
+  name,
+  parentCategoryRelPath,
+  targetSubCategoryRelPath,
+  newTitle
 } = {}) {
   if (!projectPath) {
     throw new Error('Kein Projektordner angegeben.');
@@ -62,6 +66,7 @@ function createProposal(projectPath, {
   const proposalId = generateProposalId();
   let oldContent = '';
   let targetRelPath = relPath;
+  let computedDiff = null;
 
   if (type === 'create') {
     if (!subCategoryRelPath) {
@@ -74,33 +79,105 @@ function createProposal(projectPath, {
     }
     const cleanTitle = String(title || 'Neue Notiz').trim();
     targetRelPath = path.join(subCategoryRelPath, `${notesFs.sanitizeName(cleanTitle)}.md`);
+    computedDiff = computeLineDiff('', content);
   } else if (type === 'update') {
     if (!relPath) {
       throw new Error('Für die Bearbeitung einer Notiz muss relPath angegeben werden.');
     }
+    notesFs.resolveSafe(projectPath, relPath);
     const existing = notesFs.readNote(projectPath, relPath);
     oldContent = existing.body || '';
     if (!title) {
       title = existing.frontmatter?.title || path.basename(relPath, '.md');
     }
+    computedDiff = computeLineDiff(oldContent, content);
+  } else if (type === 'create_category') {
+    const categoryName = String(name || '').trim();
+    if (!categoryName) {
+      throw new Error('Für eine neue Kategorie muss ein Name angegeben werden.');
+    }
+    if (parentCategoryRelPath) {
+      const cleanParent = String(parentCategoryRelPath).trim();
+      notesFs.resolveSafe(projectPath, cleanParent);
+      if (notesFs.getDepth(cleanParent) !== 1) {
+        throw new Error('Unterkategorien können nur in einer Hauptkategorie (Tiefe 1) angelegt werden.');
+      }
+      targetRelPath = path.join(cleanParent, notesFs.sanitizeName(categoryName));
+    } else {
+      targetRelPath = notesFs.sanitizeName(categoryName);
+    }
+    title = categoryName;
+    computedDiff = [{ type: 'add', line: `+ Kategorie: ${targetRelPath}` }];
+  } else if (type === 'move') {
+    if (!relPath) {
+      throw new Error('Für das Verschieben muss relPath angegeben werden.');
+    }
+    if (!targetSubCategoryRelPath) {
+      throw new Error('Für das Verschieben muss targetSubCategoryRelPath angegeben werden.');
+    }
+    const cleanTarget = String(targetSubCategoryRelPath).trim();
+    notesFs.resolveSafe(projectPath, relPath);
+    notesFs.resolveSafe(projectPath, cleanTarget);
+    if (notesFs.getDepth(cleanTarget) !== 2) {
+      throw new Error('Notizen können nur in eine Unterkategorie (Tiefe 2) verschoben werden.');
+    }
+    const existing = notesFs.readNote(projectPath, relPath);
+    title = existing.frontmatter?.title || path.basename(relPath, '.md');
+    targetRelPath = path.join(cleanTarget, path.basename(relPath));
+    computedDiff = [
+      { type: 'remove', line: `- ${relPath}` },
+      { type: 'add', line: `+ ${targetRelPath}` }
+    ];
+  } else if (type === 'rename') {
+    if (!relPath) {
+      throw new Error('Für das Umbenennen muss relPath angegeben werden.');
+    }
+    const cleanNewTitle = String(newTitle || '').trim();
+    if (!cleanNewTitle) {
+      throw new Error('Für das Umbenennen muss newTitle angegeben werden.');
+    }
+    notesFs.resolveSafe(projectPath, relPath);
+    const existing = notesFs.readNote(projectPath, relPath);
+    const oldTitle = existing.frontmatter?.title || path.basename(relPath, '.md');
+    title = cleanNewTitle;
+    targetRelPath = path.join(path.dirname(relPath), `${notesFs.sanitizeName(cleanNewTitle)}.md`);
+    computedDiff = [
+      { type: 'remove', line: `- Titel: ${oldTitle}` },
+      { type: 'add', line: `+ Titel: ${cleanNewTitle}` }
+    ];
+  } else if (type === 'delete') {
+    if (!relPath) {
+      throw new Error('Für das Löschen muss relPath angegeben werden.');
+    }
+    notesFs.resolveSafe(projectPath, relPath);
+    const existing = notesFs.readNote(projectPath, relPath);
+    title = existing.frontmatter?.title || path.basename(relPath, '.md');
+    targetRelPath = relPath;
+    computedDiff = [
+      { type: 'remove', line: `- [PAPIERKORB] ${relPath}` }
+    ];
   } else {
     throw new Error(`Unbekannter Proposal-Typ: ${type}`);
   }
-
-  const diff = computeLineDiff(oldContent, content);
 
   const proposal = {
     id: proposalId,
     type,
     projectPath: path.resolve(projectPath),
+    sourceRelPath: relPath || null,
     subCategoryRelPath: subCategoryRelPath || null,
     relPath: targetRelPath,
-    title: String(title || 'Notiz').trim(),
+    targetRelPath: targetRelPath || null,
+    title: String(title || name || 'Notiz').trim(),
     content: String(content || ''),
     oldContent,
-    diff,
+    diff: computedDiff || [],
     tags: Array.isArray(tags) ? tags.map(t => String(t).trim()).filter(Boolean) : [],
     reason: String(reason || ''),
+    name: name || null,
+    parentCategoryRelPath: parentCategoryRelPath || null,
+    targetSubCategoryRelPath: targetSubCategoryRelPath || null,
+    newTitle: newTitle || null,
     createdAt: new Date().toISOString()
   };
 
@@ -142,6 +219,13 @@ function applyProposal(proposalId, currentProjectPath) {
         { tags: proposal.tags }
       );
     }
+    activeProposals.delete(proposalId);
+    return {
+      success: true,
+      action: 'created',
+      relPath: result.relPath,
+      title: proposal.title
+    };
   } else if (proposal.type === 'update') {
     result = notesFs.writeNote(
       proposal.projectPath,
@@ -149,16 +233,57 @@ function applyProposal(proposalId, currentProjectPath) {
       proposal.content,
       proposal.tags && proposal.tags.length > 0 ? { tags: proposal.tags } : null
     );
+    activeProposals.delete(proposalId);
+    return {
+      success: true,
+      action: 'updated',
+      relPath: result.relPath,
+      title: proposal.title
+    };
+  } else if (proposal.type === 'create_category') {
+    if (proposal.parentCategoryRelPath) {
+      result = notesFs.createSubCategory(proposal.projectPath, proposal.parentCategoryRelPath, proposal.name);
+    } else {
+      result = notesFs.createMainCategory(proposal.projectPath, proposal.name);
+    }
+    activeProposals.delete(proposalId);
+    return {
+      success: true,
+      action: 'created_category',
+      relPath: result.relPath,
+      name: result.name
+    };
+  } else if (proposal.type === 'move') {
+    result = notesFs.moveEntry(proposal.projectPath, proposal.sourceRelPath, proposal.targetSubCategoryRelPath);
+    activeProposals.delete(proposalId);
+    return {
+      success: true,
+      action: 'moved',
+      oldRelPath: proposal.sourceRelPath,
+      relPath: result.relPath,
+      title: proposal.title
+    };
+  } else if (proposal.type === 'rename') {
+    result = notesFs.renameEntry(proposal.projectPath, proposal.sourceRelPath, proposal.newTitle);
+    activeProposals.delete(proposalId);
+    return {
+      success: true,
+      action: 'renamed',
+      oldRelPath: proposal.sourceRelPath,
+      relPath: result.relPath,
+      title: proposal.newTitle
+    };
+  } else if (proposal.type === 'delete') {
+    result = notesFs.deleteEntry(proposal.projectPath, proposal.sourceRelPath || proposal.relPath);
+    activeProposals.delete(proposalId);
+    return {
+      success: true,
+      action: 'deleted',
+      relPath: proposal.sourceRelPath || proposal.relPath,
+      trashRelPath: result.trashRelPath,
+      title: proposal.title
+    };
   }
-
-  activeProposals.delete(proposalId);
-
-  return {
-    success: true,
-    action: proposal.type === 'create' ? 'created' : 'updated',
-    relPath: result.relPath,
-    title: proposal.title
-  };
 }
 
 function rejectProposal(proposalId) {

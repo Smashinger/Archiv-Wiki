@@ -134,6 +134,102 @@ const AI_TOOLS_DEFINITIONS = [
         required: ['relPath', 'content']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_create_category',
+      description: 'Schlägt das Erstellen einer neuen Kategorie im Wiki vor. Wenn parentCategoryRelPath angegeben ist, wird eine Unterkategorie in dieser Hauptkategorie angelegt (z. B. "Entwicklung"). Andernfalls wird eine neue Hauptkategorie erstellt. Erfordert explizite Bestätigung durch den Nutzer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Name der neuen Kategorie.'
+          },
+          parentCategoryRelPath: {
+            type: 'string',
+            description: 'Optionaler Pfad der übergeordneten Hauptkategorie (z. B. "Entwicklung" oder "Privat"), um eine Unterkategorie anzulegen. Wenn weggelassen, wird eine Hauptkategorie angelegt.'
+          },
+          reason: {
+            type: 'string',
+            description: 'Kurze Begründung für den Vorschlag (z. B. "Neuer Bereich für Leitfäden").'
+          }
+        },
+        required: ['name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_move_note',
+      description: 'Schlägt das Verschieben einer Notiz in eine andere Unterkategorie vor. Erfordert explizite Bestätigung durch den Nutzer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          relPath: {
+            type: 'string',
+            description: 'Der relative Pfad der zu verschiebenden Notiz (z. B. "Allgemein/Notizen/MeinThema.md").'
+          },
+          targetSubCategoryRelPath: {
+            type: 'string',
+            description: 'Der relative Pfad der Ziel-Unterkategorie (Tiefe 2, z. B. "Entwicklung/Workflows").'
+          },
+          reason: {
+            type: 'string',
+            description: 'Kurze Begründung für die Verschiebung.'
+          }
+        },
+        required: ['relPath', 'targetSubCategoryRelPath']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_rename_note',
+      description: 'Schlägt das Umbenennen einer Notiz vor (aktualisiert Dateiname und Frontmatter-Titel). Erfordert explizite Bestätigung durch den Nutzer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          relPath: {
+            type: 'string',
+            description: 'Der relative Pfad der umzubenennenden Notiz (z. B. "Entwicklung/Workflows/Alt.md").'
+          },
+          newTitle: {
+            type: 'string',
+            description: 'Der neue Titel der Notiz.'
+          },
+          reason: {
+            type: 'string',
+            description: 'Kurze Begründung für die Umbenennung.'
+          }
+        },
+        required: ['relPath', 'newTitle']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_delete_note',
+      description: 'Schlägt das Verschieben einer Notiz in den Papierkorb vor (.wiki-trash/). Die Notiz wird nicht unwiderruflich gelöscht, sondern kann aus dem Papierkorb wiederhergestellt werden. Erfordert explizite Bestätigung durch den Nutzer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          relPath: {
+            type: 'string',
+            description: 'Der relative Pfad der zu löschenden Notiz (z. B. "Entwicklung/Workflows/AlteNotiz.md").'
+          },
+          reason: {
+            type: 'string',
+            description: 'Wichtige Erklärung, warum die Notiz in den Papierkorb verschoben werden soll.'
+          }
+        },
+        required: ['relPath', 'reason']
+      }
+    }
   }
 ];
 
@@ -328,6 +424,90 @@ async function executeAiTool(projectPath, name, args = {}) {
             reason: proposal.reason,
             requiresConfirmation: true,
             message: `Änderungsvorschlag für Notiz „${proposal.title}“ wurde erstellt und wartet auf deine Freigabe.`
+          }
+        };
+      }
+      case 'propose_create_category': {
+        const proposal = aiProposals.createProposal(projectPath, {
+          type: 'create_category',
+          name: args.name,
+          parentCategoryRelPath: args.parentCategoryRelPath,
+          reason: args.reason
+        });
+        return {
+          success: true,
+          data: {
+            proposalId: proposal.id,
+            type: proposal.type,
+            title: proposal.title,
+            relPath: proposal.relPath,
+            diff: proposal.diff,
+            reason: proposal.reason,
+            requiresConfirmation: true,
+            message: `Vorschlag zum Anlegen der Kategorie „${proposal.title}“ wurde erstellt und wartet auf deine Freigabe.`
+          }
+        };
+      }
+      case 'propose_move_note': {
+        const proposal = aiProposals.createProposal(projectPath, {
+          type: 'move',
+          relPath: args.relPath,
+          targetSubCategoryRelPath: args.targetSubCategoryRelPath,
+          reason: args.reason
+        });
+        return {
+          success: true,
+          data: {
+            proposalId: proposal.id,
+            type: proposal.type,
+            title: proposal.title,
+            relPath: proposal.relPath,
+            diff: proposal.diff,
+            reason: proposal.reason,
+            requiresConfirmation: true,
+            message: `Vorschlag zum Verschieben von „${proposal.title}“ wurde erstellt und wartet auf deine Freigabe.`
+          }
+        };
+      }
+      case 'propose_rename_note': {
+        const proposal = aiProposals.createProposal(projectPath, {
+          type: 'rename',
+          relPath: args.relPath,
+          newTitle: args.newTitle,
+          reason: args.reason
+        });
+        return {
+          success: true,
+          data: {
+            proposalId: proposal.id,
+            type: proposal.type,
+            title: proposal.title,
+            relPath: proposal.relPath,
+            diff: proposal.diff,
+            reason: proposal.reason,
+            requiresConfirmation: true,
+            message: `Vorschlag zum Umbenennen von „${proposal.title}“ wurde erstellt und wartet auf deine Freigabe.`
+          }
+        };
+      }
+      case 'propose_delete_note': {
+        const proposal = aiProposals.createProposal(projectPath, {
+          type: 'delete',
+          relPath: args.relPath,
+          reason: args.reason
+        });
+        return {
+          success: true,
+          data: {
+            proposalId: proposal.id,
+            type: proposal.type,
+            title: proposal.title,
+            relPath: proposal.relPath,
+            diff: proposal.diff,
+            reason: proposal.reason,
+            isDanger: true,
+            requiresConfirmation: true,
+            message: `Vorschlag zum Verschieben von „${proposal.title}“ in den Papierkorb wurde erstellt und wartet auf deine Freigabe.`
           }
         };
       }
