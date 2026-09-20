@@ -154,6 +154,39 @@
   text-align:center;
   margin:4px 0;
 }
+.ai-msg-tools{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  margin-bottom:6px;
+}
+.ai-msg-tools:empty{ display:none; }
+.ai-tool-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-size:11px;
+  padding:3px 8px;
+  border-radius:12px;
+  background:var(--bg-elev-1, rgba(255, 255, 255, .06));
+  color:var(--text-muted);
+  border:1px solid var(--c-border, var(--border-soft));
+  font-family:var(--sans);
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  user-select:none;
+  animation:ai-tool-pulse 1.5s infinite ease-in-out;
+}
+.ai-tool-pill.is-done{
+  animation:none;
+  opacity:0.85;
+}
+@keyframes ai-tool-pulse{
+  0%, 100%{ opacity:0.75; }
+  50%{ opacity:1; }
+}
 .ai-typing-cursor{
   display:inline-block;
   margin-left:2px;

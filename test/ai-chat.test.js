@@ -69,6 +69,7 @@ test('KI-Chat UI 3: ai-chat.css definiert alle relevanten Zustände und Animatio
   assert.ok(chatCss.includes('@keyframes ai-blink'), 'Blink-Animation existiert');
   assert.ok(chatCss.includes('.ai-status-indicator.is-online'), 'Online-Statuspunkt existiert');
   assert.ok(chatCss.includes('[data-mode="stop"]'), 'Stop-Zustand für Button existiert');
+  assert.ok(chatCss.includes('.ai-tool-pill{'), 'Werkzeug-Badge-Klasse existiert');
 });
 
 test('KI-Chat UI 4: preload.js exponiert die vollständige KI-Schnittstelle ohne Leaks', () => {
@@ -85,7 +86,8 @@ test('KI-Chat UI 4: preload.js exponiert die vollständige KI-Schnittstelle ohne
     'updateSettings',
     'onStreamChunk',
     'onStreamEnd',
-    'onStreamError'
+    'onStreamError',
+    'onStreamToolCall'
   ];
 
   for (const method of requiredMethods) {
@@ -101,4 +103,19 @@ test('KI-Chat UI 5: app.js initialisiert initAiChat beim Start', () => {
 
   assert.ok(appJsSource.includes("import { initAiChat } from './ai-chat.js';"), 'initAiChat wird importiert');
   assert.ok(appJsSource.includes('initAiChat();'), 'initAiChat() wird beim Anwendungsstart aufgerufen');
+});
+
+test('KI-Chat UI 6: formatToolLabel formatiert Werkzeug-Aufrufe mit passendem Icon und Parametern', async () => {
+  const { formatToolLabel } = await import('../renderer/js/ai-chat.js');
+
+  assert.equal(formatToolLabel('search_notes', { query: 'Rezept' }), '🔍 Suche Notizen „Rezept“ …');
+  assert.equal(formatToolLabel('search_notes', {}), '🔍 Suche Notizen …');
+
+  assert.equal(formatToolLabel('read_note', { relPath: 'Kochen/Kuchen.md' }), '📖 Lese Notiz „Kochen/Kuchen.md“ …');
+  assert.equal(formatToolLabel('read_note', { title: 'Mein Kuchen' }), '📖 Lese Notiz „Mein Kuchen“ …');
+
+  assert.equal(formatToolLabel('list_notes', { category: 'Rezepte' }), '📋 Liste Notizen auf (Rezepte) …');
+  assert.equal(formatToolLabel('list_notes', {}), '📋 Liste Notizen auf …');
+
+  assert.equal(formatToolLabel('unknown_tool', {}), '⚙️ unknown_tool …');
 });

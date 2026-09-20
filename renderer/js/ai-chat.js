@@ -23,6 +23,22 @@ export function sanitizePanelBounds(bounds, { windowWidth = 1024, windowHeight =
   return { left, top, width, height };
 }
 
+export function formatToolLabel(tool, args) {
+  if (tool === 'search_notes') {
+    const q = args?.query ? ` „${args.query}“` : '';
+    return `🔍 Suche Notizen${q} …`;
+  }
+  if (tool === 'read_note') {
+    const target = args?.relPath || args?.title || '';
+    return `📖 Lese Notiz${target ? ` „${target}“` : ''} …`;
+  }
+  if (tool === 'list_notes') {
+    const cat = args?.category ? ` (${args.category})` : '';
+    return `📋 Liste Notizen auf${cat} …`;
+  }
+  return `⚙️ ${tool || 'Werkzeug'} …`;
+}
+
 function generateMessageId() {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -92,11 +108,14 @@ export function initAiChat() {
   function appendAssistantBubbleWithCursor() {
     const bubble = document.createElement('div');
     bubble.className = 'ai-msg-assistant';
+    const toolsContainer = document.createElement('div');
+    toolsContainer.className = 'ai-msg-tools';
     const contentSpan = document.createElement('div');
     contentSpan.className = 'ai-msg-content';
     const cursor = document.createElement('span');
     cursor.className = 'ai-typing-cursor';
     cursor.textContent = '▋';
+    bubble.appendChild(toolsContainer);
     bubble.appendChild(contentSpan);
     bubble.appendChild(cursor);
     messagesContainer.appendChild(bubble);
@@ -233,12 +252,41 @@ export function initAiChat() {
     }
   });
 
+  const removeToolCallListener = window.archivAPI.ai.onStreamToolCall?.((payload) => {
+    if (!payload || payload.messageId !== activeMessageId) return;
+    if (activeBubbleEl) {
+      let toolsContainer = activeBubbleEl.querySelector('.ai-msg-tools');
+      if (!toolsContainer) {
+        toolsContainer = document.createElement('div');
+        toolsContainer.className = 'ai-msg-tools';
+        activeBubbleEl.insertBefore(toolsContainer, activeBubbleEl.firstChild);
+      }
+      const badge = document.createElement('div');
+      badge.className = 'ai-tool-pill';
+      badge.textContent = formatToolLabel(payload.tool, payload.args);
+      toolsContainer.appendChild(badge);
+      scrollToBottom();
+    }
+  });
+
   const removeEndListener = window.archivAPI.ai.onStreamEnd((payload) => {
     if (!payload || payload.messageId !== activeMessageId) return;
     const fullText = payload.fullText || activeDeltaBuffer;
     if (activeBubbleEl) {
       activeBubbleCursorEl?.remove();
-      activeBubbleEl.innerHTML = renderPreview(fullText);
+      const contentEl = activeBubbleEl.querySelector('.ai-msg-content');
+      if (contentEl) {
+        contentEl.innerHTML = renderPreview(fullText);
+      } else {
+        activeBubbleEl.innerHTML = renderPreview(fullText);
+      }
+      const pills = activeBubbleEl.querySelectorAll('.ai-tool-pill');
+      for (const pill of pills) {
+        pill.classList.add('is-done');
+        if (pill.textContent.endsWith(' …')) {
+          pill.textContent = pill.textContent.slice(0, -2);
+        }
+      }
       scrollToBottom();
     }
     activeMessageId = null;
@@ -270,6 +318,10 @@ export function initAiChat() {
         errorBox.textContent = payload.error || 'Fehler bei der Kommunikation mit Ollama.';
         activeBubbleEl.appendChild(errorBox);
       }
+    }
+    const pills = activeBubbleEl?.querySelectorAll?.('.ai-tool-pill') || [];
+    for (const pill of pills) {
+      pill.classList.add('is-done');
     }
     scrollToBottom();
     activeMessageId = null;
@@ -435,6 +487,7 @@ export function initAiChat() {
     window.removeEventListener('resize', handleWindowResize);
     window.removeEventListener('focus', handleWindowFocus);
     removeChunkListener?.();
+    removeToolCallListener?.();
     removeEndListener?.();
     removeErrorListener?.();
     openButton.removeEventListener('click', togglePanel);
