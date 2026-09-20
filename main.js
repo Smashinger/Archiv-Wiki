@@ -1816,7 +1816,8 @@ app.whenReady().then(async () => {
   safeRegister('registerCoreIpc', () => registerCoreIpc());
   safeRegister('registerFilesystemIpc', () => registerFilesystemIpc({
     getCurrentProject: () => currentProject,
-    onProjectConfigLoaded: adoptCurrentProjectConfig
+    onProjectConfigLoaded: adoptCurrentProjectConfig,
+    getMainWindow: () => mainWindow
   }));
   safeRegister('registerIncomingIpc', () => registerIncomingIpc({ getCurrentProject: () => currentProject }));
   safeRegister('registerWebClipperDistributionIpc', () => registerWebClipperDistributionIpc({

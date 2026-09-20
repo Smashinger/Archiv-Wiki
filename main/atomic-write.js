@@ -30,9 +30,11 @@ function atomicWriteFileSync(targetPath, data, options = {}) {
     if (fd !== undefined) {
       try { fs.closeSync(fd); } catch { /* best effort */ }
     }
-    try {
-      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-    } catch { /* ursprünglichen Fehler beibehalten */ }
+    // existsSync() ist hier absichtlich keine Vorbedingung: Bei EACCES/EPERM
+    // kann es false liefern, obwohl die bereits erzeugte Temp-Datei existiert.
+    // Ein direktes unlink mit ignoriertem ENOENT räumt auch diesen Fehlerpfad
+    // zuverlässig auf und bewahrt trotzdem den ursprünglichen Schreibfehler.
+    try { fs.unlinkSync(tempPath); } catch { /* ursprünglichen Fehler beibehalten */ }
     throw error;
   }
 }
@@ -58,9 +60,7 @@ function atomicCopyFileSync(sourcePath, targetPath) {
     if (fd !== undefined) {
       try { fs.closeSync(fd); } catch { /* best effort */ }
     }
-    try {
-      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-    } catch { /* ursprünglichen Fehler beibehalten */ }
+    try { fs.unlinkSync(tempPath); } catch { /* ursprünglichen Fehler beibehalten */ }
     throw error;
   }
 }

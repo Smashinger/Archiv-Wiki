@@ -28,6 +28,10 @@ function sanitizeName(name) {
   const trimmed = String(name ?? '').trim();
   const cleaned = trimmed
     .replace(/[/\\:*?"<>|]/g, '')
+    // Punktpräfixe sind projektinterne/ausgeblendete Namen. Ohne diese
+    // Normalisierung würde z. B. ".Notiz" erfolgreich angelegt, danach aber
+    // weder im Baum angezeigt noch über die normalen Wiki-APIs erreichbar.
+    .replace(/^\.+/, '')
     .replace(/\s+/g, ' ')
     .trim();
   return cleaned || 'Unbenannt';
@@ -41,7 +45,51 @@ function resolveSafe(projectPath, relPath) {
   if (target !== root && !target.startsWith(root + path.sep)) {
     throw new Error('Ungültiger Pfad außerhalb des Projektordners.');
   }
+
+  // Eine rein lexikalische startsWith-Prüfung reicht nicht: Ein vorhandener
+  // Symlink innerhalb des Projekts kann auf eine Datei außerhalb zeigen und
+  // wird von readFile/stat/rename anschließend transparent verfolgt. Sämtliche
+  // heute erlaubten Wiki-/Sync-Pfade brauchen keine Symlinks; deshalb jeden
+  // vorhandenen Symlink in der relativen Komponentenkette fail-closed sperren.
+  const relative = path.relative(root, target);
+  let cursor = root;
+  for (const part of relative.split(path.sep).filter(Boolean)) {
+    cursor = path.join(cursor, part);
+    try {
+      if (fs.lstatSync(cursor).isSymbolicLink()) {
+        throw new Error('Symbolische Verknüpfungen sind für Dateioperationen nicht zulässig.');
+      }
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      break; // Rest darf bei einer späteren Erstellung noch nicht existieren.
+    }
+  }
   return target;
+}
+
+// Renderer-gesteuerte Wiki-Operationen dürfen ausschließlich sichtbare
+// Kategorien und Markdown-Notizen adressieren. Interne Projektbereiche
+// (.wiki-config.json, .wiki-trash, .attachments, Sync-Manifest usw.) besitzen
+// eigene, eng benannte Main-Prozess-Wege und sind keine Notizen.
+function resolveWikiEntrySafe(projectPath, relPath, { allowRoot = false } = {}) {
+  if (typeof relPath !== 'string' || relPath.includes('\0')) {
+    throw new Error('Ungültiger Wiki-Pfad.');
+  }
+  const portablePath = relPath.replace(/\\/g, '/');
+  const portableParts = portablePath === '.' ? [] : portablePath.split('/').filter(Boolean);
+  if (!allowRoot && portableParts.length === 0) throw new Error('Ungültiger Wiki-Pfad.');
+  if (portableParts.some(part => part === '.' || part === '..' || part.startsWith('.'))) {
+    throw new Error('Interne oder ungültige Wiki-Pfade sind nicht zulässig.');
+  }
+  return resolveSafe(projectPath, relPath || '.');
+}
+
+function resolveNoteSafe(projectPath, relPath) {
+  const fullPath = resolveWikiEntrySafe(projectPath, relPath);
+  if (path.extname(fullPath).toLowerCase() !== NOTE_EXT) {
+    throw new Error('Der ausgewählte Eintrag ist keine Markdown-Notiz.');
+  }
+  return fullPath;
 }
 
 function isHidden(entryName) {
@@ -206,9 +254,14 @@ function getDepth(relPath) {
 }
 
 function classifyEntry(projectPath, relPath) {
-  const fullPath = resolveSafe(projectPath, relPath);
+  const fullPath = resolveWikiEntrySafe(projectPath, relPath);
   const stat = fs.statSync(fullPath);
-  if (!stat.isDirectory()) return 'note';
+  if (!stat.isDirectory()) {
+    if (!stat.isFile() || path.extname(fullPath).toLowerCase() !== NOTE_EXT) {
+      throw new Error('Der ausgewählte Eintrag ist weder Kategorie noch Markdown-Notiz.');
+    }
+    return 'note';
+  }
   return getDepth(relPath) === 1 ? 'mainCategory' : 'subCategory';
 }
 
@@ -224,7 +277,7 @@ function createMainCategory(projectPath, name) {
 }
 
 function createSubCategory(projectPath, mainCategoryRelPath, name) {
-  const mainDir = resolveSafe(projectPath, mainCategoryRelPath);
+  const mainDir = resolveWikiEntrySafe(projectPath, mainCategoryRelPath);
   if (getDepth(mainCategoryRelPath) !== 1 || !fs.existsSync(mainDir) || !fs.statSync(mainDir).isDirectory()) {
     throw new Error('Ungültige Hauptkategorie — Unterkategorien können nur direkt in einer Hauptkategorie angelegt werden.');
   }
@@ -274,7 +327,7 @@ function resolveTemplateVariables(text, title) {
 // (strikte 3-Ebenen-Regel: Hauptkategorie → Unterkategorie → Notiz).
 // ---------------------------------------------------------------------------
 function createNote(projectPath, subCategoryRelPath, title, templateBody, options) {
-  const dirPath = resolveSafe(projectPath, subCategoryRelPath || '.');
+  const dirPath = resolveWikiEntrySafe(projectPath, subCategoryRelPath || '.');
   if (getDepth(subCategoryRelPath || '') !== 2 || !fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
     throw new Error('Notizen können nur in einer Unterkategorie angelegt werden.');
   }
@@ -321,13 +374,13 @@ function createNote(projectPath, subCategoryRelPath, title, templateBody, option
 }
 
 function readNote(projectPath, relPath) {
-  const fullPath = resolveSafe(projectPath, relPath);
+  const fullPath = resolveNoteSafe(projectPath, relPath);
   const { frontmatter, body } = readNoteRaw(fullPath);
   return { relPath, frontmatter, body, version: noteBodyVersion(body) };
 }
 
 function writeNote(projectPath, relPath, body, frontmatterPatch, expectedVersion) {
-  const fullPath = resolveSafe(projectPath, relPath);
+  const fullPath = resolveNoteSafe(projectPath, relPath);
   const existing = readNoteRaw(fullPath);
   const currentVersion = noteBodyVersion(existing.body);
   if (typeof expectedVersion === 'string' && expectedVersion !== currentVersion) {
@@ -423,7 +476,7 @@ function applyTagOperation(projectPath, operation, snapshot) {
   const results = [];
   for (const entry of snapshot) {
     try {
-      const fullPath = resolveSafe(projectPath, entry.relPath);
+      const fullPath = resolveNoteSafe(projectPath, entry.relPath);
       const fresh = readNoteRaw(fullPath);
       const freshTags = fresh.frontmatter.tags || [];
       const freshBodyVersion = noteBodyVersion(fresh.body);
@@ -475,7 +528,7 @@ function undoTagBatch(projectPath, undoEntries) {
   const results = [];
   for (const entry of undoEntries) {
     try {
-      const fullPath = resolveSafe(projectPath, entry.relPath);
+      const fullPath = resolveNoteSafe(projectPath, entry.relPath);
       const fresh = readNoteRaw(fullPath);
       const freshTags = fresh.frontmatter.tags || [];
       const stillMatchesBatchResult = JSON.stringify(freshTags) === JSON.stringify(entry.tags);
@@ -534,7 +587,7 @@ function frontmatterFingerprint(frontmatter) {
 function snapshotNotesForBatch(projectPath, relPaths) {
   return (Array.isArray(relPaths) ? relPaths : []).map(relPath => {
     try {
-      const fullPath = resolveSafe(projectPath, relPath);
+      const fullPath = resolveNoteSafe(projectPath, relPath);
       if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
         return { relPath, bodyVersion: null, frontmatterFingerprint: null };
       }
@@ -557,7 +610,7 @@ function snapshotNotesForBatch(projectPath, relPaths) {
 function checkNoteFreshness(projectPath, entry) {
   let fullPath;
   try {
-    fullPath = resolveSafe(projectPath, entry.relPath);
+    fullPath = resolveNoteSafe(projectPath, entry.relPath);
   } catch {
     return null;
   }
@@ -610,7 +663,7 @@ function applyBatchMove(projectPath, snapshot, targetRelPath) {
         // undoBatchMove() weiter unten (D2 / Block 3): ohne diesen Zustand
         // könnte Undo nicht erkennen, ob die Notiz seit dem Batch erneut
         // verändert/verschoben wurde.
-        const movedFullPath = resolveSafe(projectPath, moved.relPath);
+        const movedFullPath = resolveNoteSafe(projectPath, moved.relPath);
         const movedState = readNoteRaw(movedFullPath);
         results.push({
           relPath: entry.relPath,
@@ -646,7 +699,7 @@ function undoBatchMove(projectPath, undoEntries) {
   const results = [];
   for (const entry of undoEntries) {
     try {
-      const fullPath = resolveSafe(projectPath, entry.newRelPath);
+      const fullPath = resolveNoteSafe(projectPath, entry.newRelPath);
       if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
         results.push({ relPath: entry.newRelPath, status: 'skipped' });
         continue;
@@ -658,7 +711,7 @@ function undoBatchMove(projectPath, undoEntries) {
         results.push({ relPath: entry.newRelPath, status: 'skipped' });
         continue;
       }
-      const oldFullPath = resolveSafe(projectPath, entry.oldRelPath);
+      const oldFullPath = resolveNoteSafe(projectPath, entry.oldRelPath);
       if (fs.existsSync(oldFullPath)) {
         // Ursprünglicher Pfad ist inzwischen wieder belegt — nicht
         // überschreiben, keine automatische Umbenennung zur Umgehung.
@@ -752,7 +805,8 @@ function renameOrMove(fullPath, newPath) {
 }
 
 function renameEntry(projectPath, relPath, newName) {
-  const fullPath = resolveSafe(projectPath, relPath);
+  const kind = classifyEntry(projectPath, relPath);
+  const fullPath = resolveWikiEntrySafe(projectPath, relPath);
   const stat = fs.statSync(fullPath);
   const parentDir = path.dirname(fullPath);
   const isDir = stat.isDirectory();
@@ -762,7 +816,7 @@ function renameEntry(projectPath, relPath, newName) {
   const newPath = uniquePath(parentDir, baseName, ext, fullPath);
   renameOrMove(fullPath, newPath);
 
-  if (!isDir) {
+  if (kind === 'note') {
     const { frontmatter, body } = readNoteRaw(newPath);
     writeNoteRaw(newPath, { ...frontmatter, title: baseName, modified: new Date().toISOString() }, body);
   }
@@ -782,8 +836,8 @@ function moveEntry(projectPath, relPath, targetRelPath) {
     throw new Error('Hauptkategorien können nicht verschoben werden.');
   }
 
-  const fullPath = resolveSafe(projectPath, relPath);
-  const targetDir = resolveSafe(projectPath, targetRelPath || '.');
+  const fullPath = resolveWikiEntrySafe(projectPath, relPath);
+  const targetDir = resolveWikiEntrySafe(projectPath, targetRelPath || '.');
   if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) {
     throw new Error('Zielordner existiert nicht.');
   }
@@ -978,7 +1032,8 @@ function trashMutationError(action, writeError, rollbackError) {
 }
 
 function deleteEntry(projectPath, relPath) {
-  const fullPath = resolveSafe(projectPath, relPath);
+  classifyEntry(projectPath, relPath);
+  const fullPath = resolveWikiEntrySafe(projectPath, relPath);
   const trashDir = trashDirOf(projectPath);
   fs.mkdirSync(trashDir, { recursive: true });
   const index = readTrashIndex(trashDir);
@@ -1052,7 +1107,7 @@ function restoreFromTrash(projectPath, trashRelPath) {
   }
   const originalRelPath = meta.originalRelPath;
 
-  const destParentDir = resolveSafe(projectPath, path.dirname(originalRelPath) || '.');
+  const destParentDir = resolveWikiEntrySafe(projectPath, path.dirname(originalRelPath) || '.', { allowRoot: true });
   fs.mkdirSync(destParentDir, { recursive: true }); // falls Ursprungsordner zwischenzeitlich weg ist
 
   const ext = path.extname(originalRelPath);

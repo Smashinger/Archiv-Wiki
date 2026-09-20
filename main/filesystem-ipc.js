@@ -20,7 +20,140 @@ const { cloneProjectConfig, requireProjectConfig, updateProjectConfig } = requir
 // bei Fehler/Exception) garantiert wieder freigegeben.
 const { runExclusiveSyncMutation } = require('./sync-ipc');
 
-function registerFilesystemIpc({ getCurrentProject, onProjectConfigLoaded }) {
+function invalidIpcArgument(channel, detail) {
+  const error = new TypeError(`Ungültige Argumente für ${channel}: ${detail}`);
+  error.code = 'IPC_ARGUMENT_INVALID';
+  return error;
+}
+
+function assertString(channel, value, label, { allowEmpty = false } = {}) {
+  if (typeof value !== 'string' || (!allowEmpty && value.length === 0) || value.includes('\0')) {
+    throw invalidIpcArgument(channel, `${label} muss ein gültiger Text sein.`);
+  }
+}
+
+function assertOptionalString(channel, value, label) {
+  if (value !== undefined && value !== null) assertString(channel, value, label, { allowEmpty: true });
+}
+
+function assertPlainObject(channel, value, label, { optional = false } = {}) {
+  if (optional && (value === undefined || value === null)) return;
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) {
+    throw invalidIpcArgument(channel, `${label} muss ein einfaches Objekt sein.`);
+  }
+}
+
+function assertStringArray(channel, value, label) {
+  if (!Array.isArray(value) || value.some(item => typeof item !== 'string' || item.includes('\0'))) {
+    throw invalidIpcArgument(channel, `${label} muss eine Liste aus Textwerten sein.`);
+  }
+}
+
+function assertEntryArray(channel, value, label, pathKeys = ['relPath']) {
+  if (!Array.isArray(value)) throw invalidIpcArgument(channel, `${label} muss eine Liste sein.`);
+  for (const entry of value) {
+    assertPlainObject(channel, entry, label);
+    const pathKey = pathKeys.find(key => Object.hasOwn(entry, key));
+    if (!pathKey) throw invalidIpcArgument(channel, `${label} enthält keinen gültigen Notizpfad.`);
+    assertString(channel, entry[pathKey], `${label}.${pathKey}`);
+  }
+}
+
+function validateFilesystemArguments(channel, args) {
+  const stringAt = (index, label, options) => assertString(channel, args[index], label, options);
+  switch (channel) {
+    case 'fs:reorderChildren':
+      stringAt(0, 'parentRelPath', { allowEmpty: true });
+      assertStringArray(channel, args[1], 'orderedNames');
+      break;
+    case 'fs:setCategoryIcon':
+      stringAt(0, 'relPath'); stringAt(1, 'icon'); break;
+    case 'fs:setProjectSetting':
+      stringAt(0, 'key'); break;
+    case 'fs:saveAttachment':
+      stringAt(0, 'fileName');
+      if (!(args[1] instanceof ArrayBuffer) && !ArrayBuffer.isView(args[1])) {
+        throw invalidIpcArgument(channel, 'data muss Binärdaten enthalten.');
+      }
+      break;
+    case 'fs:deleteAttachment':
+    case 'fs:createMainCategory':
+    case 'fs:readNote':
+    case 'fs:deleteEntry':
+    case 'fs:restoreFromTrash':
+      stringAt(0, 'Pfad oder Name'); break;
+    case 'fs:createSubCategory':
+    case 'fs:renameEntry':
+    case 'fs:moveEntry':
+      stringAt(0, 'relPath'); stringAt(1, 'Name oder Zielpfad'); break;
+    case 'fs:createNote':
+      stringAt(0, 'categoryRelPath'); stringAt(1, 'title');
+      assertOptionalString(channel, args[2], 'templateBody');
+      assertPlainObject(channel, args[3], 'options', { optional: true });
+      break;
+    case 'fs:resolveTemplateVariables':
+      stringAt(0, 'text', { allowEmpty: true }); stringAt(1, 'title', { allowEmpty: true }); break;
+    case 'fs:writeNote':
+      stringAt(0, 'relPath');
+      assertOptionalString(channel, args[1], 'body');
+      assertPlainObject(channel, args[2], 'frontmatterPatch', { optional: true });
+      assertOptionalString(channel, args[3], 'expectedVersion');
+      break;
+    case 'fs:collectNotesByTags':
+    case 'fs:collectNoteSnapshots':
+    case 'fs:deleteFromTrash':
+      assertStringArray(channel, args[0], 'Einträge'); break;
+    case 'fs:applyTagOperation': {
+      assertPlainObject(channel, args[0], 'operation');
+      if (!['rename', 'merge', 'delete'].includes(args[0].type)) {
+        throw invalidIpcArgument(channel, 'operation.type ist nicht zulässig.');
+      }
+      if (args[0].type === 'delete') {
+        assertString(channel, args[0].tag, 'operation.tag');
+      } else {
+        assertString(channel, args[0].from, 'operation.from');
+        assertString(channel, args[0].to, 'operation.to');
+      }
+      assertEntryArray(channel, args[1], 'snapshot');
+      break;
+    }
+    case 'fs:undoTagOperation':
+    case 'fs:applyBatchArchive':
+    case 'fs:applyBatchTrash':
+      assertEntryArray(channel, args[0], 'Einträge'); break;
+    case 'fs:applyBatchMove':
+      assertEntryArray(channel, args[0], 'snapshot'); stringAt(1, 'targetRelPath'); break;
+    case 'fs:undoBatchMove':
+      assertEntryArray(channel, args[0], 'undoEntries', ['newRelPath']); break;
+    default:
+      break;
+  }
+}
+
+function registerFilesystemIpc({
+  getCurrentProject,
+  onProjectConfigLoaded,
+  getMainWindow,
+  ipcMainApi = ipcMain,
+  isTrustedSender
+}) {
+  const senderIsTrusted = isTrustedSender || (event => {
+    const window = getMainWindow?.();
+    const contents = window && !window.isDestroyed?.() ? window.webContents : null;
+    return Boolean(contents && event?.sender === contents && event?.senderFrame === contents.mainFrame);
+  });
+
+  function handle(channel, handler) {
+    ipcMainApi.handle(channel, (event, ...args) => {
+      if (!senderIsTrusted(event)) {
+        const error = new Error('IPC-Aufruf stammt nicht aus dem Hauptfenster.');
+        error.code = 'IPC_SENDER_INVALID';
+        throw error;
+      }
+      validateFilesystemArguments(channel, args);
+      return handler(event, ...args);
+    });
+  }
   function requireProjectPath() {
     const projectPath = getCurrentProject()?.path;
     if (!projectPath) throw new Error('Kein Projekt geöffnet.');
@@ -68,7 +201,7 @@ function registerFilesystemIpc({ getCurrentProject, onProjectConfigLoaded }) {
     return nodes;
   }
 
-  ipcMain.handle('fs:listTree', () => {
+  handle('fs:listTree', () => {
     const projectPath = requireProjectPath();
     let tree = nfs.listProjectTree(projectPath);
     const config = requireProjectConfig(projectPath);
@@ -78,7 +211,7 @@ function registerFilesystemIpc({ getCurrentProject, onProjectConfigLoaded }) {
     return tree;
   });
 
-  ipcMain.handle('fs:reorderChildren', (_e, parentRelPath, orderedNames) => {
+  handle('fs:reorderChildren', (_e, parentRelPath, orderedNames) => {
     const projectPath = requireProjectPath();
     const config = updateProjectConfig(projectPath, draft => {
       draft.childOrder = { ...(draft.childOrder || {}), [parentRelPath]: orderedNames };
@@ -86,7 +219,7 @@ function registerFilesystemIpc({ getCurrentProject, onProjectConfigLoaded }) {
     return { saved: true, config: adoptConfig(projectPath, config) };
   });
 
-  ipcMain.handle('fs:setCategoryIcon', (_e, relPath, icon) => {
+  handle('fs:setCategoryIcon', (_e, relPath, icon) => {
     const projectPath = requireProjectPath();
     const config = updateProjectConfig(projectPath, draft => {
       draft.categoryIcons = { ...(draft.categoryIcons || {}), [relPath]: icon };
@@ -106,7 +239,7 @@ function registerFilesystemIpc({ getCurrentProject, onProjectConfigLoaded }) {
   // Sperre ließe sich der Schutz hier passwortlos abschalten. Bewusst ein
   // harter Fehler statt stillem Ignorieren — sonst käme "saved: true" für
   // etwas zurück, das nicht gespeichert wurde.
-  ipcMain.handle('fs:setProjectSetting', (_e, key, value) => {
+  handle('fs:setProjectSetting', (_e, key, value) => {
     const projectPath = requireProjectPath();
     // Der Schlüssel wird unten als Objekteigenschaft geschrieben (draft[key]).
     // Ein nicht-primitiver Schlüssel — etwa das Array ['appLock'] — ist beim
@@ -140,7 +273,7 @@ function registerFilesystemIpc({ getCurrentProject, onProjectConfigLoaded }) {
   // Bilder per Drag&Drop (siehe renderer/js/app.js) — landen gesammelt in
   // EINEM Ordner .attachments/ auf Projekt-Ebene (nicht pro Notiz-Unterordner,
   // das hält es einfach), mit eindeutigem Dateinamen gegen Überschreiben.
-  ipcMain.handle('fs:saveAttachment', (_e, fileName, data) => {
+  handle('fs:saveAttachment', (_e, fileName, data) => {
     const projectPath = requireProjectPath();
     const attachDir = path.join(projectPath, '.attachments');
     if (!fs.existsSync(attachDir)) fs.mkdirSync(attachDir, { recursive: true });
@@ -159,7 +292,7 @@ function registerFilesystemIpc({ getCurrentProject, onProjectConfigLoaded }) {
   // Rückbauhilfe ausschließlich für noch nicht fertig gespeicherte
   // Eingang-Entwürfe. Der Renderer kann nur einen einzelnen Dateinamen aus
   // .attachments zurückgeben; Pfade oder Unterordner werden strikt abgelehnt.
-  ipcMain.handle('fs:deleteAttachment', (_e, fileName) => {
+  handle('fs:deleteAttachment', (_e, fileName) => {
     const projectPath = requireProjectPath();
     const rawName = String(fileName || '');
     const safeName = path.basename(rawName);
@@ -175,78 +308,78 @@ function registerFilesystemIpc({ getCurrentProject, onProjectConfigLoaded }) {
     return { deleted: true };
   });
 
-  ipcMain.handle('fs:getSearchDocuments', () => nfs.getSearchDocuments(requireProjectPath()));
+  handle('fs:getSearchDocuments', () => nfs.getSearchDocuments(requireProjectPath()));
 
-  ipcMain.handle('fs:createMainCategory', (_e, name) =>
+  handle('fs:createMainCategory', (_e, name) =>
     nfs.createMainCategory(requireProjectPath(), name));
 
-  ipcMain.handle('fs:createSubCategory', (_e, mainCategoryRelPath, name) =>
+  handle('fs:createSubCategory', (_e, mainCategoryRelPath, name) =>
     nfs.createSubCategory(requireProjectPath(), mainCategoryRelPath, name));
 
-  ipcMain.handle('fs:createNote', (_e, categoryRelPath, title, templateBody, options) =>
+  handle('fs:createNote', (_e, categoryRelPath, title, templateBody, options) =>
     nfs.createNote(requireProjectPath(), categoryRelPath, title, templateBody, options));
 
   // D5: reiner Lesezugriff auf dieselbe {title}/{date}/{time}/{year}-Auflösung,
   // die createNote() bereits intern verwendet — kein Datei-/Projektzugriff,
   // deshalb bewusst ohne requireProjectPath(). Wird für die Eingang→neue-Notiz
   // Template-Vorschau gebraucht, bevor die Notiz überhaupt geschrieben wird.
-  ipcMain.handle('fs:resolveTemplateVariables', (_e, text, title) =>
+  handle('fs:resolveTemplateVariables', (_e, text, title) =>
     nfs.resolveTemplateVariables(String(text ?? ''), String(title ?? '')));
 
-  ipcMain.handle('fs:readNote', (_e, relPath) =>
+  handle('fs:readNote', (_e, relPath) =>
     nfs.readNote(requireProjectPath(), relPath));
 
-  ipcMain.handle('fs:writeNote', (_e, relPath, body, frontmatterPatch, expectedVersion) =>
+  handle('fs:writeNote', (_e, relPath, body, frontmatterPatch, expectedVersion) =>
     nfs.writeNote(requireProjectPath(), relPath, body, frontmatterPatch, expectedVersion));
 
-  ipcMain.handle('fs:collectNotesByTags', (_e, tags) =>
+  handle('fs:collectNotesByTags', (_e, tags) =>
     nfs.collectNotesByTags(requireProjectPath(), tags));
 
-  ipcMain.handle('fs:applyTagOperation', (_e, operation, snapshot) =>
+  handle('fs:applyTagOperation', (_e, operation, snapshot) =>
     runExclusiveSyncMutation(() => nfs.applyTagOperation(requireProjectPath(), operation, snapshot)));
 
-  ipcMain.handle('fs:undoTagOperation', (_e, undoEntries) =>
+  handle('fs:undoTagOperation', (_e, undoEntries) =>
     runExclusiveSyncMutation(() => nfs.undoTagBatch(requireProjectPath(), undoEntries)));
 
   // D2 / Block 2: Mehrfachauswahl-Batch (Verschieben/Archivieren/Papierkorb).
   // Derselbe Sync-Mutex wie die Tag-Batches oben (runExclusiveSyncMutation) —
   // keine zweite Sperre, Auto-Sync pausiert dadurch zuverlässig auch während
   // dieser Batches und wird per finally garantiert wieder freigegeben.
-  ipcMain.handle('fs:collectNoteSnapshots', (_e, relPaths) =>
+  handle('fs:collectNoteSnapshots', (_e, relPaths) =>
     nfs.snapshotNotesForBatch(requireProjectPath(), relPaths));
 
-  ipcMain.handle('fs:applyBatchMove', (_e, snapshot, targetRelPath) =>
+  handle('fs:applyBatchMove', (_e, snapshot, targetRelPath) =>
     runExclusiveSyncMutation(() => nfs.applyBatchMove(requireProjectPath(), snapshot, targetRelPath)));
 
-  ipcMain.handle('fs:applyBatchArchive', (_e, snapshot) =>
+  handle('fs:applyBatchArchive', (_e, snapshot) =>
     runExclusiveSyncMutation(() => nfs.applyBatchArchive(requireProjectPath(), snapshot)));
 
-  ipcMain.handle('fs:applyBatchTrash', (_e, snapshot) =>
+  handle('fs:applyBatchTrash', (_e, snapshot) =>
     runExclusiveSyncMutation(() => nfs.applyBatchTrash(requireProjectPath(), snapshot)));
 
   // D2 / Block 3: sitzungslokales Undo für Batch-Verschieben — ebenfalls
   // unter demselben Sync-Mutex, damit Auto-Sync auch während des Undos pausiert.
-  ipcMain.handle('fs:undoBatchMove', (_e, undoEntries) =>
+  handle('fs:undoBatchMove', (_e, undoEntries) =>
     runExclusiveSyncMutation(() => nfs.undoBatchMove(requireProjectPath(), undoEntries)));
 
-  ipcMain.handle('fs:renameEntry', (_e, relPath, newName) =>
+  handle('fs:renameEntry', (_e, relPath, newName) =>
     nfs.renameEntry(requireProjectPath(), relPath, newName));
 
-  ipcMain.handle('fs:moveEntry', (_e, relPath, targetCategoryRelPath) =>
+  handle('fs:moveEntry', (_e, relPath, targetCategoryRelPath) =>
     nfs.moveEntry(requireProjectPath(), relPath, targetCategoryRelPath));
 
-  ipcMain.handle('fs:deleteEntry', (_e, relPath) =>
+  handle('fs:deleteEntry', (_e, relPath) =>
     nfs.deleteEntry(requireProjectPath(), relPath));
 
-  ipcMain.handle('fs:listTrash', () => nfs.listTrash(requireProjectPath()));
+  handle('fs:listTrash', () => nfs.listTrash(requireProjectPath()));
 
-  ipcMain.handle('fs:restoreFromTrash', (_e, trashRelPath) =>
+  handle('fs:restoreFromTrash', (_e, trashRelPath) =>
     nfs.restoreFromTrash(requireProjectPath(), trashRelPath));
 
-  ipcMain.handle('fs:deleteFromTrash', (_e, trashRelPaths) =>
+  handle('fs:deleteFromTrash', (_e, trashRelPaths) =>
     nfs.deleteFromTrash(requireProjectPath(), trashRelPaths));
 
-  ipcMain.handle('fs:emptyTrash', () => nfs.emptyTrash(requireProjectPath()));
+  handle('fs:emptyTrash', () => nfs.emptyTrash(requireProjectPath()));
 }
 
 module.exports = { registerFilesystemIpc };
