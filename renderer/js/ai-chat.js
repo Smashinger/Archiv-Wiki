@@ -1,6 +1,13 @@
 'use strict';
 
+import { renderPreview } from './vendor/editor-bundle.js';
+import { showConfirmDialog } from './dialog.js';
+
 const INPUT_MAX_HEIGHT = 140;
+
+function generateMessageId() {
+  return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 export function initAiChat() {
   const panel = document.getElementById('aiChatPanel');
@@ -8,16 +15,261 @@ export function initAiChat() {
   const closeButton = document.getElementById('aiChatCloseBtn');
   const header = panel?.querySelector('[data-ai-drag-handle]');
   const input = document.getElementById('aiChatInput');
-  if (!panel || !openButton || !closeButton || !header || !input) return () => {};
+  const sendButton = document.getElementById('aiChatSendBtn');
+  const clearButton = document.getElementById('aiChatClearBtn');
+  const modelSelect = document.getElementById('aiChatModelSelect');
+  const messagesContainer = document.getElementById('aiChatMessages');
+  const emptyState = messagesContainer?.querySelector('.ai-chat-empty-state');
+  const statusDot = document.getElementById('aiTopbarStatusDot');
+
+  if (!panel || !openButton || !closeButton || !header || !input || !sendButton || !messagesContainer) {
+    return () => {};
+  }
   if (panel.dataset.initialized === 'true') return () => {};
   panel.dataset.initialized = 'true';
+
+  let activeMessageId = null;
+  let activeDeltaBuffer = '';
+  let activeBubbleEl = null;
+  let activeBubbleCursorEl = null;
+
+  function setGenerating(isGenerating) {
+    sendButton.dataset.mode = isGenerating ? 'stop' : 'send';
+    sendButton.setAttribute('aria-label', isGenerating ? 'Antwort stoppen' : 'Nachricht senden');
+    sendButton.title = isGenerating ? 'Antwort stoppen' : 'Nachricht senden (Enter)';
+  }
+
+  function updateEmptyState() {
+    if (!emptyState) return;
+    const hasMessages = messagesContainer.querySelector('.ai-msg-user, .ai-msg-assistant');
+    emptyState.style.display = hasMessages ? 'none' : '';
+  }
+
+  function scrollToBottom() {
+    requestAnimationFrame(() => {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    });
+  }
+
+  function appendUserBubble(text) {
+    const bubble = document.createElement('div');
+    bubble.className = 'ai-msg-user';
+    bubble.textContent = text;
+    messagesContainer.appendChild(bubble);
+    updateEmptyState();
+    scrollToBottom();
+    return bubble;
+  }
+
+  function appendAssistantBubble(markdownText = '') {
+    const bubble = document.createElement('div');
+    bubble.className = 'ai-msg-assistant';
+    bubble.innerHTML = renderPreview(markdownText);
+    messagesContainer.appendChild(bubble);
+    updateEmptyState();
+    scrollToBottom();
+    return bubble;
+  }
+
+  function appendAssistantBubbleWithCursor() {
+    const bubble = document.createElement('div');
+    bubble.className = 'ai-msg-assistant';
+    const contentSpan = document.createElement('div');
+    contentSpan.className = 'ai-msg-content';
+    const cursor = document.createElement('span');
+    cursor.className = 'ai-typing-cursor';
+    cursor.textContent = '▋';
+    bubble.appendChild(contentSpan);
+    bubble.appendChild(cursor);
+    messagesContainer.appendChild(bubble);
+    updateEmptyState();
+    scrollToBottom();
+    return { bubble, content: contentSpan, cursor };
+  }
+
+  async function refreshModelsAndStatus() {
+    try {
+      const settings = await window.archivAPI.ai.getSettings().catch(() => ({}));
+      const conn = await window.archivAPI.ai.checkConnection({ host: settings?.host }).catch(() => ({ online: false }));
+      if (statusDot) {
+        statusDot.classList.toggle('is-online', Boolean(conn?.online));
+        statusDot.classList.toggle('is-offline', !conn?.online);
+        statusDot.title = conn?.online
+          ? `Ollama online (${conn.version ? `v${String(conn.version).replace(/^v/i, '')}` : ''})`
+          : 'Ollama nicht erreichbar';
+      }
+      if (modelSelect) {
+        const modelsRes = await window.archivAPI.ai.getModels({ host: settings?.host }).catch(() => ({ success: false, models: [] }));
+        const availableNames = modelsRes?.success && Array.isArray(modelsRes.models)
+          ? modelsRes.models.map(m => m?.name).filter(Boolean)
+          : [];
+        const currentSelected = modelSelect.value || settings?.defaultModel || 'phi:2.7b';
+        const allModels = [...new Set([currentSelected, ...availableNames])];
+        modelSelect.innerHTML = '';
+        for (const name of allModels) {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          opt.selected = (name === currentSelected);
+          modelSelect.appendChild(opt);
+        }
+      }
+    } catch (err) {
+      console.warn('KI-Chat: Modelle/Status konnten nicht aktualisiert werden:', err);
+    }
+  }
+
+  async function loadHistory() {
+    try {
+      const history = await window.archivAPI.ai.getHistory();
+      if (Array.isArray(history) && history.length > 0) {
+        messagesContainer.innerHTML = '';
+        for (const msg of history) {
+          if (msg.role === 'user') {
+            appendUserBubble(msg.content);
+          } else if (msg.role === 'assistant') {
+            appendAssistantBubble(msg.content);
+          }
+        }
+        updateEmptyState();
+        scrollToBottom();
+      }
+    } catch (err) {
+      console.warn('KI-Chat: Verlauf konnte nicht geladen werden:', err);
+    }
+  }
+
+  async function sendMessage() {
+    if (activeMessageId) {
+      try {
+        await window.archivAPI.ai.abort(activeMessageId);
+      } catch (err) {
+        console.warn('KI-Chat: Stoppen fehlgeschlagen:', err);
+      }
+      return;
+    }
+
+    const text = input.value.trim();
+    if (!text) return;
+
+    const messageId = generateMessageId();
+    activeMessageId = messageId;
+    activeDeltaBuffer = '';
+
+    input.value = '';
+    resizeInput();
+
+    appendUserBubble(text);
+    const { bubble, cursor } = appendAssistantBubbleWithCursor();
+    activeBubbleEl = bubble;
+    activeBubbleCursorEl = cursor;
+    setGenerating(true);
+
+    const selectedModel = modelSelect?.value || undefined;
+    try {
+      await window.archivAPI.ai.sendMessage({
+        messageId,
+        text,
+        model: selectedModel
+      });
+    } catch (err) {
+      activeBubbleCursorEl?.remove();
+      bubble.classList.add('ai-msg-error');
+      bubble.textContent = `Fehler: ${err?.message || 'Nachricht konnte nicht gesendet werden.'}`;
+      activeMessageId = null;
+      activeDeltaBuffer = '';
+      activeBubbleEl = null;
+      activeBubbleCursorEl = null;
+      setGenerating(false);
+    }
+  }
+
+  async function handleClearHistory() {
+    const confirmed = await showConfirmDialog({
+      title: 'Chat-Verlauf leeren',
+      message: 'Möchtest du alle bisherigen Nachrichten dieses Chats unwiderruflich löschen?',
+      confirmLabel: 'Verlauf leeren',
+      danger: true
+    });
+    if (!confirmed) return;
+
+    try {
+      await window.archivAPI.ai.clearHistory();
+      messagesContainer.innerHTML = '';
+      if (emptyState) messagesContainer.appendChild(emptyState);
+      updateEmptyState();
+    } catch (err) {
+      console.error('KI-Chat: Verlauf konnte nicht gelöscht werden:', err);
+    }
+  }
+
+  const removeChunkListener = window.archivAPI.ai.onStreamChunk((payload) => {
+    if (!payload || payload.messageId !== activeMessageId) return;
+    activeDeltaBuffer += (payload.delta || '');
+    if (activeBubbleEl) {
+      const contentEl = activeBubbleEl.querySelector('.ai-msg-content');
+      if (contentEl) {
+        contentEl.innerHTML = renderPreview(activeDeltaBuffer);
+      }
+      scrollToBottom();
+    }
+  });
+
+  const removeEndListener = window.archivAPI.ai.onStreamEnd((payload) => {
+    if (!payload || payload.messageId !== activeMessageId) return;
+    const fullText = payload.fullText || activeDeltaBuffer;
+    if (activeBubbleEl) {
+      activeBubbleCursorEl?.remove();
+      activeBubbleEl.innerHTML = renderPreview(fullText);
+      scrollToBottom();
+    }
+    activeMessageId = null;
+    activeDeltaBuffer = '';
+    activeBubbleEl = null;
+    activeBubbleCursorEl = null;
+    setGenerating(false);
+  });
+
+  const removeErrorListener = window.archivAPI.ai.onStreamError((payload) => {
+    if (!payload || payload.messageId !== activeMessageId) return;
+    activeBubbleCursorEl?.remove();
+    if (payload.category === 'aborted') {
+      if (activeBubbleEl) {
+        const contentEl = activeBubbleEl.querySelector('.ai-msg-content');
+        if (contentEl && activeDeltaBuffer) {
+          contentEl.innerHTML = renderPreview(activeDeltaBuffer);
+        }
+        const notice = document.createElement('div');
+        notice.className = 'ai-msg-system';
+        notice.textContent = '(Antwort gestoppt)';
+        activeBubbleEl.appendChild(notice);
+      }
+    } else {
+      if (activeBubbleEl) {
+        const errorBox = document.createElement('div');
+        errorBox.className = 'ai-msg-error';
+        errorBox.style.marginTop = activeDeltaBuffer ? '6px' : '0';
+        errorBox.textContent = payload.error || 'Fehler bei der Kommunikation mit Ollama.';
+        activeBubbleEl.appendChild(errorBox);
+      }
+    }
+    scrollToBottom();
+    activeMessageId = null;
+    activeDeltaBuffer = '';
+    activeBubbleEl = null;
+    activeBubbleCursorEl = null;
+    setGenerating(false);
+  });
 
   function setOpen(open) {
     panel.hidden = !open;
     openButton.classList.toggle('is-active', open);
     openButton.setAttribute('aria-pressed', String(open));
     openButton.setAttribute('aria-label', open ? 'KI-Assistent schließen' : 'KI-Assistent öffnen');
-    if (open) requestAnimationFrame(() => input.focus({ preventScroll: true }));
+    if (open) {
+      refreshModelsAndStatus();
+      requestAnimationFrame(() => input.focus({ preventScroll: true }));
+    }
   }
 
   function togglePanel() {
@@ -84,10 +336,29 @@ export function initAiChat() {
   document.addEventListener('keydown', handleShortcut);
   header.addEventListener('mousedown', startDragging);
   input.addEventListener('input', resizeInput);
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      sendMessage();
+    }
+  });
+  sendButton.addEventListener('click', sendMessage);
+  clearButton?.addEventListener('click', handleClearHistory);
+  modelSelect?.addEventListener('change', () => {
+    if (modelSelect.value) {
+      window.archivAPI.ai.updateSettings({ defaultModel: modelSelect.value }).catch(() => {});
+    }
+  });
+
   resizeInput();
+  loadHistory();
+  refreshModelsAndStatus();
 
   return () => {
     stopDragging();
+    removeChunkListener?.();
+    removeEndListener?.();
+    removeErrorListener?.();
     openButton.removeEventListener('click', togglePanel);
     closeButton.removeEventListener('click', closePanel);
     document.removeEventListener('keydown', handleShortcut);
