@@ -12,13 +12,14 @@ const DEFAULT_SETTINGS = Object.freeze({
   defaultModel: 'phi:2.7b',
   temperature: 0.7,
   contextSize: 4096,
-  persistHistory: true
+  persistHistory: true,
+  mode: 'safe'
 });
 
 const SETTING_KEYS = new Set(Object.keys(DEFAULT_SETTINGS));
 const HOST_ARGUMENT_KEYS = new Set(['host']);
-const SEND_ARGUMENT_KEYS = new Set(['messageId', 'model', 'text', 'options']);
-const OPTION_KEYS = new Set(['temperature', 'contextSize']);
+const SEND_ARGUMENT_KEYS = new Set(['messageId', 'model', 'text', 'options', 'mode']);
+const OPTION_KEYS = new Set(['temperature', 'contextSize', 'mode']);
 
 function invalidArgument(message = 'Ungültige Argumente für KI-IPC.') {
   const error = new TypeError(message);
@@ -65,6 +66,10 @@ function validateSettingsPatch(patch) {
     if (typeof patch.persistHistory !== 'boolean') throw invalidArgument();
     clean.persistHistory = patch.persistHistory;
   }
+  if ('mode' in patch) {
+    if (typeof patch.mode !== 'string' || !['safe', 'auto', 'plan'].includes(patch.mode)) throw invalidArgument('Ungültiger KI-Modus.');
+    clean.mode = patch.mode;
+  }
   return clean;
 }
 
@@ -90,6 +95,7 @@ function validateSendRequest(args) {
   if (typeof request.messageId !== 'string' || !/^[A-Za-z0-9._:-]{1,200}$/.test(request.messageId)) throw invalidArgument();
   if (typeof request.text !== 'string' || !request.text.trim() || request.text.length > 200_000) throw invalidArgument();
   if (request.model !== undefined && (typeof request.model !== 'string' || !request.model.trim() || request.model.length > 200)) throw invalidArgument();
+  if (request.mode !== undefined && (typeof request.mode !== 'string' || !['safe', 'auto', 'plan'].includes(request.mode))) throw invalidArgument('Ungültiger KI-Modus.');
   let options = {};
   if (request.options !== undefined) {
     requireAllowedKeys(request.options, OPTION_KEYS);
@@ -99,6 +105,7 @@ function validateSendRequest(args) {
     messageId: request.messageId,
     text: request.text,
     ...(request.model !== undefined ? { model: request.model } : {}),
+    ...(request.mode !== undefined ? { mode: request.mode } : {}),
     options
   };
 }
@@ -191,6 +198,7 @@ function registerAiIpc({
     const model = request.model || settings.defaultModel;
     const temperature = request.options.temperature ?? settings.temperature;
     const contextSize = request.options.contextSize ?? settings.contextSize;
+    const mode = request.mode || request.options.mode || settings.mode || 'safe';
     let pendingDelta = '';
     let flushTimer = null;
     const flush = () => {
@@ -221,6 +229,7 @@ function registerAiIpc({
         const result = await ollamaClient.streamChat({
           host: settings.host,
           model,
+          mode,
           text: request.text,
           temperature,
           contextSize,

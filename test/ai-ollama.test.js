@@ -310,3 +310,141 @@ test('KI 7: registerAiIpc sendet ai:stream-tool-call Event an das Hauptfenster',
   assert.deepEqual(toolCallEvent.payload.args, { query: 'Schoko' });
 });
 
+test('KI 8: getSystemPrompt liefert modusspezifische Instruktionen für safe, auto und plan', () => {
+  const safePrompt = ollama.getSystemPrompt('safe');
+  assert.match(safePrompt, /Safe-Modus aktiv/);
+
+  const autoPrompt = ollama.getSystemPrompt('auto');
+  assert.match(autoPrompt, /Auto-Modus aktiv/);
+  assert.match(autoPrompt, /mehrere Werkzeuge nacheinander/);
+
+  const planPrompt = ollama.getSystemPrompt('plan');
+  assert.match(planPrompt, /Plan-Modus aktiv/);
+  assert.match(planPrompt, /Schritt-für-Schritt-Plan/);
+});
+
+test('KI 9: streamChat AgentLoopGuard fängt wiederholte identische Tool-Aufrufe ab', async t => {
+  let turnCount = 0;
+  const { host } = await startMockServer(t, (req, res) => {
+    let raw = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      turnCount += 1;
+      const body = JSON.parse(raw);
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+
+      if (turnCount === 1) {
+        // Erste Runde: Modell ruft search_notes auf
+        res.write(`${JSON.stringify({
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{ function: { name: 'search_notes', arguments: { query: 'Endlos' } } }]
+          },
+          done: true
+        })}\n`);
+        res.end();
+      } else if (turnCount === 2) {
+        // Zweite Runde: Modell ruft versehentlich EXAKT dasselbe Tool mit denselben Args erneut auf
+        assert.equal(body.messages.at(-1).role, 'tool');
+        res.write(`${JSON.stringify({
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{ function: { name: 'search_notes', arguments: { query: 'Endlos' } } }]
+          },
+          done: true
+        })}\n`);
+        res.end();
+      } else if (turnCount === 3) {
+        // Dritte Runde: Modell erhält die Warnung des Loop-Guards und beendet
+        const lastToolMsg = body.messages.at(-1);
+        assert.equal(lastToolMsg.role, 'tool');
+        assert.match(lastToolMsg.content, /bereits mit identischen Argumenten ausgeführt/);
+
+        res.write(`${JSON.stringify({
+          message: { content: 'Zusammenfassung ohne weiteren Aufruf.' },
+          done: false
+        })}\n`);
+        res.end(`${JSON.stringify({ done: true })}\n`);
+      }
+    });
+  });
+
+  let toolExecutionCount = 0;
+  const result = await ollama.streamChat({
+    host,
+    model: 'phi:2.7b',
+    text: 'Finde Notizen',
+    tools: [{ type: 'function', function: { name: 'search_notes' } }],
+    executeTool: async () => {
+      toolExecutionCount += 1;
+      return { found: true };
+    }
+  });
+
+  assert.equal(toolExecutionCount, 1, 'Tool darf bei Duplikataufruf vom LoopGuard nicht erneut ausgeführt werden');
+  assert.equal(turnCount, 3);
+  assert.match(result.fullText, /Zusammenfassung ohne weiteren Aufruf/);
+});
+
+test('KI 10: KI-IPC validiert Betriebsmodus und weist ungültige Modi fail-closed ab', async () => {
+  const handlers = new Map();
+  let receivedMode = null;
+  const state = { aiSettings: { host: 'http://127.0.0.1:11434', enabled: true, mode: 'safe' } };
+
+  const mockOllama = {
+    DEFAULT_HOST: 'http://127.0.0.1:11434',
+    normalizeHost: ollama.normalizeHost,
+    friendlyError: ollama.friendlyError,
+    streamChat: async ({ mode, onChunk }) => {
+      receivedMode = mode;
+      onChunk('Antwort');
+      return { done: true, fullText: 'Antwort', stats: {} };
+    }
+  };
+
+  registerAiIpc({
+    getCurrentProject: () => null,
+    getMainWindow: () => ({
+      isDestroyed: () => false,
+      webContents: { send: () => {} }
+    }),
+    ipcMainApi: { handle: (channel, handler) => handlers.set(channel, handler) },
+    isTrustedSender: event => event?.trusted === true,
+    ollamaClient: mockOllama,
+    readState: () => state,
+    writeState: patch => Object.assign(state, patch)
+  });
+
+  const event = { trusted: true };
+
+  // Gültige Modi
+  assert.deepEqual(await handlers.get('ai:updateSettings')(event, { mode: 'auto' }), {
+    ...state.aiSettings,
+    mode: 'auto'
+  });
+
+  assert.deepEqual(await handlers.get('ai:updateSettings')(event, { mode: 'plan' }), {
+    ...state.aiSettings,
+    mode: 'plan'
+  });
+
+  // Ungültiger Modus wird abgewiesen
+  assert.throws(
+    () => handlers.get('ai:updateSettings')(event, { mode: 'dangerous' }),
+    error => error?.code === 'IPC_ARGUMENT_INVALID'
+  );
+
+  assert.throws(
+    () => handlers.get('ai:sendMessage')(event, { messageId: 'm1', text: 'Hi', mode: 'invalid' }),
+    error => error?.code === 'IPC_ARGUMENT_INVALID'
+  );
+
+  // Per-Request-Modus wird an streamChat übergeben
+  await handlers.get('ai:sendMessage')(event, { messageId: 'm2', text: 'Hi', mode: 'auto' });
+  await waitFor(() => receivedMode === 'auto');
+  assert.equal(receivedMode, 'auto');
+});
+

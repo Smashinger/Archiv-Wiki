@@ -6,7 +6,18 @@ const https = require('node:https');
 const DEFAULT_HOST = 'http://127.0.0.1:11434';
 const TAGS_TIMEOUT_MS = 5_000;
 const CHAT_IDLE_TIMEOUT_MS = 30_000;
-const SYSTEM_PROMPT = 'Du bist der integrierte KI-Assistent von Archiv-Wiki. Antworte stets präzise, sachlich, auf Deutsch und formatiere deine Antworten in sauberem Markdown. Du hast über Werkzeuge Zugriff auf die Notizen des Nutzers im aktuellen Wiki. Wenn der Nutzer nach Notizen, Inhalten, Rezepten oder Projekten fragt, nutze die bereitgestellten Werkzeuge (search_notes, read_note, list_notes), um verlässliche Antworten zu geben. Erfinde keine Notizen.';
+const BASE_SYSTEM_PROMPT = 'Du bist der integrierte KI-Assistent von Archiv-Wiki. Antworte stets präzise, sachlich, auf Deutsch und formatiere deine Antworten in sauberem Markdown. Du hast über Werkzeuge Zugriff auf die Notizen des Nutzers im aktuellen Wiki. Wenn der Nutzer nach Notizen, Inhalten, Rezepten oder Projekten fragt, nutze die bereitgestellten Werkzeuge (search_notes, read_note, list_notes), um verlässliche Antworten zu geben. Erfinde keine Notizen.';
+const SYSTEM_PROMPT = BASE_SYSTEM_PROMPT;
+
+function getSystemPrompt(mode = 'safe') {
+  if (mode === 'plan') {
+    return `${BASE_SYSTEM_PROMPT}\n\nWICHTIG (Plan-Modus aktiv): Erstelle bei komplexeren Aufgaben oder Recherchen zuerst einen kurzen, nummerierten Schritt-für-Schritt-Plan und frage den Nutzer, ob der Plan so ausgeführt werden soll. Führe noch keine voreiligen Aktionen aus.`;
+  }
+  if (mode === 'auto') {
+    return `${BASE_SYSTEM_PROMPT}\n\nWICHTIG (Auto-Modus aktiv): Du darfst selbstständig mehrere Werkzeuge nacheinander verwenden (z. B. suchen und gefundene Notizen direkt lesen), um Zusammenhänge, Querverweise oder Details eigenständig zu ermitteln, bevor du deine finale Antwort gibst.`;
+  }
+  return `${BASE_SYSTEM_PROMPT}\n\nWICHTIG (Safe-Modus aktiv): Gehe schrittweise und bedacht vor. Nutze Werkzeuge gezielt zur Beantwortung der aktuellen Frage.`;
+}
 
 class OllamaError extends Error {
   constructor(message, category = 'unknown', cause) {
@@ -262,6 +273,7 @@ async function streamChat({
   host = DEFAULT_HOST,
   model,
   text,
+  mode = 'safe',
   temperature = 0.7,
   contextSize = 4096,
   signal,
@@ -275,14 +287,16 @@ async function streamChat({
     throw new OllamaError('Modell und Nachricht müssen angegeben werden.', 'unknown');
   }
 
+  const systemPrompt = getSystemPrompt(mode);
   const messages = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: systemPrompt },
     { role: 'user', content: text }
   ];
 
   let fullText = '';
   let finalStats = {};
-  const maxTurns = 4;
+  const maxTurns = mode === 'auto' ? 6 : 4;
+  const executedSignatures = new Set();
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal?.aborted) {
@@ -331,6 +345,20 @@ async function streamChat({
       if (!fnArgs || typeof fnArgs !== 'object') {
         fnArgs = {};
       }
+
+      // Loop Guard: Schutz vor identischen Mehrfachaufrufen in derselben Abfrage
+      const signature = `${fnName}:${JSON.stringify(fnArgs)}`;
+      if (executedSignatures.has(signature)) {
+        messages.push({
+          role: 'tool',
+          content: JSON.stringify({
+            warning: 'Dieses Werkzeug wurde in dieser Abfrage bereits mit identischen Argumenten ausgeführt. Bitte wiederhole den Aufruf nicht, sondern fasse die Antwort zusammen oder wähle andere Parameter.'
+          })
+        });
+        continue;
+      }
+      executedSignatures.add(signature);
+
       onToolCall({ name: fnName, args: fnArgs });
 
       let toolResult;
@@ -359,6 +387,7 @@ module.exports = {
   TAGS_TIMEOUT_MS,
   CHAT_IDLE_TIMEOUT_MS,
   SYSTEM_PROMPT,
+  getSystemPrompt,
   OllamaError,
   normalizeHost,
   friendlyError,
