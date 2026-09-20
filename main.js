@@ -1854,7 +1854,10 @@ app.whenReady().then(async () => {
     getMainWindow: () => mainWindow,
     onProjectConfigLoaded: adoptCurrentProjectConfig
   }));
-  safeRegister('registerAiIpc', () => registerAiIpc({ getMainWindow: () => mainWindow }));
+  safeRegister('registerAiIpc', () => registerAiIpc({
+    getCurrentProject: () => currentProject,
+    getMainWindow: () => mainWindow
+  }));
   // Bugfix (Audit-Punkt 6): vorher nur im "kein Projekt bekannt"-Zweig weiter
   // unten registriert — wurde der Wizard stattdessen später über
   // app.on('activate') geöffnet (z. B. falls currentProject.path zwischen-

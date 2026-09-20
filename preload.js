@@ -83,6 +83,11 @@ contextBridge.exposeInMainWorld('archivAPI', {
       const listener = (_event, payload) => callback(payload);
       ipcRenderer.on('ai:stream-error', listener);
       return () => ipcRenderer.removeListener('ai:stream-error', listener);
+    },
+    onStreamToolCall: (callback) => {
+      const listener = (_event, payload) => callback(payload);
+      ipcRenderer.on('ai:stream-tool-call', listener);
+      return () => ipcRenderer.removeListener('ai:stream-tool-call', listener);
     }
   },
   webClipper: {

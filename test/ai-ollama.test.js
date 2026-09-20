@@ -188,3 +188,125 @@ test('KI-IPC weist fremde Sender und zusätzliche Argumentfelder fail-closed ab'
     error => error?.code === 'IPC_ARGUMENT_INVALID'
   );
 });
+
+test('KI 6: streamChat führt tool_calls rekursiv aus und reicht Tool-Ergebnisse an Ollama weiter', async t => {
+  let turnCount = 0;
+  const toolCallsReported = [];
+
+  const { host } = await startMockServer(t, (req, res) => {
+    assert.equal(req.method, 'POST');
+    assert.equal(req.url, '/api/chat');
+    let raw = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      turnCount += 1;
+      const body = JSON.parse(raw);
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+
+      if (turnCount === 1) {
+        assert.equal(body.messages.length, 2);
+        assert.equal(body.tools.length, 1);
+        res.write(`${JSON.stringify({
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              function: {
+                name: 'search_notes',
+                arguments: { query: 'Kuchen' }
+              }
+            }]
+          },
+          done: true
+        })}\n`);
+        res.end();
+      } else if (turnCount === 2) {
+        assert.equal(body.messages.length, 4);
+        assert.equal(body.messages[2].role, 'assistant');
+        assert.equal(body.messages[2].tool_calls[0].function.name, 'search_notes');
+        assert.equal(body.messages[3].role, 'tool');
+        assert.match(body.messages[3].content, /Käsekuchen/);
+
+        res.write(`${JSON.stringify({
+          message: { content: 'Ich habe das Rezept für Käsekuchen gefunden.' },
+          done: false
+        })}\n`);
+        res.end(`${JSON.stringify({
+          done: true,
+          eval_count: 8,
+          total_duration: 10_000_000
+        })}\n`);
+      }
+    });
+  });
+
+  const executedTools = [];
+  const result = await ollama.streamChat({
+    host,
+    model: 'phi:2.7b',
+    text: 'Such nach Kuchen',
+    tools: [{ type: 'function', function: { name: 'search_notes' } }],
+    executeTool: async (name, args) => {
+      executedTools.push({ name, args });
+      return { matches: ['Käsekuchen.md'] };
+    },
+    onToolCall: (call) => toolCallsReported.push(call)
+  });
+
+  assert.equal(turnCount, 2);
+  assert.deepEqual(executedTools, [{ name: 'search_notes', args: { query: 'Kuchen' } }]);
+  assert.deepEqual(toolCallsReported, [{ name: 'search_notes', args: { query: 'Kuchen' } }]);
+  assert.equal(result.fullText, 'Ich habe das Rezept für Käsekuchen gefunden.');
+  assert.equal(result.stats.evalCount, 8);
+  assert.equal(result.stats.totalDurationMs, 10);
+});
+
+test('KI 7: registerAiIpc sendet ai:stream-tool-call Event an das Hauptfenster', async () => {
+  const handlers = new Map();
+  const events = [];
+  const state = { aiSettings: { host: 'http://127.0.0.1:11434', enabled: true } };
+
+  const mockOllama = {
+    DEFAULT_HOST: 'http://127.0.0.1:11434',
+    normalizeHost: ollama.normalizeHost,
+    friendlyError: ollama.friendlyError,
+    streamChat: async ({ onToolCall, onChunk, tools, executeTool }) => {
+      assert.ok(Array.isArray(tools) && tools.length > 0);
+      assert.equal(typeof executeTool, 'function');
+      onToolCall({ name: 'search_notes', args: { query: 'Schoko' } });
+      onChunk('Gefunden: ');
+      return { done: true, fullText: 'Gefunden: Schoko', stats: {} };
+    }
+  };
+
+  registerAiIpc({
+    getCurrentProject: () => ({ path: '/tmp/test-project' }),
+    getMainWindow: () => ({
+      isDestroyed: () => false,
+      webContents: { send: (channel, payload) => events.push({ channel, payload }) }
+    }),
+    ipcMainApi: { handle: (channel, handler) => handlers.set(channel, handler) },
+    isTrustedSender: event => event?.trusted === true,
+    ollamaClient: mockOllama,
+    readState: () => state,
+    writeState: patch => Object.assign(state, patch)
+  });
+
+  const event = { trusted: true };
+  const sendRes = await handlers.get('ai:sendMessage')(event, {
+    messageId: 'tool-call-test',
+    model: 'phi:2.7b',
+    text: 'Finde Schoko'
+  });
+  assert.deepEqual(sendRes, { started: true, messageId: 'tool-call-test' });
+
+  await waitFor(() => events.find(e => e.channel === 'ai:stream-end'));
+
+  const toolCallEvent = events.find(e => e.channel === 'ai:stream-tool-call');
+  assert.ok(toolCallEvent, 'ai:stream-tool-call muss gesendet werden');
+  assert.equal(toolCallEvent.payload.messageId, 'tool-call-test');
+  assert.equal(toolCallEvent.payload.tool, 'search_notes');
+  assert.deepEqual(toolCallEvent.payload.args, { query: 'Schoko' });
+});
+

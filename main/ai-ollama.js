@@ -6,7 +6,7 @@ const https = require('node:https');
 const DEFAULT_HOST = 'http://127.0.0.1:11434';
 const TAGS_TIMEOUT_MS = 5_000;
 const CHAT_IDLE_TIMEOUT_MS = 30_000;
-const SYSTEM_PROMPT = 'Du bist der integrierte KI-Assistent von Archiv-Wiki. Antworte stets präzise, sachlich, auf Deutsch und formatiere deine Antworten in sauberem Markdown.';
+const SYSTEM_PROMPT = 'Du bist der integrierte KI-Assistent von Archiv-Wiki. Antworte stets präzise, sachlich, auf Deutsch und formatiere deine Antworten in sauberem Markdown. Du hast über Werkzeuge Zugriff auf die Notizen des Nutzers im aktuellen Wiki. Wenn der Nutzer nach Notizen, Inhalten, Rezepten oder Projekten fragt, nutze die bereitgestellten Werkzeuge (search_notes, read_note, list_notes), um verlässliche Antworten zu geben. Erfinde keine Notizen.';
 
 class OllamaError extends Error {
   constructor(message, category = 'unknown', cause) {
@@ -136,10 +136,11 @@ async function checkConnection({ host = DEFAULT_HOST, signal, timeoutMs = TAGS_T
   };
 }
 
-function streamChat({
+function executeChatTurn({
   host = DEFAULT_HOST,
   model,
-  text,
+  messages,
+  tools = [],
   temperature = 0.7,
   contextSize = 4096,
   signal,
@@ -149,30 +150,31 @@ function streamChat({
   return new Promise((resolve, reject) => {
     let settled = false;
     let response = null;
-    let fullText = '';
+    let turnText = '';
     let buffer = '';
     let finalRecord = null;
+    const toolCalls = [];
+
     const fail = (error) => {
       if (settled) return;
       settled = true;
       reject(friendlyError(error));
     };
-    if (typeof model !== 'string' || !model.trim() || typeof text !== 'string' || !text.trim()) {
-      fail(new OllamaError('Modell und Nachricht müssen angegeben werden.', 'unknown'));
-      return;
-    }
+
     let url;
     try { url = endpointUrl(host, '/api/chat'); }
     catch (error) { fail(error); return; }
-    const body = JSON.stringify({
+
+    const bodyObj = {
       model,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: text }
-      ],
+      messages,
       stream: true,
       options: { temperature, num_ctx: contextSize }
-    });
+    };
+    if (Array.isArray(tools) && tools.length > 0) {
+      bodyObj.tools = tools;
+    }
+    const body = JSON.stringify(bodyObj);
     const transport = url.protocol === 'https:' ? https : http;
 
     const consumeLine = (line) => {
@@ -181,11 +183,23 @@ function streamChat({
       try { record = JSON.parse(line); }
       catch (error) { throw new OllamaError('Ollama hat einen ungültigen Stream geliefert.', 'unknown', error); }
       if (record.error) throw httpError(response?.statusCode || 500, record.error);
+
       const delta = record?.message?.content;
       if (typeof delta === 'string' && delta) {
-        fullText += delta;
+        turnText += delta;
         onChunk(delta);
       }
+
+      const rawToolCalls = record?.message?.tool_calls;
+      if (Array.isArray(rawToolCalls) && rawToolCalls.length > 0) {
+        for (const tc of rawToolCalls) {
+          const serialized = JSON.stringify(tc);
+          if (!toolCalls.some(existing => JSON.stringify(existing) === serialized)) {
+            toolCalls.push(tc);
+          }
+        }
+      }
+
       if (record.done === true) finalRecord = record;
     };
 
@@ -228,12 +242,9 @@ function streamChat({
         if (!finalRecord) { fail(new OllamaError('Ollama hat den Stream vorzeitig beendet.', 'unknown')); return; }
         settled = true;
         resolve({
-          done: true,
-          fullText,
-          stats: {
-            ...(Number.isFinite(finalRecord.eval_count) ? { evalCount: finalRecord.eval_count } : {}),
-            ...(Number.isFinite(finalRecord.total_duration) ? { totalDurationMs: finalRecord.total_duration / 1_000_000 } : {})
-          }
+          turnText,
+          toolCalls,
+          finalRecord
         });
       });
     });
@@ -247,6 +258,102 @@ function streamChat({
   });
 }
 
+async function streamChat({
+  host = DEFAULT_HOST,
+  model,
+  text,
+  temperature = 0.7,
+  contextSize = 4096,
+  signal,
+  tools = [],
+  executeTool = null,
+  onToolCall = () => {},
+  onChunk = () => {},
+  idleTimeoutMs = CHAT_IDLE_TIMEOUT_MS
+}) {
+  if (typeof model !== 'string' || !model.trim() || typeof text !== 'string' || !text.trim()) {
+    throw new OllamaError('Modell und Nachricht müssen angegeben werden.', 'unknown');
+  }
+
+  const messages = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'user', content: text }
+  ];
+
+  let fullText = '';
+  let finalStats = {};
+  const maxTurns = 4;
+
+  for (let turn = 0; turn < maxTurns; turn++) {
+    if (signal?.aborted) {
+      throw friendlyError(new Error('AbortError'));
+    }
+
+    const { turnText, toolCalls, finalRecord } = await executeChatTurn({
+      host,
+      model,
+      messages,
+      tools,
+      temperature,
+      contextSize,
+      signal,
+      onChunk,
+      idleTimeoutMs
+    });
+
+    if (turnText) {
+      fullText = (fullText ? fullText + '\n\n' : '') + turnText;
+    }
+
+    if (finalRecord) {
+      finalStats = {
+        ...(Number.isFinite(finalRecord.eval_count) ? { evalCount: finalRecord.eval_count } : {}),
+        ...(Number.isFinite(finalRecord.total_duration) ? { totalDurationMs: finalRecord.total_duration / 1_000_000 } : {})
+      };
+    }
+
+    if (!toolCalls || toolCalls.length === 0 || typeof executeTool !== 'function') {
+      break;
+    }
+
+    messages.push({
+      role: 'assistant',
+      content: turnText || '',
+      tool_calls: toolCalls
+    });
+
+    for (const call of toolCalls) {
+      const fnName = call?.function?.name;
+      let fnArgs = call?.function?.arguments;
+      if (typeof fnArgs === 'string') {
+        try { fnArgs = JSON.parse(fnArgs); } catch { fnArgs = {}; }
+      }
+      if (!fnArgs || typeof fnArgs !== 'object') {
+        fnArgs = {};
+      }
+      onToolCall({ name: fnName, args: fnArgs });
+
+      let toolResult;
+      try {
+        toolResult = await executeTool(fnName, fnArgs);
+      } catch (err) {
+        toolResult = { error: err?.message || 'Fehler bei der Werkzeugausführung.' };
+      }
+
+      messages.push({
+        role: 'tool',
+        content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult)
+      });
+    }
+  }
+
+  return {
+    done: true,
+    fullText,
+    stats: finalStats
+  };
+}
+
 module.exports = {
   DEFAULT_HOST,
   TAGS_TIMEOUT_MS,
@@ -257,5 +364,6 @@ module.exports = {
   friendlyError,
   getModels,
   checkConnection,
+  executeChatTurn,
   streamChat
 };

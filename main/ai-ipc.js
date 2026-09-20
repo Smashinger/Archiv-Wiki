@@ -4,6 +4,7 @@ const { ipcMain } = require('electron');
 const appState = require('./app-state');
 const ollama = require('./ai-ollama');
 const { createAiHistory } = require('./ai-history');
+const { AI_TOOLS_DEFINITIONS, executeAiTool } = require('./ai-tools');
 
 const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
@@ -111,6 +112,7 @@ function validateMessageIdArgument(args) {
 
 function registerAiIpc({
   getMainWindow,
+  getCurrentProject,
   ipcMainApi = ipcMain,
   isTrustedSender,
   readState = appState.readAppState,
@@ -208,6 +210,14 @@ function registerAiIpc({
         if (settings.persistHistory) {
           history.addMessage({ id: request.messageId, role: 'user', content: request.text, timestamp: now(), model });
         }
+        const currentProject = typeof getCurrentProject === 'function' ? getCurrentProject() : null;
+        const projectPath = currentProject?.path || null;
+
+        const tools = projectPath ? AI_TOOLS_DEFINITIONS : [];
+        const executeTool = projectPath
+          ? (name, args) => executeAiTool(projectPath, name, args)
+          : null;
+
         const result = await ollamaClient.streamChat({
           host: settings.host,
           model,
@@ -215,6 +225,15 @@ function registerAiIpc({
           temperature,
           contextSize,
           signal: controller.signal,
+          tools,
+          executeTool,
+          onToolCall: (toolCall) => {
+            sendToMainWindow('ai:stream-tool-call', {
+              messageId: request.messageId,
+              tool: toolCall.name,
+              args: toolCall.args
+            });
+          },
           onChunk: queueChunk
         });
         flush();
