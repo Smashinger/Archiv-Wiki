@@ -27,7 +27,7 @@
   padding: 16px; box-sizing: border-box;
   background: rgba(0,0,0,.55);
   display: flex; align-items: center; justify-content: center;
-  font-family: 'Barlow', var(--sans);
+  font-family: var(--sans);
 }
 
 /* Doppelte Klasse (.aws-window.aws-surface) mit vorangestelltem .aws-scrim:
@@ -45,7 +45,7 @@
   box-shadow: var(--c-shadow);
   background: var(--c-s1);
   color: var(--c-text);
-  font-family: 'Barlow', var(--sans);
+  font-family: var(--sans);
   display: grid; grid-template-rows: 38px 46px 1fr;
   overflow: hidden;
 }
@@ -145,12 +145,17 @@
   container-type: inline-size;
 }
 
-/* Zweispaltig */
+/* Zweispaltig — symmetrisch im Fenster zentriert (exakt 68 px Rand links und rechts).
+   Spaltenbreite entspricht exakt der Zeilenform (500 px = 210 + 20 + 270), sodass die
+   Abschnittslinien und Bedienelemente bündig auf derselben rechten Kante abschließen. */
 .aws-pane{
   --aws-label-w: 210px;
   --aws-ctl-w: 270px;
-  padding: 24px 30px;
-  display: grid; grid-template-columns: 1fr 1fr; gap: 0 44px;
+  padding: 24px 0;
+  display: grid;
+  grid-template-columns: 500px 500px;
+  justify-content: center;
+  gap: 0 44px;
   align-content: start;
 }
 /* Einspaltig: Fenstergröße bleibt gleich, der 580-px-Block wird darin
@@ -227,7 +232,7 @@
    aus Beschriftungs- und Bedienspalte bleibt bewusst unverändert, damit die
    rechte Kante mit allen übrigen Zeilen des Bereichs bündig bleibt (Prüfliste)
    — die Schalter sind rechtsbündig und brauchen die vollen 250 px nicht. */
-.aws-group.has-wide-label{ --aws-label-w: 280px; --aws-ctl-w: 170px; }
+.aws-group.has-wide-label{ --aws-label-w: 280px; --aws-ctl-w: 200px; }
 
 /* Schmaler als eine Zeile aus Beschriftung und Bedienspalte (tritt erst
    unterhalb der App-Mindestbreite auf): Die Beschriftung steht über dem
@@ -426,10 +431,9 @@
 .aws-value-mono{ font-family: 'IBM Plex Mono', var(--mono); font-size: 11.5px; color: var(--c-faint); text-align: right; }
 
 /* 5.7 Datenschutz */
-.aws-privacy{ display: grid; grid-template-columns: 1fr 1fr; gap: 7px 18px; }
+.aws-privacy{ display: flex; flex-direction: column; gap: 9px; list-style: none; margin: 0; padding: 0; }
 .aws-privacy > li{ display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--c-dim); }
 .aws-privacy svg{ width: 13px; height: 13px; flex: none; margin-top: 1px; stroke: var(--c-green); stroke-width: 1.5; fill: none; }
-.aws-privacy{ list-style: none; margin: 0; padding: 0; }
 
 /* Release Notes der installierten Version — hängen an der Textaktion
    "Änderungen in vX ansehen" und bleiben Fließtext, keine zweite Karte. */
