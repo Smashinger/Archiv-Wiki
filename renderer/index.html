@@ -82,7 +82,7 @@
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="6.34" y2="17.66"/><line x1="17.66" y1="6.34" x2="19.07" y2="4.93"/></svg>
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
-      <button class="app-titlebar-btn" id="titlebarAiChatBtn" type="button" title="KI-Assistent (Alt+A)" aria-label="KI-Assistent öffnen" aria-pressed="false">
+      <button class="app-titlebar-btn" id="titlebarAiChatBtn" type="button" title="KI-Assistent (Alt+A)" aria-label="KI-Assistent öffnen" aria-pressed="false" style="display:none;">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="3" y="11" width="18" height="10" rx="2"/>
           <circle cx="12" cy="5" r="2"/>
@@ -324,52 +324,93 @@
   <section class="ai-chat-panel" id="aiChatPanel" aria-label="KI-Assistent" hidden>
     <header class="ai-chat-header" data-ai-drag-handle>
       <div class="ai-chat-heading">
-        <span class="ai-chat-heading-icon" aria-hidden="true">🤖</span>
-        <span class="ai-chat-title">KI-Assistent</span>
+        <span class="ai-chat-heading-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="ai-sparkle-svg"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5Z"/><path d="M19 3l.75 2.25L22 6l-2.25.75L19 9l-.75-2.25L16 6l2.25-.75Z"/><path d="M5 18l.75 2.25L8 21l-2.25.75L5 24l-.75-2.25L2 21l2.25-.75Z"/></svg>
+        </span>
+        <div class="ai-chat-title-group">
+          <span class="ai-chat-title">KI-Assistent</span>
+          <span class="ai-header-status" id="aiChatHeaderStatus">
+            <span class="ai-header-status-dot is-online" id="aiChatHeaderStatusDot" aria-hidden="true"></span>
+            <span class="ai-header-status-text" id="aiChatHeaderStatusText">Bereit</span>
+          </span>
+        </div>
       </div>
       <div class="ai-chat-header-actions">
-        <label class="ai-chat-model-label" for="aiChatModelSelect">Modell</label>
-        <select class="ai-chat-model-select" id="aiChatModelSelect" aria-label="KI-Modell auswählen">
-          <option value="phi:2.7b">phi:2.7b</option>
-        </select>
-        <button class="ai-chat-icon-btn" id="aiChatModelRefreshBtn" type="button" title="Modelle neu laden" aria-label="Modelle neu laden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
+        <div class="ai-chat-model-wrapper">
+          <label class="ai-chat-model-label" for="aiChatModelSelect">Modell</label>
+          <select class="ai-chat-model-select" id="aiChatModelSelect" aria-label="KI-Modell auswählen">
+            <option value="phi:2.7b">phi:2.7b</option>
+          </select>
+          <button class="ai-chat-icon-btn" id="aiChatModelRefreshBtn" type="button" title="Modelle neu laden" aria-label="Modelle neu laden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
+        </div>
         <button class="ai-chat-icon-btn" id="aiChatClearBtn" type="button" title="Chat-Verlauf leeren" aria-label="Chat-Verlauf leeren"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg></button>
         <button class="ai-chat-icon-btn" id="aiChatCloseBtn" type="button" title="KI-Assistent schließen" aria-label="KI-Assistent schließen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
     </header>
-    <div class="ai-chat-toolbar">
-      <div class="ai-chat-context-wrapper">
-        <label class="ai-chat-toolbar-label" for="aiChatContextSelect" title="Kontextgröße (Tokens) für Prompts und Notizen">Kontext:</label>
-        <select class="ai-chat-context-select" id="aiChatContextSelect" aria-label="Kontextgröße auswählen">
-          <option value="2048">2K (2.048)</option>
-          <option value="4096" selected>4K (4.096)</option>
-          <option value="8192">8K (8.192)</option>
-          <option value="16384">16K (16.384)</option>
-          <option value="32768">32K (32.768)</option>
-        </select>
-      </div>
-      <div class="ai-chat-mode-group" id="aiChatModeGroup" role="radiogroup" aria-label="Betriebsmodus">
-        <button type="button" class="ai-mode-btn is-active" data-mode="safe" title="Sicherer Modus: Einzelschritte mit maximaler Kontrolle" aria-checked="true">🛡️ Safe</button>
-        <button type="button" class="ai-mode-btn" data-mode="auto" title="Autonomer Modus: Führt mehrstufige Recherchen selbstständig durch" aria-checked="false">⚡ Auto</button>
-        <button type="button" class="ai-mode-btn" data-mode="plan" title="Plan-Modus: Erstellt zuerst einen Ausführungsplan" aria-checked="false">📋 Plan</button>
-      </div>
-    </div>
+
     <div class="ai-chat-messages" id="aiChatMessages" aria-live="polite">
       <div class="ai-chat-empty-state">
-        <span class="ai-chat-empty-icon" aria-hidden="true">🤖</span>
+        <span class="ai-chat-empty-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><circle cx="9" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1" fill="currentColor" stroke="none"/></svg>
+        </span>
         <p>Wie kann ich dir bei deinen Notizen helfen?</p>
         <div class="ai-chat-suggestions">
-          <button type="button" class="ai-suggestion-chip" data-prompt="Führe eine Wissenspflege-Prüfung meines Wikis durch.">🩺 Wissenspflege prüfen</button>
-          <button type="button" class="ai-suggestion-chip" data-prompt="Suche nach inhaltlichen Duplikaten in meinen Notizen.">👥 Duplikate finden</button>
+          <button type="button" class="ai-suggestion-chip" data-prompt="Führe eine Wissenspflege-Prüfung meines Wikis durch.">Wissenspflege prüfen</button>
+          <button type="button" class="ai-suggestion-chip" data-prompt="Suche nach inhaltlichen Duplikaten in meinen Notizen.">Duplikate finden</button>
+          <button type="button" class="ai-suggestion-chip" data-prompt="Fasse diese Notiz in 3 bis 5 prägnanten Stichpunkten zusammen.">📝 Notiz zusammenfassen</button>
+          <button type="button" class="ai-suggestion-chip" data-prompt="Analysiere diese Notiz und schlage mir passende, konsistente Tags dafür vor.">🏷️ Tags vorschlagen</button>
+          <button type="button" class="ai-suggestion-chip" data-prompt="Welche passenden internen [[Wikilinks]] zu anderen Notizen in meinem Wiki empfiehlst du für diese Notiz?">🔗 Wikilinks finden</button>
+        </div>
+        <div class="ai-chat-onboarding-hint" id="aiChatOnboardingHint" style="display:none;" role="status">
+          <div class="ai-hint-title" id="aiHintTitle">Keine KI-Modelle gefunden</div>
+          <p class="ai-hint-desc" id="aiHintDesc">Ollama läuft, aber es ist noch kein Sprachmodell installiert. Führe im Terminal aus:</p>
+          <div class="ai-hint-code-row" id="aiHintCodeRow">
+            <code id="aiHintCommand">ollama run qwen2.5:7b</code>
+            <button type="button" class="ai-hint-copy-btn" id="aiHintCopyBtn" title="Befehl kopieren" aria-label="Befehl kopieren">📋</button>
+          </div>
+          <p class="ai-hint-sub" id="aiHintSub">Empfehlung: <strong>qwen2.5:7b</strong> für Wissensarbeit, oder <strong>llama3.2</strong> für schnelle Antworten.</p>
         </div>
       </div>
     </div>
+
     <footer class="ai-chat-footer">
-      <textarea class="ai-chat-input" id="aiChatInput" rows="1" placeholder="Nachricht an den KI-Assistenten …" aria-label="Nachricht an den KI-Assistenten"></textarea>
-      <button class="ai-chat-send-btn" id="aiChatSendBtn" type="button" data-mode="send" title="Nachricht senden" aria-label="Nachricht senden">
-        <span class="ai-chat-send-icon" aria-hidden="true">▶</span>
-        <span class="ai-chat-stop-icon" aria-hidden="true">■</span>
-      </button>
+      <div class="ai-active-note-bar" id="aiActiveNoteBar" style="display:none;">
+        <span class="ai-active-note-icon" aria-hidden="true">📎</span>
+        <span class="ai-active-note-label" id="aiActiveNoteLabel" title="Aktive Notiz">Keine Notiz</span>
+        <span class="ai-active-note-selection" id="aiActiveNoteSelection" style="display:none;"></span>
+        <label class="ai-active-note-toggle" title="Aktive Notiz in den Kontext einbeziehen">
+          <input type="checkbox" id="aiActiveNoteToggle" checked />
+          <span class="ai-active-note-toggle-text">Einbeziehen</span>
+        </label>
+      </div>
+      <div class="ai-composer-body">
+        <textarea class="ai-chat-input" id="aiChatInput" rows="1" placeholder="Nachricht an den KI-Assistenten …" aria-label="Nachricht an den KI-Assistenten"></textarea>
+      </div>
+      <div class="ai-chat-toolbar">
+        <div class="ai-chat-controls-left">
+          <div class="ai-chat-context-wrapper">
+            <label class="ai-chat-toolbar-label" for="aiChatContextSelect" title="Kontextgröße (Tokens)">Kontext:</label>
+            <select class="ai-chat-context-select" id="aiChatContextSelect" aria-label="Kontextgröße auswählen">
+              <option value="2048">2K</option>
+              <option value="4096" selected>4K</option>
+              <option value="8192">8K</option>
+              <option value="16384">16K</option>
+              <option value="32768">32K</option>
+            </select>
+          </div>
+          <div class="ai-chat-mode-group" id="aiChatModeGroup" role="radiogroup" aria-label="Betriebsmodus">
+            <button type="button" class="ai-mode-btn is-active" data-mode="safe" title="Sicherer Modus: Einzelschritte mit maximaler Kontrolle" aria-checked="true">Safe</button>
+            <button type="button" class="ai-mode-btn" data-mode="auto" title="Autonomer Modus: Führt Recherchen selbstständig durch" aria-checked="false">Auto</button>
+            <button type="button" class="ai-mode-btn" data-mode="plan" title="Plan-Modus: Erstellt zuerst einen Ausführungsplan" aria-checked="false">Plan</button>
+          </div>
+        </div>
+        <div class="ai-chat-controls-right">
+          <button class="ai-chat-send-btn" id="aiChatSendBtn" type="button" data-mode="send" title="Nachricht senden (Enter)" aria-label="Nachricht senden">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ai-chat-send-icon" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+            <span class="ai-chat-stop-icon" aria-hidden="true">■</span>
+          </button>
+        </div>
+      </div>
     </footer>
   </section>
 

@@ -63,6 +63,9 @@ test('KI-Chat UI 2: index.html enthält alle erforderlichen UI-Elemente und Styl
   assert.ok(indexHtml.includes('data-mode="auto"'), 'Auto-Button existiert');
   assert.ok(indexHtml.includes('data-mode="plan"'), 'Plan-Button existiert');
   assert.ok(indexHtml.includes('ai-suggestion-chip'), 'Suggestion-Chips existieren im Empty-State');
+  assert.ok(indexHtml.includes('id="aiChatOnboardingHint"'), 'aiChatOnboardingHint existiert in index.html');
+  assert.ok(indexHtml.includes('id="aiHintCommand"'), 'aiHintCommand existiert in index.html');
+  assert.ok(indexHtml.includes('id="aiHintCopyBtn"'), 'aiHintCopyBtn existiert in index.html');
 });
 
 test('KI-Chat UI 3: ai-chat.css definiert alle relevanten Zustände und Animationen', () => {
@@ -70,6 +73,8 @@ test('KI-Chat UI 3: ai-chat.css definiert alle relevanten Zustände und Animatio
 
   assert.ok(chatCss.includes('#aiChatPanel{'), 'Panel-Regel existiert');
   assert.ok(chatCss.includes('#aiChatPanel[hidden]{'), 'Versteckter Zustand existiert');
+  assert.ok(chatCss.includes('.ai-chat-onboarding-hint{'), 'ai-chat-onboarding-hint Regel existiert');
+  assert.ok(chatCss.includes('.ai-chat-onboarding-hint.is-offline{'), 'is-offline Regel existiert');
   assert.ok(chatCss.includes('.ai-msg-user{'), 'Nutzer-Sprechblase existiert');
   assert.ok(chatCss.includes('.ai-msg-assistant{'), 'Assistent-Sprechblase existiert');
   assert.ok(chatCss.includes('.ai-typing-cursor{'), 'Typing-Cursor existiert');
@@ -115,7 +120,8 @@ test('KI-Chat UI 4: preload.js exponiert die vollständige KI-Schnittstelle ohne
     'getProposal',
     'applyProposal',
     'rejectProposal',
-    'onStreamProposal'
+    'onStreamProposal',
+    'onSettingsUpdated'
   ];
 
   for (const method of requiredMethods) {
@@ -387,6 +393,134 @@ test('KI-Chat UI 11: resolveActiveModels bereinigt gelöschte Modelle und wählt
   assert.equal(res4.shouldUpdateDefault, false);
 });
 
+test('KI-Chat UI 11: Editor- und Vorschau-Kontextmenü bieten KI-Aktionen an', () => {
+  const appJs = fs.readFileSync(path.join(__dirname, '../renderer/js/app.js'), 'utf8');
 
+  assert.ok(appJs.includes("label: 'Mit KI bearbeiten …'"), 'Editor-Kontextmenü enthält "Mit KI bearbeiten …"');
+  assert.ok(appJs.includes("label: 'An KI-Chat senden'"), 'Submenu enthält "An KI-Chat senden"');
+  assert.ok(appJs.includes("label: 'Auswahl zusammenfassen'"), 'Submenu enthält "Auswahl zusammenfassen"');
+  assert.ok(appJs.includes("label: 'Auswahl verbessern / korrigieren'"), 'Submenu enthält "Auswahl verbessern / korrigieren"');
+  assert.ok(appJs.includes("label: 'Auswahl kürzen & prägnanter fassen'"), 'Submenu enthält "Auswahl kürzen & prägnanter fassen"');
+  assert.ok(appJs.includes("label: 'Auswahl erklären'"), 'Submenu enthält "Auswahl erklären"');
+  assert.ok(appJs.includes("label: 'Ganze Notiz zusammenfassen'"), 'Submenu enthält "Ganze Notiz zusammenfassen"');
+  assert.ok(appJs.includes("label: 'Passende Tags für Notiz vorschlagen'"), 'Submenu enthält "Passende Tags für Notiz vorschlagen"');
+  assert.ok(appJs.includes("label: 'Passende Wikilinks für Notiz finden'"), 'Submenu enthält "Passende Wikilinks für Notiz finden"');
+  assert.ok(appJs.includes("label: 'Auswahl an KI-Chat senden'"), 'Vorschau-Kontextmenü enthält "Auswahl an KI-Chat senden"');
+});
 
+test('KI Wissenspflege: Prompt fordert direkte 1-Klick-Proposals statt reiner Aufzählung', () => {
+  const ollama = require('../main/ai-ollama');
+  assert.ok(ollama.BASE_SYSTEM_PROMPT.includes('Recherche & Wissenspflege (1-Klick-Lösungen)'));
+  assert.ok(ollama.BASE_SYSTEM_PROMPT.includes('erstelle DIREKT konkrete Proposal-Werkzeugaufrufe'));
+});
 
+test('KI-Einstellungen: Modell-Refresh-Button und Einsteiger-Hilfe vorhanden', () => {
+  const settingsJs = fs.readFileSync(path.join(__dirname, '../renderer/js/settings-window.js'), 'utf8');
+  const settingsCss = fs.readFileSync(path.join(__dirname, '../renderer/css/settings.css'), 'utf8');
+
+  // Refresh-Button & Modell-Erkennung
+  assert.ok(settingsJs.includes('btnRefreshAiModels'), 'btnRefreshAiModels existiert');
+  assert.ok(settingsJs.includes('refreshAiModels'), 'refreshAiModels-Funktion existiert');
+  assert.ok(settingsJs.includes('stAiModelFeedback'), 'Feedbackzeile für Modelle existiert');
+
+  // Einsteiger-Hilfe (Installation, Starten, Download)
+  assert.ok(settingsJs.includes('Ollama einrichten'), 'Abschnitt "Ollama einrichten" existiert');
+  assert.ok(settingsJs.includes('curl -fsSL https://ollama.com/install.sh | sh'), 'Ollama-Installationsbefehl vorhanden');
+  assert.ok(settingsJs.includes('ollama serve'), 'Ollama-Startbefehl vorhanden');
+  assert.ok(settingsJs.includes('ollama run qwen2.5:7b'), 'Empfohlener Modell-Download vorhanden');
+
+  // Empfehlungen & Parametergrößen
+  assert.ok(settingsJs.includes('Empfohlene Modelle & Größen'), 'Abschnitt "Empfohlene Modelle & Größen" existiert');
+  assert.ok(settingsJs.includes('7B – 8B Parameter'), 'Sweetspot 7B-8B vorhanden');
+  assert.ok(settingsJs.includes('~3B Parameter'), 'Mindestanforderung 3B vorhanden');
+  assert.ok(settingsJs.includes('12B – 14B Parameter'), 'High-End 12B-14B vorhanden');
+  assert.ok(settingsJs.includes('ollama.com/search'), 'Verlinkung zu ollama.com/search vorhanden');
+
+  // CSS-Klassen
+  assert.ok(settingsCss.includes('.aws-ai-guide{'), 'Guide-CSS-Klasse existiert');
+  assert.ok(settingsCss.includes('.aws-code-box{'), 'Codebox-CSS-Klasse existiert');
+  assert.ok(settingsCss.includes('.aws-code-copy{'), 'Kopier-Button-CSS-Klasse existiert');
+  assert.ok(settingsCss.includes('.aws-ai-models-guide{'), 'Modell-Guide-CSS-Klasse existiert');
+  assert.ok(settingsCss.includes('.aws-ai-tier{'), 'Modell-Tier-CSS-Klasse existiert');
+});
+
+test('KI-Assistent: Standardmäßig aus und dynamische Sichtbarkeit in Topbar & Menüs', () => {
+  const aiIpc = fs.readFileSync(path.join(__dirname, '../main/ai-ipc.js'), 'utf8');
+  const indexHtml = fs.readFileSync(path.join(__dirname, '../renderer/index.html'), 'utf8');
+  const aiChatJs = fs.readFileSync(path.join(__dirname, '../renderer/js/ai-chat.js'), 'utf8');
+  const appJs = fs.readFileSync(path.join(__dirname, '../renderer/js/app.js'), 'utf8');
+  const settingsJs = fs.readFileSync(path.join(__dirname, '../renderer/js/settings-window.js'), 'utf8');
+
+  // 1. Backend-Default ist disabled (enabled: false)
+  assert.ok(aiIpc.includes('enabled: false'), 'Backend DEFAULT_SETTINGS.enabled ist false');
+
+  // 2. Settings-Window nutzt standardmäßig enabled: false
+  assert.ok(settingsJs.includes('enabled: false,'), 'settings-window defaultAiSettings.enabled ist false');
+  assert.ok(settingsJs.includes('aiSettings.enabled === true'), 'Schalter ist nur aktiv wenn explizit true');
+
+  // 3. Topbar-Button startet unsichtbar
+  assert.ok(indexHtml.includes('id="titlebarAiChatBtn"'), 'titlebarAiChatBtn existiert');
+  assert.ok(indexHtml.includes('id="titlebarAiChatBtn" type="button" title="KI-Assistent (Alt+A)" aria-label="KI-Assistent öffnen" aria-pressed="false" style="display:none;"'), 'titlebarAiChatBtn hat initial style="display:none;"');
+
+  // 4. ai-chat.js exponiert isAiChatEnabled und setAiChatEnabled und synchronisiert
+  assert.ok(aiChatJs.includes('export function isAiChatEnabled('), 'isAiChatEnabled exportiert');
+  assert.ok(aiChatJs.includes('export function setAiChatEnabled('), 'setAiChatEnabled exportiert');
+  assert.ok(aiChatJs.includes('openButton.style.display = aiChatEnabled ? \'\' : \'none\';'), 'Button wird je nach Aktivierungsstatus ein- oder ausgeblendet');
+
+  // 5. app.js bindet KI-Kontextmenü nur ein, wenn isAiChatEnabled() wahr ist
+  assert.ok(appJs.includes('if (isAiChatEnabled()) {'), 'app.js prüft isAiChatEnabled() für Kontextmenüs');
+});
+
+test('KI-Chat Design: Anpassung an Design 2 und Classic', () => {
+  const chatCss = fs.readFileSync(path.join(__dirname, '../renderer/css/ai-chat.css'), 'utf8');
+
+  // 1. Design 2 Root & Oberflächen
+  assert.ok(chatCss.includes('[data-ui-design="design2"] #aiChatPanel{'), 'Design 2 Panel-Regel existiert');
+  assert.ok(chatCss.includes('var(--d2-surface-1)'), 'Design 2 nutzt --d2-surface-1');
+  assert.ok(chatCss.includes('var(--d2-surface-2)'), 'Design 2 nutzt --d2-surface-2');
+  assert.ok(chatCss.includes('var(--d2-shadow-dialog)'), 'Design 2 nutzt --d2-shadow-dialog');
+
+  // 2. Design 2 Typografie
+  assert.ok(chatCss.includes('var(--d2-font-heading-condensed)'), 'Design 2 nutzt Barlow Condensed für Headings');
+  assert.ok(chatCss.includes('var(--d2-font-mono)'), 'Design 2 nutzt IBM Plex Mono für Metadaten & Code');
+
+  // 3. Design 2 Chat-Komponenten (Messages, Tool-Pills, Proposals)
+  assert.ok(chatCss.includes('[data-ui-design="design2"] .ai-msg-user{'), 'Design 2 User-Sprechblase existiert');
+  assert.ok(chatCss.includes('[data-ui-design="design2"] .ai-msg-assistant{'), 'Design 2 Assistent-Sprechblase existiert');
+  assert.ok(chatCss.includes('[data-ui-design="design2"] .ai-tool-pill{'), 'Design 2 Tool-Pill existiert');
+  assert.ok(chatCss.includes('[data-ui-design="design2"] .ai-proposal-card{'), 'Design 2 Proposal-Karte existiert');
+  assert.ok(chatCss.includes('[data-ui-design="design2"] .ai-proposal-diff{'), 'Design 2 Proposal-Diff existiert');
+
+  // 4. Classic Light Mode Feinabstimmung
+  assert.ok(chatCss.includes('body.theme-light:not([data-ui-design="design2"]) #aiChatPanel{'), 'Classic Light-Mode Schatten existiert');
+});
+
+test('KI-Chat Phase 1: Aktive Notiz als sichtbarer Composer-Kontext', () => {
+  const indexHtml = fs.readFileSync(path.join(__dirname, '../renderer/index.html'), 'utf8');
+  const chatCss = fs.readFileSync(path.join(__dirname, '../renderer/css/ai-chat.css'), 'utf8');
+  const aiChatJs = fs.readFileSync(path.join(__dirname, '../renderer/js/ai-chat.js'), 'utf8');
+  const editorJs = fs.readFileSync(path.join(__dirname, '../renderer/js/editor.js'), 'utf8');
+
+  // 1. HTML Elemente
+  assert.ok(indexHtml.includes('id="aiActiveNoteBar"'), '#aiActiveNoteBar existiert in index.html');
+  assert.ok(indexHtml.includes('id="aiActiveNoteLabel"'), '#aiActiveNoteLabel existiert in index.html');
+  assert.ok(indexHtml.includes('id="aiActiveNoteSelection"'), '#aiActiveNoteSelection existiert in index.html');
+  assert.ok(indexHtml.includes('id="aiActiveNoteToggle"'), '#aiActiveNoteToggle existiert in index.html');
+
+  // 2. CSS Regeln
+  assert.ok(chatCss.includes('.ai-active-note-bar{'), '.ai-active-note-bar Styling existiert');
+  assert.ok(chatCss.includes('.ai-active-note-label{'), '.ai-active-note-label Styling existiert');
+  assert.ok(chatCss.includes('.ai-active-note-selection{'), '.ai-active-note-selection Styling existiert');
+  assert.ok(chatCss.includes('.ai-active-note-toggle{'), '.ai-active-note-toggle Styling existiert');
+  assert.ok(chatCss.includes('[data-ui-design="design2"] .ai-active-note-bar{'), 'Design 2 Override für active-note-bar existiert');
+
+  // 3. JS Logik in ai-chat.js
+  assert.ok(aiChatJs.includes('document.getElementById(\'aiActiveNoteBar\')'), 'ai-chat.js bindet activeNoteBar ein');
+  assert.ok(aiChatJs.includes('document.getElementById(\'aiActiveNoteToggle\')'), 'ai-chat.js bindet activeNoteToggle ein');
+  assert.ok(aiChatJs.includes('function updateActiveNoteUI('), 'updateActiveNoteUI Funktion existiert');
+  assert.ok(aiChatJs.includes('includeActiveNote'), 'sendMessage prüft includeActiveNote Toggle');
+  assert.ok(aiChatJs.includes('window.addEventListener(\'archiv:active-note-changed\''), 'ai-chat.js hört auf archiv:active-note-changed');
+
+  // 4. Dispatch in editor.js
+  assert.ok(editorJs.includes('archiv:active-note-changed'), 'editor.js sendet archiv:active-note-changed');
+});

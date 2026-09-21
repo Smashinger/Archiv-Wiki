@@ -1543,9 +1543,9 @@ async function renderWebClipperSection(el, config, updateSetting, context, lifec
 
 async function renderAiSection(el, config, updateSetting, context, lifecycle) {
   const defaultAiSettings = {
-    enabled: true,
+    enabled: false,
     host: 'http://127.0.0.1:11434',
-    defaultModel: 'phi:2.7b',
+    defaultModel: 'qwen2.5:7b',
     temperature: 0.7,
     contextSize: 4096,
     persistHistory: true
@@ -1587,17 +1587,63 @@ async function renderAiSection(el, config, updateSetting, context, lifecycle) {
 
   const left = group('Server & Verbindung',
     row('KI-Assistent aktivieren', 'Aktiviert den lokalen KI-Assistenten in Archiv-Wiki.',
-      toggle({ id: 'stAiEnabled', on: aiSettings.enabled !== false, label: 'KI-Assistent aktivieren' }))
+      toggle({ id: 'stAiEnabled', on: aiSettings.enabled === true, label: 'KI-Assistent aktivieren' }))
     + row('Ollama-Server URL', 'Adresse des lokalen Ollama-Servers.',
       inlineGroup(
         textInput({ id: 'stAiHost', value: aiSettings.host || defaultAiSettings.host, placeholder: defaultAiSettings.host })
         + button2('btnTestAiConnection', 'Verbindung testen')
       )
       + feedbackLine('stAiConnectionFeedback'))
+  ) + group('Ollama einrichten',
+    block(`
+      <div class="aws-ai-guide">
+        <div class="aws-ai-guide-step">
+          <div class="aws-ai-guide-num">1</div>
+          <div class="aws-ai-guide-body">
+            <b>Ollama installieren</b>
+            <p>Unter Linux und macOS im Terminal ausführen:</p>
+            <div class="aws-code-box">
+              <code>curl -fsSL https://ollama.com/install.sh | sh</code>
+              <button type="button" class="aws-code-copy" data-copy="curl -fsSL https://ollama.com/install.sh | sh">Kopieren</button>
+            </div>
+            <p class="aws-ai-guide-sub">Unter Windows: Installer von <a href="#" class="aws-ai-link" data-url="https://ollama.com/download">ollama.com/download</a> laden.</p>
+          </div>
+        </div>
+        <div class="aws-ai-guide-step">
+          <div class="aws-ai-guide-num">2</div>
+          <div class="aws-ai-guide-body">
+            <b>Server starten</b>
+            <p>Unter Linux läuft Ollama automatisch als Dienst. Falls nötig manuell starten:</p>
+            <div class="aws-code-box">
+              <code>ollama serve</code>
+              <button type="button" class="aws-code-copy" data-copy="ollama serve">Kopieren</button>
+            </div>
+          </div>
+        </div>
+        <div class="aws-ai-guide-step">
+          <div class="aws-ai-guide-num">3</div>
+          <div class="aws-ai-guide-body">
+            <b>Modell herunterladen</b>
+            <p>Empfohlenes Modell im Terminal laden (z. B. Qwen 2.5 7B):</p>
+            <div class="aws-code-box">
+              <code>ollama run qwen2.5:7b</code>
+              <button type="button" class="aws-code-copy" data-copy="ollama run qwen2.5:7b">Kopieren</button>
+            </div>
+            <p class="aws-ai-guide-sub">Sobald der Download fertig ist, rechts auf <strong>„Neu laden“</strong> klicken.</p>
+            <p class="aws-ai-guide-sub">Andere Modelle durchsuchen: <a href="#" class="aws-ai-link" data-url="https://ollama.com/search">ollama.com/search ↗</a></p>
+          </div>
+        </div>
+      </div>
+    `)
   );
+
   const right = group('Modell & Parameter',
     row('Standard-Modell', 'Das für den Chat verwendete lokale Modell.',
-      select({ id: 'stAiDefaultModel', value: selectedModel, options: modelOptions }))
+      inlineGroup(
+        select({ id: 'stAiDefaultModel', value: selectedModel, options: modelOptions })
+        + button2('btnRefreshAiModels', 'Neu laden')
+      )
+      + feedbackLine('stAiModelFeedback'))
     + row('Temperatur', 'Kreativität der Antworten (0.0 = präzise, 1.0 = kreativ).',
       measure({ id: 'stAiTemperature', value: aiSettings.temperature ?? defaultAiSettings.temperature, unit: '', min: 0, max: 1, step: '0.05' }))
     + row('Kontext-Größe', 'Maximaler Kontextumfang für Eingabe und Antwort.',
@@ -1606,6 +1652,40 @@ async function renderAiSection(el, config, updateSetting, context, lifecycle) {
       toggle({ id: 'stAiPersistHistory', on: aiSettings.persistHistory !== false, label: 'Chat-Verlauf speichern' }))
     + row('Verlauf verwalten', 'Löscht alle gespeicherten Nachrichten restlos.',
       button2('btnClearAiHistory', 'Verlauf leeren') + feedbackLine('stAiHistoryFeedback'))
+  ) + group('Empfohlene Modelle & Größen',
+    block(`
+      <div class="aws-ai-models-guide">
+        <div class="aws-ai-tier is-recommended">
+          <div class="aws-ai-tier-header">
+            <span class="aws-ai-badge is-rec">Empfohlen</span>
+            <b>7B – 8B Parameter · Der Sweetspot</b>
+          </div>
+          <div class="aws-ai-tier-models">z. B. <code>qwen2.5:7b</code> oder <code>llama3.1:8b</code></div>
+          <p><strong>Hardware:</strong> 8–16 GB RAM (CPU) oder 6–8 GB VRAM (GPU).</p>
+          <p><strong>Für Archiv-Wiki:</strong> Beste Balance aus Qualität und Tempo. Beherrscht Wiki-Links, Notizpflege und deutsche Anfragen zuverlässig.</p>
+        </div>
+
+        <div class="aws-ai-tier">
+          <div class="aws-ai-tier-header">
+            <span class="aws-ai-badge">Mindestens</span>
+            <b>~3B Parameter · Leichtgewicht</b>
+          </div>
+          <div class="aws-ai-tier-models">z. B. <code>qwen2.5:3b</code> oder <code>llama3.2:3b</code></div>
+          <p><strong>Hardware:</strong> 4–8 GB RAM. Läuft auch auf älteren Laptops ohne Grafikkarte.</p>
+          <p><strong>Für Archiv-Wiki:</strong> Gut für Notizzusammenfassungen und einfache Fragen. Bei komplexen Wiki-Tools und Tag-Vorschlägen ungenauer.</p>
+        </div>
+
+        <div class="aws-ai-tier">
+          <div class="aws-ai-tier-header">
+            <span class="aws-ai-badge is-pro">Leistungsstark</span>
+            <b>12B – 14B Parameter · Tiefgang</b>
+          </div>
+          <div class="aws-ai-tier-models">z. B. <code>qwen2.5:14b</code> oder <code>gemma4:12b</code></div>
+          <p><strong>Hardware:</strong> Ab 16–32 GB RAM oder 12+ GB VRAM.</p>
+          <p><strong>Für Archiv-Wiki:</strong> Höchste Gründlichkeit für große Wikis, tiefgehende Textanalysen und anspruchsvolle Recherche.</p>
+        </div>
+      </div>
+    `)
   );
 
   el.innerHTML = pane(2, left, right);
@@ -1616,13 +1696,90 @@ async function renderAiSection(el, config, updateSetting, context, lifecycle) {
     if (feedback) feedback.style.color = success ? 'var(--c-green)' : '';
   }
 
+  function setModelFeedback(message, { error = false, success = false } = {}) {
+    setFeedback(el, 'stAiModelFeedback', message, error);
+    const feedback = el.querySelector('#stAiModelFeedback');
+    if (feedback) feedback.style.color = success ? 'var(--c-green)' : '';
+  }
+
+  async function refreshAiModels({ silent = false } = {}) {
+    const refreshBtn = el.querySelector('#btnRefreshAiModels');
+    if (refreshBtn) refreshBtn.disabled = true;
+    if (!silent) setModelFeedback('Modelle werden gesucht …');
+    try {
+      const currentHost = hostInput.value.trim() || defaultAiSettings.host;
+      const res = await window.archivAPI.ai.getModels({ host: currentHost }).catch((err) => ({
+        success: false,
+        error: err?.message,
+        models: []
+      }));
+      if (!lifecycle.isCurrent()) return;
+
+      const modelNames = res?.success && Array.isArray(res.models)
+        ? res.models.map(m => m?.name).filter(name => typeof name === 'string' && name.trim())
+        : [];
+
+      const selectEl = el.querySelector('#stAiDefaultModel');
+      if (!selectEl) return;
+
+      if (modelNames.length > 0) {
+        const currentActiveOption = selectEl.querySelector('.aws-select-option.is-active');
+        const currentVal = currentActiveOption ? currentActiveOption.dataset.value : selectedModel;
+
+        let newSelected = currentVal;
+        if (!modelNames.includes(newSelected)) {
+          newSelected = modelNames[0];
+          await window.archivAPI.ai.updateSettings({ defaultModel: newSelected }).catch(() => {});
+        }
+        selectedModel = newSelected;
+
+        const valueSpan = selectEl.querySelector('.aws-select-value span');
+        if (valueSpan) valueSpan.textContent = newSelected;
+
+        const menu = selectEl.querySelector('.aws-select-menu');
+        if (menu) {
+          menu.innerHTML = modelNames.map(name => {
+            const isActive = name === newSelected;
+            return `<button type="button" role="option" class="aws-select-option${isActive ? ' is-active' : ''}" data-value="${esc(name)}" aria-selected="${isActive}">${esc(name)}</button>`;
+          }).join('');
+        }
+
+        if (!silent) {
+          setModelFeedback(`${modelNames.length} ${modelNames.length === 1 ? 'Modell' : 'Modelle'} gefunden.`, { success: true });
+        }
+      } else {
+        if (!silent) {
+          setModelFeedback(res?.error || 'Keine Modelle in Ollama gefunden (z. B. ollama pull qwen2.5:7b).', { error: true });
+        }
+      }
+    } catch (err) {
+      if (!lifecycle.isCurrent()) return;
+      if (!silent) {
+        setModelFeedback(err?.message || 'Fehler beim Laden der Modelle.', { error: true });
+      }
+    } finally {
+      if (lifecycle.isCurrent() && refreshBtn) refreshBtn.disabled = false;
+    }
+  }
+
   onToggle(el, 'stAiEnabled', async (enabled) => {
-    await window.archivAPI.ai.updateSettings({ enabled });
+    const updated = await window.archivAPI.ai.updateSettings({ enabled });
+    try {
+      window.dispatchEvent(new CustomEvent('archiv:ai-settings-changed', { detail: updated || { enabled } }));
+    } catch {}
   });
 
   onSelectChange(el, 'stAiDefaultModel', async (value) => {
+    selectedModel = value;
     await window.archivAPI.ai.updateSettings({ defaultModel: value });
   });
+
+  const refreshBtn = el.querySelector('#btnRefreshAiModels');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      await refreshAiModels({ silent: false });
+    });
+  }
 
   el.querySelector('#stAiTemperature').addEventListener('change', async (event) => {
     await window.archivAPI.ai.updateSettings({ temperature: parseFloat(event.currentTarget.value) });
@@ -1656,6 +1813,7 @@ async function renderAiSection(el, config, updateSetting, context, lifecycle) {
   hostInput.addEventListener('change', async (event) => {
     try {
       await window.archivAPI.ai.updateSettings({ host: event.currentTarget.value.trim() });
+      await refreshAiModels({ silent: true });
     } catch (error) {
       console.error('Ollama-Server-URL konnte nicht gespeichert werden:', error);
       setConnectionFeedback(error?.message || 'Die Server-URL konnte nicht gespeichert werden.', { error: true });
@@ -1678,12 +1836,44 @@ async function renderAiSection(el, config, updateSetting, context, lifecycle) {
         Number.isFinite(result.latencyMs) ? `${Math.round(result.latencyMs)} ms` : null
       ].filter(Boolean).join(', ');
       setConnectionFeedback(`Verbunden${details ? ` (${details})` : ''}`, { success: true });
+      await refreshAiModels({ silent: true });
     } catch (error) {
       if (!lifecycle.isCurrent()) return;
       setConnectionFeedback(error?.message || 'Ollama ist nicht erreichbar.', { error: true });
     } finally {
       if (lifecycle.isCurrent()) button.disabled = false;
     }
+  });
+
+  // Klick-Handler für Kopier-Buttons in der Einsteiger-Hilfe
+  el.querySelectorAll('.aws-code-copy').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const text = button.getAttribute('data-copy');
+      if (!text) return;
+      try {
+        await window.archivAPI.clipboard.writeText(text);
+        const orig = button.textContent;
+        button.textContent = 'Kopiert!';
+        button.classList.add('is-copied');
+        setTimeout(() => {
+          if (el.isConnected) {
+            button.textContent = orig;
+            button.classList.remove('is-copied');
+          }
+        }, 1500);
+      } catch (err) {
+        console.error('Kopieren fehlgeschlagen:', err);
+      }
+    });
+  });
+
+  // Externe Links (z. B. ollama.com) im Standard-Browser öffnen
+  el.querySelectorAll('.aws-ai-link').forEach((link) => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      const url = link.getAttribute('data-url');
+      if (url) window.open(url, '_blank');
+    });
   });
 }
 

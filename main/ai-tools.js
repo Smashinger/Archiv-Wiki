@@ -110,7 +110,7 @@ const AI_TOOLS_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'propose_update_note',
-      description: 'Schlägt eine Änderung oder Aktualisierung einer bestehenden Notiz vor. Gibt dem Nutzer eine Diff-Vorschau zur Freigabe. Erfordert eine explizite Bestätigung durch den Nutzer.',
+      description: 'Schlägt eine Änderung oder Aktualisierung einer bestehenden Notiz vor. Gibt dem Nutzer eine Diff-Vorschau zur Freigabe. Erfordert eine explizite Bestätigung durch den Nutzer. WICHTIG: Wenn nur Tags ergänzt oder geändert werden, muss der Parameter content nicht angegeben werden (der bisherige Notizinhalt bleibt unverändert erhalten).',
       parameters: {
         type: 'object',
         properties: {
@@ -120,7 +120,7 @@ const AI_TOOLS_DEFINITIONS = [
           },
           content: {
             type: 'string',
-            description: 'Der vollständige neue Markdown-Inhalt der Notiz.'
+            description: 'Optionaler vollständiger neuer Markdown-Inhalt der Notiz. Wenn nur Tags aktualisiert werden sollen, weglassen.'
           },
           tags: {
             type: 'array',
@@ -129,10 +129,10 @@ const AI_TOOLS_DEFINITIONS = [
           },
           reason: {
             type: 'string',
-            description: 'Kurze Erklärung der Änderungen für den Nutzer (z. B. "Schritt zur Checkliste hinzugefügt").'
+            description: 'Kurze Erklärung der Änderungen für den Nutzer (z. B. "Schritt zur Checkliste hinzugefügt" oder "Passende Tags ergänzt").'
           }
         },
-        required: ['relPath', 'content']
+        required: ['relPath']
       }
     }
   },
@@ -258,6 +258,46 @@ const AI_TOOLS_DEFINITIONS = [
           threshold: {
             type: 'number',
             description: 'Ähnlichkeits-Schwellenwert zwischen 0.2 und 1.0 (Standard: 0.45).'
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_wiki_tags',
+      description: 'Liest alle bisher im gesamten Wiki verwendeten Schlagwörter (Tags) sortiert nach Häufigkeit aus. Nutze dieses Werkzeug IMMER, bevor du Tags für Notizen vorschlägst oder aktualisierst, um bestehende Tags wiederzuverwenden und Tag-Wildwuchs zu vermeiden.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: {
+            type: 'integer',
+            description: 'Maximale Anzahl zurückgegebener Tags (Standard: 50, Maximum: 100).'
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'suggest_wikilinks',
+      description: 'Analysiert den Text einer Notiz und schlägt passende interne [[Wikilinks]] zu anderen bereits existierenden Notizen im Wiki vor.',
+      parameters: {
+        type: 'object',
+        properties: {
+          relPath: {
+            type: 'string',
+            description: 'Der relative Pfad der zu analysierenden Notiz.'
+          },
+          title: {
+            type: 'string',
+            description: 'Optionaler Titel der Notiz, falls der relative Pfad nicht genau bekannt ist.'
+          },
+          limit: {
+            type: 'integer',
+            description: 'Maximale Anzahl Vorschläge (Standard: 15).'
           }
         }
       }
@@ -402,12 +442,41 @@ function listNotes(projectPath, { category = '', limit = 15 } = {}) {
   };
 }
 
+function getWikiTags(projectPath, { limit = 50 } = {}) {
+  const maxLimit = Math.min(100, Math.max(1, Number(limit) || 50));
+  const docs = notesFs.getSearchDocuments(projectPath);
+  const tagCounts = new Map();
+
+  for (const doc of docs) {
+    if (doc.archived) continue;
+    if (Array.isArray(doc.tags)) {
+      for (const rawTag of doc.tags) {
+        const tag = String(rawTag).trim();
+        if (tag) {
+          tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  const sortedTags = [...tagCounts.entries()]
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, 'de'));
+
+  return {
+    totalDistinctTags: sortedTags.length,
+    tags: sortedTags.slice(0, maxLimit)
+  };
+}
+
 async function executeAiTool(projectPath, name, args = {}) {
   if (!projectPath) {
     return { success: false, error: 'Kein Wiki-Projektpfad angegeben.' };
   }
   try {
     switch (name) {
+      case 'get_wiki_tags':
+        return { success: true, data: getWikiTags(projectPath, args) };
       case 'search_notes':
         return { success: true, data: searchNotes(projectPath, args) };
       case 'read_note':
@@ -545,7 +614,42 @@ async function executeAiTool(projectPath, name, args = {}) {
       }
       case 'audit_knowledge_base': {
         const report = aiKnowledge.auditKnowledgeBase(projectPath);
-        return { success: true, data: report };
+        const proposals = [];
+        if (Array.isArray(report?.issues?.notesWithoutTags)) {
+          for (const note of report.issues.notesWithoutTags.slice(0, 5)) {
+            try {
+              const parts = String(note.relPath || '').split('/');
+              const suggestedTags = [];
+              if (parts.length >= 2) {
+                const mainClean = parts[0].toLowerCase().replace(/[^a-z0-9äöü]/g, '');
+                if (mainClean && mainClean.length > 2) suggestedTags.push(mainClean);
+                const subClean = parts[1].toLowerCase().replace(/[^a-z0-9äöü]/g, '');
+                if (subClean && subClean !== mainClean) suggestedTags.push(subClean);
+              }
+              if (suggestedTags.length === 0) {
+                suggestedTags.push('notiz');
+              }
+              const proposal = aiProposals.createProposal(projectPath, {
+                type: 'update',
+                relPath: note.relPath,
+                title: note.title,
+                tags: suggestedTags,
+                reason: `Vorgeschlagene Tags: #${suggestedTags.join(' #')}`
+              });
+              proposals.push({
+                proposalId: proposal.id,
+                type: proposal.type,
+                title: proposal.title,
+                relPath: proposal.relPath,
+                diff: proposal.diff,
+                reason: proposal.reason,
+                requiresConfirmation: true,
+                message: `Änderungsvorschlag für Tags bei „${proposal.title}“ wartet auf deine Freigabe.`
+              });
+            } catch {}
+          }
+        }
+        return { success: true, data: { ...report, proposals } };
       }
       case 'find_duplicate_notes': {
         const duplicates = aiKnowledge.findDuplicateNotes(projectPath, {
@@ -553,6 +657,15 @@ async function executeAiTool(projectPath, name, args = {}) {
           threshold: args.threshold
         });
         return { success: true, data: duplicates };
+      }
+      case 'suggest_wikilinks': {
+        const result = aiKnowledge.findWikilinkCandidates(projectPath, {
+          relPath: args.relPath,
+          title: args.title,
+          content: args.content,
+          limit: args.limit
+        });
+        return { success: true, data: result };
       }
       default:
         return { success: false, error: `Unbekanntes KI-Werkzeug: ${name}` };
@@ -568,7 +681,10 @@ module.exports = {
   searchNotes,
   readNote,
   listNotes,
+  getWikiTags,
   executeAiTool,
   auditKnowledgeBase: aiKnowledge.auditKnowledgeBase,
-  findDuplicateNotes: aiKnowledge.findDuplicateNotes
+  findDuplicateNotes: aiKnowledge.findDuplicateNotes,
+  suggestWikilinks: aiKnowledge.findWikilinkCandidates,
+  findWikilinkCandidates: aiKnowledge.findWikilinkCandidates
 };

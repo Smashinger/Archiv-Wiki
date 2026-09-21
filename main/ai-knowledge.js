@@ -150,12 +150,14 @@ function auditKnowledgeBase(projectPath) {
       const exists = existingTitles.has(targetNorm) || existingBaseNames.has(targetNorm);
 
       if (!exists) {
+        const sourceDir = path.dirname(doc.relPath).replace(/\\/g, '/');
         brokenLinks.push({
           sourceRelPath: doc.relPath,
           sourceTitle: doc.title,
           target: link.target,
           displayText: link.displayText,
-          syntax: link.syntax
+          syntax: link.syntax,
+          suggestedSubCategory: sourceDir !== '.' ? sourceDir : (doc.category || '')
         });
       } else {
         // Zähle eingehenden Link auf passendes Dokument
@@ -352,9 +354,156 @@ function findDuplicateNotes(projectPath, { query = '', threshold = 0.45 } = {}) 
   };
 }
 
+function findWikilinkCandidates(projectPath, { relPath, title, content, limit = 15 } = {}) {
+  if (!projectPath) {
+    throw new Error('Kein Projektordner angegeben.');
+  }
+
+  let cleanRelPath = relPath ? String(relPath).trim() : '';
+  const hasContent = typeof content === 'string' && content.length > 0;
+
+  if (!cleanRelPath && !hasContent && !title) {
+    throw new Error('Weder relPath noch content angegeben.');
+  }
+
+  const docs = notesFs.getSearchDocuments(projectPath) || [];
+
+  // Falls kein relPath, aber ein Titel übergeben wurde: Notiz im Index suchen
+  if (!cleanRelPath && title) {
+    const searchTitle = String(title).trim().toLowerCase();
+    const match = docs.find(d => !d.archived && (d.title || '').toLowerCase() === searchTitle);
+    if (match) {
+      cleanRelPath = match.relPath;
+    }
+  }
+
+  let noteBody = '';
+  let noteTitle = '';
+
+  if (typeof content === 'string' && content.length > 0) {
+    noteBody = content;
+    if (cleanRelPath) {
+      const matchDoc = docs.find(d => d.relPath === cleanRelPath);
+      noteTitle = matchDoc?.title || path.basename(cleanRelPath, '.md');
+    } else if (title) {
+      noteTitle = String(title).trim();
+    }
+  } else if (cleanRelPath) {
+    const note = notesFs.readNote(projectPath, cleanRelPath);
+    noteBody = note.body || '';
+    noteTitle = note.frontmatter?.title || path.basename(cleanRelPath, '.md');
+  } else {
+    throw new Error('Weder relPath noch content angegeben.');
+  }
+
+  // Zielnotizen: nicht archiviert, und nicht die untersuchte Notiz selbst
+  const activeTargets = docs.filter(d => !d.archived && (!cleanRelPath || d.relPath !== cleanRelPath));
+
+  if (activeTargets.length === 0 || !noteBody.trim()) {
+    return {
+      relPath: cleanRelPath || null,
+      noteTitle: noteTitle || null,
+      candidatesCount: 0,
+      candidates: []
+    };
+  }
+
+  // Sammle eindeutige Zielbegriffe (Titel und Dateibasenamen)
+  const targetsMap = new Map();
+  const currentTitleNorm = noteTitle ? noteTitle.trim().toLowerCase() : '';
+
+  for (const doc of activeTargets) {
+    const docTitle = String(doc.title || '').trim();
+    const baseName = path.basename(doc.relPath, '.md').trim();
+
+    // 1. Titel als Ziel
+    if (docTitle.length >= 3 && !GERMAN_STOPWORDS.has(docTitle.toLowerCase())) {
+      const norm = docTitle.toLowerCase();
+      if (!targetsMap.has(norm) && norm !== currentTitleNorm) {
+        targetsMap.set(norm, {
+          term: docTitle,
+          targetTitle: docTitle,
+          targetRelPath: doc.relPath,
+          length: docTitle.length
+        });
+      }
+    }
+
+    // 2. BaseName als Ziel (falls sinnvoll und nicht identisch mit Titel)
+    if (baseName.length >= 3 && !GERMAN_STOPWORDS.has(baseName.toLowerCase())) {
+      const norm = baseName.toLowerCase();
+      if (!targetsMap.has(norm) && norm !== currentTitleNorm) {
+        targetsMap.set(norm, {
+          term: baseName,
+          targetTitle: docTitle || baseName,
+          targetRelPath: doc.relPath,
+          length: baseName.length
+        });
+      }
+    }
+  }
+
+  // Nach Begriffslänge absteigend sortieren, damit längere Phrasen zuerst matchen
+  const sortedTargets = Array.from(targetsMap.values()).sort((a, b) => b.length - a.length);
+
+  // Maskiere Code-Blöcke
+  let searchContext = maskCodeRegions(noteBody);
+  // Maskiere YAML-Frontmatter falls im übergebenen Text vorhanden
+  searchContext = searchContext.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, match => ' '.repeat(match.length));
+  // Maskiere bereits existierende Wikilinks [[...]]
+  searchContext = searchContext.replace(WIKILINK_PATTERN, match => ' '.repeat(match.length));
+  // Maskiere Markdown-Links und Bilder [text](url)
+  searchContext = searchContext.replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/g, match => ' '.repeat(match.length));
+  // Maskiere HTML-Tags
+  searchContext = searchContext.replace(/<[^>\n]+>/g, match => ' '.repeat(match.length));
+
+  const candidates = [];
+
+  for (const target of sortedTargets) {
+    const escaped = target.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(?<![\\p{L}\\p{N}_])(${escaped})(?![\\p{L}\\p{N}_])`, 'gui');
+
+    let matchCount = 0;
+    let m;
+    while ((m = regex.exec(searchContext)) !== null) {
+      matchCount++;
+    }
+
+    if (matchCount > 0) {
+      const suggestedSyntax = target.targetTitle.toLowerCase() === target.term.toLowerCase()
+        ? `[[${target.targetTitle}]]`
+        : `[[${target.targetTitle}|${target.term}]]`;
+
+      candidates.push({
+        term: target.term,
+        targetTitle: target.targetTitle,
+        targetRelPath: target.targetRelPath,
+        occurrences: matchCount,
+        suggestedSyntax
+      });
+
+      // Maskiere gefundene Treffer, damit kürzere Teilbegriffe nicht redundant matchen
+      searchContext = searchContext.replace(regex, match => ' '.repeat(match.length));
+    }
+  }
+
+  // Sortiere Kandidaten nach Häufigkeit (occurrences) absteigend
+  candidates.sort((a, b) => b.occurrences - a.occurrences);
+
+  const maxLimit = Math.max(1, Math.min(50, Number(limit) || 15));
+
+  return {
+    relPath: cleanRelPath || null,
+    noteTitle: noteTitle || null,
+    candidatesCount: candidates.length,
+    candidates: candidates.slice(0, maxLimit)
+  };
+}
+
 module.exports = {
   auditKnowledgeBase,
   findDuplicateNotes,
+  findWikilinkCandidates,
   maskCodeRegions,
   extractWikilinks,
   tokenize

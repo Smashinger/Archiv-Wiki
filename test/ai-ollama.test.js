@@ -137,7 +137,7 @@ test('KI 5: ai:abort beendet einen laufenden Ollama-HTTP-Stream', async t => {
   });
   const handlers = new Map();
   const events = [];
-  const state = { aiSettings: { host } };
+  const state = { aiSettings: { host, enabled: true } };
   registerAiIpc({
     getMainWindow: () => ({
       isDestroyed: () => false,

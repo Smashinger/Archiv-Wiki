@@ -8,6 +8,7 @@ const path = require('path');
 const {
   auditKnowledgeBase,
   findDuplicateNotes,
+  findWikilinkCandidates,
   tokenize,
   maskCodeRegions,
   extractWikilinks
@@ -183,4 +184,54 @@ test('AI-Knowledge 3: findDuplicateNotes erkennt inhaltliche und thematische Äh
 test('AI-Knowledge 4: Sicherheitsvalidierung fängt fehlende Argumente ab', () => {
   assert.throws(() => auditKnowledgeBase(null), /Kein Projektordner/);
   assert.throws(() => findDuplicateNotes(null), /Kein Projektordner/);
+  assert.throws(() => findWikilinkCandidates(null), /Kein Projektordner/);
+  assert.throws(() => findWikilinkCandidates('/dummy', {}), /Weder relPath noch content/);
 });
+
+test('AI-Knowledge 5: findWikilinkCandidates schlägt passende Wikilinks vor und ignoriert Code/Links', t => {
+  const wikiDir = createKnowledgeTestWiki(t);
+
+  // In createKnowledgeTestWiki gibt es u.a.:
+  // - Themen/Allgemein/Notiz B.md (title: "Notiz B")
+  // - Entwicklung/Workflows/Insel Notiz.md (title: "Insel Notiz")
+  // - Entwicklung/Workflows/Docker Leitfaden.md (title: "Docker Leitfaden")
+
+  const text = `
+Hier ist ein Verweis auf Insel Notiz im Text.
+Und hier erwähnen wir Docker Leitfaden.
+In einem Codeblock wird \`Insel Notiz\` aber nicht als Wikilink vorgeschlagen:
+\`\`\`
+Insel Notiz im Code
+\`\`\`
+Und ein existierender Link [[Notiz B]] wird ebenfalls nicht erneut vorgeschlagen.
+Und ein Markdown-Link [Insel Notiz](http://example.com) wird auch ignoriert.
+`;
+
+  const res = findWikilinkCandidates(wikiDir, {
+    relPath: 'Themen/Allgemein/Notiz A.md',
+    content: text
+  });
+
+  assert.ok(res);
+  assert.equal(res.relPath, 'Themen/Allgemein/Notiz A.md');
+  assert.ok(Array.isArray(res.candidates));
+
+  // Insel Notiz soll 1x gefunden werden (außerhalb Code und Markdown-Link)
+  const inselCandidate = res.candidates.find(c => c.term === 'Insel Notiz');
+  assert.ok(inselCandidate, 'Insel Notiz als Kandidat gefunden');
+  assert.equal(inselCandidate.occurrences, 1);
+  assert.equal(inselCandidate.suggestedSyntax, '[[Insel Notiz]]');
+
+  // Docker Leitfaden soll gefunden werden
+  const dockerCandidate = res.candidates.find(c => c.term === 'Docker Leitfaden');
+  assert.ok(dockerCandidate, 'Docker Leitfaden als Kandidat gefunden');
+
+  // Notiz B ist bereits ein Wikilink im Text ([[Notiz B]]) und darf NICHT als Kandidat auftauchen
+  const notizBCandidate = res.candidates.find(c => c.term === 'Notiz B');
+  assert.equal(notizBCandidate, undefined, 'Bereits verlinkte Notiz B wird nicht vorgeschlagen');
+
+  // Eigene Notiz (Notiz A) darf nicht vorgeschlagen werden
+  const notizACandidate = res.candidates.find(c => c.term === 'Notiz A');
+  assert.equal(notizACandidate, undefined, 'Eigene Notiz wird nicht vorgeschlagen');
+});
+

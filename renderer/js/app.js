@@ -41,7 +41,7 @@ import { resolveUiDesign, applyUiDesign } from './ui-design.js';
 import { setupToolbarOverflow } from './toolbar-overflow.js';
 import { countLabel, pluralWord } from './count-label.js';
 import { findNotesLinkingToTitle, renameBreaksTitleLinks } from './wikilink-refs.js';
-import { initAiChat, triggerAiPrompt } from './ai-chat.js';
+import { initAiChat, triggerAiPrompt, isAiChatEnabled } from './ai-chat.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -8559,6 +8559,79 @@ function buildEditorMenuItems() {
       } },
     { label: 'Alles auswählen', action: () => selectAllInEditor() }
   ];
+
+  if (isAiChatEnabled()) {
+    const hasSelection = editorHasSelection();
+    items.push(
+      { separator: true },
+      {
+        label: 'Mit KI bearbeiten …',
+        submenu: [
+          {
+            label: 'Auswahl verbessern / korrigieren',
+            disabled: !hasSelection,
+            action: () => {
+              const text = getEditorSelectionText();
+              if (text) triggerAiPrompt(`Überarbeite und verbessere folgenden Textabschnitt (Rechtschreibung, Grammatik, Stil, Lesbarkeit):\n\n"${text}"\n\nSchlage die Korrektur als Änderung vor.`);
+            }
+          },
+          {
+            label: 'Auswahl kürzen & prägnanter fassen',
+            disabled: !hasSelection,
+            action: () => {
+              const text = getEditorSelectionText();
+              if (text) triggerAiPrompt(`Formuliere folgenden Textabschnitt prägnanter und kürzer, ohne wichtige Fakten auszulassen:\n\n"${text}"`);
+            }
+          },
+          {
+            label: 'Auswahl zusammenfassen',
+            disabled: !hasSelection,
+            action: () => {
+              const text = getEditorSelectionText();
+              if (text) triggerAiPrompt(`Fasse folgenden Textabschnitt kurz und präzise zusammen:\n\n"${text}"`);
+            }
+          },
+          {
+            label: 'Auswahl erklären',
+            disabled: !hasSelection,
+            action: () => {
+              const text = getEditorSelectionText();
+              if (text) triggerAiPrompt(`Erkläre folgenden Begriff bzw. Textabschnitt verständlich:\n\n"${text}"`);
+            }
+          },
+          {
+            label: 'An KI-Chat senden',
+            disabled: !hasSelection,
+            action: () => {
+              const text = getEditorSelectionText();
+              if (text) triggerAiPrompt(`Hier ist ein Textabschnitt aus meiner Notiz:\n\n${text}\n\n`, { autoSend: false });
+            }
+          },
+          { separator: true },
+          {
+            label: 'Ganze Notiz zusammenfassen',
+            action: () => {
+              triggerAiPrompt('Fasse diese Notiz in 3 bis 5 prägnanten Stichpunkten zusammen.');
+            }
+          },
+          {
+            label: 'Passende Tags für Notiz vorschlagen',
+            action: () => {
+              triggerAiPrompt('Analysiere diese Notiz und schlage mir passende, konsistente Tags dafür vor.');
+            }
+          },
+          {
+            label: 'Passende Wikilinks für Notiz finden',
+            action: () => {
+              triggerAiPrompt('Welche passenden internen [[Wikilinks]] zu anderen Notizen in meinem Wiki empfiehlst du für diese Notiz?');
+            }
+          }
+        ]
+      }
+    );
+  }
+
+  return items;
 }
 
 // Vorschau ist reiner Lesemodus (gerendertes HTML, keine Markdown-Quelle an
@@ -8572,7 +8645,7 @@ function buildPreviewMenuItems(previewEl) {
   // (auch auf den Menüpunkt selbst) löscht standardmäßig eine bestehende
   // Textauswahl im Browser, noch bevor die eigentliche Aktion läuft.
   const selectedText = window.getSelection().toString();
-  return [
+  const items = [
     { label: 'Kopieren', disabled: !selectedText, action: async () => {
         if (selectedText) await window.archivAPI.clipboard.writeText(selectedText);
       } },
@@ -8584,6 +8657,68 @@ function buildPreviewMenuItems(previewEl) {
         sel.addRange(range);
       } }
   ];
+
+  if (isAiChatEnabled()) {
+    items.push(
+      { separator: true },
+      {
+        label: 'Auswahl verbessern / korrigieren',
+        disabled: !selectedText,
+        action: () => {
+          if (selectedText) triggerAiPrompt(`Überarbeite und verbessere folgenden Textabschnitt (Rechtschreibung, Grammatik, Stil, Lesbarkeit):\n\n"${selectedText}"\n\nSchlage die Korrektur als Änderung vor.`);
+        }
+      },
+      {
+        label: 'Auswahl kürzen & prägnanter fassen',
+        disabled: !selectedText,
+        action: () => {
+          if (selectedText) triggerAiPrompt(`Formuliere folgenden Textabschnitt prägnanter und kürzer, ohne wichtige Fakten auszulassen:\n\n"${selectedText}"`);
+        }
+      },
+      {
+        label: 'Auswahl zusammenfassen',
+        disabled: !selectedText,
+        action: () => {
+          if (selectedText) triggerAiPrompt(`Fasse folgenden Textabschnitt kurz und präzise zusammen:\n\n"${selectedText}"`);
+        }
+      },
+      {
+        label: 'Auswahl erklären',
+        disabled: !selectedText,
+        action: () => {
+          if (selectedText) triggerAiPrompt(`Erkläre folgenden Begriff bzw. Textabschnitt verständlich:\n\n"${selectedText}"`);
+        }
+      },
+      {
+        label: 'Auswahl an KI-Chat senden',
+        disabled: !selectedText,
+        action: () => {
+          if (selectedText) triggerAiPrompt(`Hier ist ein Textabschnitt aus meiner Notiz:\n\n${selectedText}\n\n`, { autoSend: false });
+        }
+      },
+      { separator: true },
+      {
+        label: 'Ganze Notiz mit KI zusammenfassen',
+        action: () => {
+          triggerAiPrompt('Fasse diese Notiz in 3 bis 5 prägnanten Stichpunkten zusammen.');
+        }
+      },
+      {
+        label: 'Passende Tags für Notiz vorschlagen',
+        action: () => {
+          triggerAiPrompt('Analysiere diese Notiz und schlage mir passende, konsistente Tags dafür vor.');
+        }
+      },
+      {
+        label: 'Passende Wikilinks für Notiz finden',
+        action: () => {
+          triggerAiPrompt('Welche passenden internen [[Wikilinks]] zu anderen Notizen in meinem Wiki empfiehlst du für diese Notiz?');
+        }
+      }
+    );
+  }
+
+  return items;
 }
 
 function wireEditorContextMenus() {
@@ -11681,6 +11816,15 @@ function resolveAccentForActiveDesign(config) {
       } catch (err) {
         console.error('[Archiv Wiki] Aktualisierung nach KI-Vorschlag fehlgeschlagen:', err);
       }
+    },
+    getActiveNote: () => {
+      const relPath = getOpenRelPath();
+      if (!relPath) return null;
+      return {
+        relPath,
+        content: getEditorContent() || '',
+        selection: getEditorSelectionText() || ''
+      };
     }
   });
   state.project = await window.archivAPI.getCurrentProject();

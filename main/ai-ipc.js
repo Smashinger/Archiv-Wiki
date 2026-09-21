@@ -6,11 +6,12 @@ const ollama = require('./ai-ollama');
 const { createAiHistory } = require('./ai-history');
 const { AI_TOOLS_DEFINITIONS, executeAiTool } = require('./ai-tools');
 const aiProposals = require('./ai-proposals');
+const aiContext = require('./ai-context');
 
 const DEFAULT_SETTINGS = Object.freeze({
-  enabled: true,
+  enabled: false,
   host: ollama.DEFAULT_HOST,
-  defaultModel: 'phi:2.7b',
+  defaultModel: 'qwen2.5:7b',
   temperature: 0.7,
   contextSize: 4096,
   persistHistory: true,
@@ -19,7 +20,8 @@ const DEFAULT_SETTINGS = Object.freeze({
 
 const SETTING_KEYS = new Set(Object.keys(DEFAULT_SETTINGS));
 const HOST_ARGUMENT_KEYS = new Set(['host']);
-const SEND_ARGUMENT_KEYS = new Set(['messageId', 'model', 'text', 'options', 'mode']);
+const SEND_ARGUMENT_KEYS = new Set(['messageId', 'model', 'text', 'options', 'mode', 'activeNote']);
+const ACTIVE_NOTE_KEYS = new Set(['relPath', 'content', 'selection']);
 const OPTION_KEYS = new Set(['temperature', 'contextSize', 'mode']);
 
 function invalidArgument(message = 'Ungültige Argumente für KI-IPC.') {
@@ -97,6 +99,24 @@ function validateSendRequest(args) {
   if (typeof request.text !== 'string' || !request.text.trim() || request.text.length > 200_000) throw invalidArgument();
   if (request.model !== undefined && (typeof request.model !== 'string' || !request.model.trim() || request.model.length > 200)) throw invalidArgument();
   if (request.mode !== undefined && (typeof request.mode !== 'string' || !['safe', 'auto', 'plan'].includes(request.mode))) throw invalidArgument('Ungültiger KI-Modus.');
+  let activeNote = null;
+  if (request.activeNote !== undefined && request.activeNote !== null) {
+    requireAllowedKeys(request.activeNote, ACTIVE_NOTE_KEYS);
+    if (request.activeNote.relPath !== undefined && (typeof request.activeNote.relPath !== 'string' || request.activeNote.relPath.length > 2000)) {
+      throw invalidArgument('Ungültiger relPath der aktiven Notiz.');
+    }
+    if (request.activeNote.content !== undefined && (typeof request.activeNote.content !== 'string' || request.activeNote.content.length > 500_000)) {
+      throw invalidArgument('Ungültiger Inhalt der aktiven Notiz.');
+    }
+    if (request.activeNote.selection !== undefined && (typeof request.activeNote.selection !== 'string' || request.activeNote.selection.length > 100_000)) {
+      throw invalidArgument('Ungültige Markierung der aktiven Notiz.');
+    }
+    activeNote = {
+      relPath: request.activeNote.relPath || '',
+      content: request.activeNote.content || '',
+      selection: request.activeNote.selection || ''
+    };
+  }
   let options = {};
   if (request.options !== undefined) {
     requireAllowedKeys(request.options, OPTION_KEYS);
@@ -107,6 +127,7 @@ function validateSendRequest(args) {
     text: request.text,
     ...(request.model !== undefined ? { model: request.model } : {}),
     ...(request.mode !== undefined ? { mode: request.mode } : {}),
+    ...(activeNote ? { activeNote } : {}),
     options
   };
 }
@@ -186,6 +207,7 @@ function registerAiIpc({
   }, (_event, patch) => {
     const next = { ...resolveSettings(readState), ...patch };
     writeState({ aiSettings: next });
+    sendToMainWindow('ai:settings-updated', next);
     return next;
   });
 
@@ -256,6 +278,25 @@ function registerAiIpc({
         const currentProject = typeof getCurrentProject === 'function' ? getCurrentProject() : null;
         const projectPath = currentProject?.path || null;
 
+        let wikiStructure = '';
+        if (projectPath) {
+          try {
+            wikiStructure = aiContext.buildWikiStructureSnapshot(projectPath);
+          } catch (err) {
+            console.warn('[KI] Wiki-Struktur konnte nicht geladen werden:', err);
+          }
+        }
+
+        const activeNoteContext = aiContext.formatActiveNoteContext(request.activeNote);
+        const contextData = {
+          wikiStructure,
+          activeNoteContext
+        };
+
+        const recentHistory = (history.getHistory() || [])
+          .filter(msg => msg.id !== request.messageId)
+          .slice(-6);
+
         const tools = projectPath ? AI_TOOLS_DEFINITIONS : [];
         const executeTool = projectPath
           ? (name, args) => executeAiTool(projectPath, name, args)
@@ -266,6 +307,8 @@ function registerAiIpc({
           model,
           mode,
           text: request.text,
+          contextData,
+          historyMessages: recentHistory,
           temperature,
           contextSize,
           signal: controller.signal,
@@ -284,6 +327,13 @@ function registerAiIpc({
                 messageId: request.messageId,
                 proposal: result.data
               });
+            } else if (Array.isArray(result?.data?.proposals)) {
+              for (const proposal of result.data.proposals) {
+                sendToMainWindow('ai:stream-proposal', {
+                  messageId: request.messageId,
+                  proposal
+                });
+              }
             }
           },
           onChunk: queueChunk

@@ -52,7 +52,7 @@ function createProposal(projectPath, {
   subCategoryRelPath,
   relPath,
   title,
-  content = '',
+  content,
   tags = [],
   reason = '',
   name,
@@ -80,7 +80,9 @@ function createProposal(projectPath, {
     }
     const cleanTitle = String(title || 'Neue Notiz').trim();
     targetRelPath = path.join(subCategoryRelPath, `${notesFs.sanitizeName(cleanTitle)}.md`);
-    computedDiff = computeLineDiff('', content);
+    const finalContent = content ?? '';
+    computedDiff = computeLineDiff('', finalContent);
+    content = finalContent;
   } else if (type === 'update') {
     if (!relPath) {
       throw new Error('Für die Bearbeitung einer Notiz muss relPath angegeben werden.');
@@ -91,7 +93,13 @@ function createProposal(projectPath, {
     if (!title) {
       title = existing.frontmatter?.title || path.basename(relPath, '.md');
     }
-    computedDiff = computeLineDiff(oldContent, content);
+    const finalContent = (content !== undefined && content !== null) ? String(content) : oldContent;
+    content = finalContent;
+    if (finalContent === oldContent && Array.isArray(tags) && tags.length > 0) {
+      computedDiff = [{ type: 'add', line: `+ Tags: ${tags.map(t => '#' + String(t).replace(/^#/, '')).join(' ')}` }];
+    } else {
+      computedDiff = computeLineDiff(oldContent, finalContent);
+    }
   } else if (type === 'create_category') {
     const categoryName = String(name || '').trim();
     if (!categoryName) {

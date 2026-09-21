@@ -229,7 +229,14 @@ export function positionHtmlContextMenu(menu, { clientX, clientY, anchorEl = nul
   const rect = menu.getBoundingClientRect();
   const margin = 4;
   const left = Math.max(margin, Math.min(requestedLeft, window.innerWidth - rect.width - margin));
-  const top = Math.max(margin, Math.min(requestedTop, window.innerHeight - rect.height - margin));
+  let top = Math.max(margin, Math.min(requestedTop, window.innerHeight - rect.height - margin));
+  if (requestedTop + rect.height > window.innerHeight - margin) {
+    if (Number.isFinite(clientY) && clientY - rect.height >= margin) {
+      top = clientY - rect.height;
+    } else if (anchorRect && anchorRect.top - rect.height - offsetY >= margin) {
+      top = anchorRect.top - rect.height - offsetY;
+    }
+  }
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
 }

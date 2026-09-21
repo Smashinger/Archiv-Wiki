@@ -2,6 +2,7 @@
 
 import { renderPreview } from './vendor/editor-bundle.js';
 import { showConfirmDialog } from './dialog.js';
+import { createHtmlContextMenu, closeHtmlContextMenu, renderSimpleContextMenuItems } from './context-menu.js';
 
 const INPUT_MAX_HEIGHT = 140;
 const STORAGE_KEY_BOUNDS = 'archiv-wiki:ai-chat-bounds';
@@ -259,7 +260,32 @@ export function resolveActiveModels(availableNames, currentSelected, configuredD
   };
 }
 
-export function initAiChat({ onProposalApplied } = {}) {
+let aiChatEnabled = false;
+
+export function isAiChatEnabled() {
+  return aiChatEnabled;
+}
+
+export function setAiChatEnabled(enabled) {
+  aiChatEnabled = Boolean(enabled);
+  const openButton = document.getElementById('titlebarAiChatBtn');
+  if (openButton) {
+    openButton.style.display = aiChatEnabled ? '' : 'none';
+  }
+  const panel = document.getElementById('aiChatPanel');
+  if (!aiChatEnabled && panel && !panel.hidden) {
+    panel.hidden = true;
+    if (openButton) {
+      openButton.classList.remove('is-active');
+      openButton.setAttribute('aria-pressed', 'false');
+    }
+  }
+  try {
+    window.dispatchEvent(new CustomEvent('archiv:ai-state-changed', { detail: { enabled: aiChatEnabled } }));
+  } catch {}
+}
+
+export function initAiChat({ onProposalApplied, getActiveNote } = {}) {
   const panel = document.getElementById('aiChatPanel');
   const openButton = document.getElementById('titlebarAiChatBtn');
   const closeButton = document.getElementById('aiChatCloseBtn');
@@ -273,14 +299,61 @@ export function initAiChat({ onProposalApplied } = {}) {
   const messagesContainer = document.getElementById('aiChatMessages');
   const emptyState = messagesContainer?.querySelector('.ai-chat-empty-state');
   const statusDot = document.getElementById('aiTopbarStatusDot');
+  const headerStatusDot = document.getElementById('aiChatHeaderStatusDot');
+  const headerStatusText = document.getElementById('aiChatHeaderStatusText');
   const modeGroup = document.getElementById('aiChatModeGroup');
   const modeButtons = modeGroup ? Array.from(modeGroup.querySelectorAll('.ai-mode-btn')) : [];
+  const activeNoteBar = document.getElementById('aiActiveNoteBar');
+  const activeNoteLabel = document.getElementById('aiActiveNoteLabel');
+  const activeNoteSelection = document.getElementById('aiActiveNoteSelection');
+  const activeNoteToggle = document.getElementById('aiActiveNoteToggle');
 
   if (!panel || !openButton || !closeButton || !header || !input || !sendButton || !messagesContainer) {
     return () => {};
   }
   if (panel.dataset.initialized === 'true') return () => {};
   panel.dataset.initialized = 'true';
+
+  function updateActiveNoteUI() {
+    if (!activeNoteBar || !activeNoteLabel) return;
+    const note = typeof getActiveNote === 'function' ? getActiveNote() : null;
+    if (!note || !note.relPath) {
+      activeNoteBar.style.display = 'none';
+      return;
+    }
+    activeNoteBar.style.display = 'flex';
+    activeNoteLabel.textContent = note.relPath;
+    activeNoteLabel.title = `Aktive Notiz: ${note.relPath}`;
+    if (activeNoteSelection) {
+      const sel = typeof note.selection === 'string' ? note.selection.trim() : '';
+      if (sel.length > 0) {
+        activeNoteSelection.textContent = `${sel.length} Z. markiert`;
+        activeNoteSelection.style.display = 'inline';
+      } else {
+        activeNoteSelection.style.display = 'none';
+      }
+    }
+  }
+
+  // Initialen Aktiv-Zustand aus den Einstellungen laden:
+  window.archivAPI.ai.getSettings().then((settings) => {
+    setAiChatEnabled(settings?.enabled === true);
+  }).catch(() => {
+    setAiChatEnabled(false);
+  });
+
+  const removeSettingsListener = window.archivAPI.ai.onSettingsUpdated?.((settings) => {
+    if (settings && typeof settings.enabled === 'boolean') {
+      setAiChatEnabled(settings.enabled);
+    }
+  });
+
+  const handleCustomSettingsChanged = (event) => {
+    if (event?.detail && typeof event.detail.enabled === 'boolean') {
+      setAiChatEnabled(event.detail.enabled);
+    }
+  };
+  window.addEventListener('archiv:ai-settings-changed', handleCustomSettingsChanged);
 
   let activeMessageId = null;
   let activeDeltaBuffer = '';
@@ -320,6 +393,7 @@ export function initAiChat({ onProposalApplied } = {}) {
     const bubble = document.createElement('div');
     bubble.className = 'ai-msg-user';
     bubble.textContent = text;
+    bubble.dataset.rawMarkdown = text;
     messagesContainer.appendChild(bubble);
     updateEmptyState();
     scrollToBottom();
@@ -330,6 +404,7 @@ export function initAiChat({ onProposalApplied } = {}) {
     const bubble = document.createElement('div');
     bubble.className = 'ai-msg-assistant';
     bubble.innerHTML = renderPreview(markdownText);
+    bubble.dataset.rawMarkdown = markdownText;
     messagesContainer.appendChild(bubble);
     updateEmptyState();
     scrollToBottom();
@@ -371,6 +446,13 @@ export function initAiChat({ onProposalApplied } = {}) {
         statusDot.title = conn?.online
           ? `Ollama online (${conn.version ? `v${String(conn.version).replace(/^v/i, '')}` : ''})`
           : 'Ollama nicht erreichbar';
+      }
+      if (headerStatusDot) {
+        headerStatusDot.classList.toggle('is-online', Boolean(conn?.online));
+        headerStatusDot.classList.toggle('is-offline', !conn?.online);
+      }
+      if (headerStatusText) {
+        headerStatusText.textContent = conn?.online ? 'Bereit' : 'Offline';
       }
       if (modelSelect) {
         const modelsRes = await window.archivAPI.ai.getModels({ host: settings?.host }).catch(() => ({ success: false, models: [] }));
@@ -414,6 +496,48 @@ export function initAiChat({ onProposalApplied } = {}) {
             opt.disabled = true;
             opt.selected = true;
             modelSelect.appendChild(opt);
+          }
+        }
+
+        const onboardingHint = document.getElementById('aiChatOnboardingHint');
+        const hintTitle = document.getElementById('aiHintTitle');
+        const hintDesc = document.getElementById('aiHintDesc');
+        const hintCodeRow = document.getElementById('aiHintCodeRow');
+        const hintCommand = document.getElementById('aiHintCommand');
+        const hintSub = document.getElementById('aiHintSub');
+        const hintCopyBtn = document.getElementById('aiHintCopyBtn');
+
+        if (hintCopyBtn && !hintCopyBtn.dataset.wired) {
+          hintCopyBtn.dataset.wired = 'true';
+          hintCopyBtn.addEventListener('click', async () => {
+            const cmd = hintCommand?.textContent || 'ollama run qwen2.5:7b';
+            await window.archivAPI.clipboard.writeText(cmd);
+            hintCopyBtn.textContent = '✓';
+            setTimeout(() => { hintCopyBtn.textContent = '📋'; }, 1500);
+          });
+        }
+
+        if (onboardingHint) {
+          if (conn?.online) {
+            if (availableNames.length === 0) {
+              onboardingHint.style.display = 'block';
+              onboardingHint.classList.remove('is-offline');
+              if (hintTitle) hintTitle.textContent = '💡 Keine KI-Modelle in Ollama gefunden';
+              if (hintDesc) hintDesc.textContent = 'Ollama läuft, aber es ist noch kein Sprachmodell installiert. Führe im Terminal aus:';
+              if (hintCodeRow) hintCodeRow.style.display = 'flex';
+              if (hintCommand) hintCommand.textContent = 'ollama run qwen2.5:7b';
+              if (hintSub) hintSub.innerHTML = 'Empfehlung: <strong>qwen2.5:7b</strong> für Wissensarbeit, oder <strong>llama3.2</strong> für schnelle Antworten.';
+            } else {
+              onboardingHint.style.display = 'none';
+            }
+          } else {
+            onboardingHint.style.display = 'block';
+            onboardingHint.classList.add('is-offline');
+            if (hintTitle) hintTitle.textContent = '⚠️ Ollama ist nicht erreichbar';
+            if (hintDesc) hintDesc.textContent = 'Bitte starte Ollama lokal im Terminal mit:';
+            if (hintCodeRow) hintCodeRow.style.display = 'flex';
+            if (hintCommand) hintCommand.textContent = 'ollama serve';
+            if (hintSub) hintSub.textContent = 'Falls Ollama noch nicht installiert ist, lade es von ollama.com herunter.';
           }
         }
       }
@@ -470,12 +594,16 @@ export function initAiChat({ onProposalApplied } = {}) {
 
     const selectedModel = modelSelect?.value || undefined;
     const contextSize = contextSelect?.value ? parseInt(contextSelect.value, 10) : undefined;
+    const includeActiveNote = activeNoteToggle ? activeNoteToggle.checked : true;
+    const rawActiveNote = typeof getActiveNote === 'function' ? getActiveNote() : null;
+    const activeNote = (includeActiveNote && rawActiveNote?.relPath) ? rawActiveNote : null;
     try {
       await window.archivAPI.ai.sendMessage({
         messageId,
         text,
         model: selectedModel,
         mode: currentMode,
+        ...(activeNote ? { activeNote } : {}),
         options: {
           contextSize: Number.isInteger(contextSize) ? contextSize : undefined
         }
@@ -580,6 +708,7 @@ export function initAiChat({ onProposalApplied } = {}) {
       } else {
         activeBubbleEl.innerHTML = renderPreview(fullText);
       }
+      activeBubbleEl.dataset.rawMarkdown = fullText;
       const pills = activeBubbleEl.querySelectorAll('.ai-tool-pill');
       for (const pill of pills) {
         pill.classList.add('is-done');
@@ -668,6 +797,7 @@ export function initAiChat({ onProposalApplied } = {}) {
   }
 
   function setOpen(open) {
+    if (open && !isAiChatEnabled()) return;
     panel.hidden = !open;
     openButton.classList.toggle('is-active', open);
     openButton.setAttribute('aria-pressed', String(open));
@@ -675,6 +805,7 @@ export function initAiChat({ onProposalApplied } = {}) {
     if (open) {
       restoreBounds();
       refreshModelsAndStatus();
+      updateActiveNoteUI();
       requestAnimationFrame(() => input.focus({ preventScroll: true }));
     }
   }
@@ -688,6 +819,7 @@ export function initAiChat({ onProposalApplied } = {}) {
   }
 
   function handleShortcut(event) {
+    if (!isAiChatEnabled()) return;
     if (event.defaultPrevented || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     if (String(event.key).toLowerCase() !== 'a') return;
     event.preventDefault();
@@ -815,6 +947,7 @@ export function initAiChat({ onProposalApplied } = {}) {
   };
 
   const handleExternalPrompt = (event) => {
+    if (!isAiChatEnabled()) return;
     const promptText = event?.detail?.prompt;
     if (!promptText) return;
     setOpen(true);
@@ -827,8 +960,135 @@ export function initAiChat({ onProposalApplied } = {}) {
     }
   };
 
+  const handleInputContextMenu = (e) => {
+    e.preventDefault();
+    const hasSelection = input.selectionStart !== input.selectionEnd;
+    const menu = createHtmlContextMenu({
+      className: 'context-menu',
+      position: { clientX: e.clientX, clientY: e.clientY },
+      label: 'Chat-Eingabe-Menü',
+      trigger: input,
+      html: renderSimpleContextMenuItems([
+        {
+          label: 'Ausschneiden',
+          disabled: !hasSelection,
+          data: { action: 'cut' }
+        },
+        {
+          label: 'Kopieren',
+          disabled: !hasSelection,
+          data: { action: 'copy' }
+        },
+        {
+          label: 'Einfügen',
+          data: { action: 'paste' }
+        },
+        { separator: true },
+        {
+          label: 'Alles auswählen',
+          data: { action: 'select-all' }
+        },
+        {
+          label: 'Textfeld leeren',
+          disabled: !input.value.trim(),
+          data: { action: 'clear' }
+        }
+      ])
+    });
+
+    menu.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('button');
+      if (!btn || btn.disabled) return;
+      const action = btn.dataset.action;
+      closeHtmlContextMenu(menu, { reason: 'action' });
+
+      if (action === 'cut') {
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        const text = input.value.slice(start, end);
+        if (text) {
+          await window.archivAPI.clipboard.writeText(text);
+          input.value = input.value.slice(0, start) + input.value.slice(end);
+          input.selectionStart = input.selectionEnd = start;
+          resizeInput();
+        }
+      } else if (action === 'copy') {
+        const text = input.value.slice(input.selectionStart, input.selectionEnd);
+        if (text) await window.archivAPI.clipboard.writeText(text);
+      } else if (action === 'paste') {
+        const clipText = await window.archivAPI.clipboard.readText();
+        if (clipText) {
+          const start = input.selectionStart;
+          const end = input.selectionEnd;
+          input.value = input.value.slice(0, start) + clipText + input.value.slice(end);
+          input.selectionStart = input.selectionEnd = start + clipText.length;
+          resizeInput();
+        }
+      } else if (action === 'select-all') {
+        input.select();
+      } else if (action === 'clear') {
+        input.value = '';
+        resizeInput();
+      }
+    });
+  };
+
+  const handleMessagesContextMenu = (e) => {
+    const bubble = e.target.closest('.ai-msg-user, .ai-msg-assistant');
+    const selection = window.getSelection().toString();
+    if (!bubble && !selection) return;
+    e.preventDefault();
+
+    const items = [];
+    if (selection) {
+      items.push({
+        label: 'Auswahl kopieren',
+        data: { action: 'copy-selection' }
+      });
+    }
+    if (bubble) {
+      items.push({
+        label: 'Ganze Nachricht kopieren',
+        data: { action: 'copy-message' }
+      });
+    }
+
+    if (items.length === 0) return;
+
+    const menu = createHtmlContextMenu({
+      className: 'context-menu',
+      position: { clientX: e.clientX, clientY: e.clientY },
+      label: 'Nachrichten-Menü',
+      trigger: bubble || messagesContainer,
+      html: renderSimpleContextMenuItems(items)
+    });
+
+    menu.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('button');
+      if (!btn || btn.disabled) return;
+      const action = btn.dataset.action;
+      closeHtmlContextMenu(menu, { reason: 'action' });
+
+      if (action === 'copy-selection' && selection) {
+        await window.archivAPI.clipboard.writeText(selection);
+      } else if (action === 'copy-message' && bubble) {
+        const textToCopy = bubble.dataset.rawMarkdown || bubble.innerText || '';
+        if (textToCopy) await window.archivAPI.clipboard.writeText(textToCopy);
+      }
+    });
+  };
+
+  const handleSelectionChange = () => {
+    if (!panel.hidden) updateActiveNoteUI();
+  };
+
   messagesContainer.addEventListener('click', handleSuggestionClick);
+  messagesContainer.addEventListener('contextmenu', handleMessagesContextMenu);
+  input.addEventListener('contextmenu', handleInputContextMenu);
   window.addEventListener('archiv:ai-prompt', handleExternalPrompt);
+  window.addEventListener('hashchange', updateActiveNoteUI);
+  window.addEventListener('archiv:active-note-changed', updateActiveNoteUI);
+  document.addEventListener('selectionchange', handleSelectionChange);
 
   window.addEventListener('resize', handleWindowResize);
   window.addEventListener('focus', handleWindowFocus);
@@ -837,6 +1097,7 @@ export function initAiChat({ onProposalApplied } = {}) {
   resizeInput();
   loadHistory();
   refreshModelsAndStatus();
+  updateActiveNoteUI();
 
   return () => {
     stopDragging();
@@ -844,12 +1105,18 @@ export function initAiChat({ onProposalApplied } = {}) {
     window.removeEventListener('resize', handleWindowResize);
     window.removeEventListener('focus', handleWindowFocus);
     messagesContainer.removeEventListener('click', handleSuggestionClick);
+    messagesContainer.removeEventListener('contextmenu', handleMessagesContextMenu);
+    input.removeEventListener('contextmenu', handleInputContextMenu);
     window.removeEventListener('archiv:ai-prompt', handleExternalPrompt);
+    window.removeEventListener('hashchange', updateActiveNoteUI);
+    window.removeEventListener('archiv:active-note-changed', updateActiveNoteUI);
+    document.removeEventListener('selectionchange', handleSelectionChange);
     removeChunkListener?.();
     removeToolCallListener?.();
     removeProposalListener?.();
     removeEndListener?.();
-    removeErrorListener?.();
+    removeSettingsListener?.();
+    window.removeEventListener('archiv:ai-settings-changed', handleCustomSettingsChanged);
     openButton.removeEventListener('click', togglePanel);
     closeButton.removeEventListener('click', closePanel);
     document.removeEventListener('keydown', handleShortcut);

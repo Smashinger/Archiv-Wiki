@@ -371,3 +371,26 @@ test('AI-Proposals 12: applyProposal legt fehlende Haupt- und Unterkategorie bei
   assert.equal(note.frontmatter.mainCategory, 'Wissen');
 });
 
+test('AI-Proposals 13: applyProposal aktualisiert nur Tags wenn content nicht übergeben wird', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  const proposal = aiProposals.createProposal(wikiDir, {
+    type: 'update',
+    relPath: 'Entwicklung/Workflows/Git Leitfaden.md',
+    tags: ['git', 'neuertag'],
+    reason: 'Fehlende Tags ergänzt'
+  });
+
+  assert.equal(proposal.type, 'update');
+  assert.deepEqual(proposal.diff, [{ type: 'add', line: '+ Tags: #git #neuertag' }]);
+
+  const result = aiProposals.applyProposal(proposal.id, wikiDir);
+  assert.equal(result.success, true);
+  assert.equal(result.action, 'updated');
+
+  const updatedNote = notesFs.readNote(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md');
+  // Inhalt bleibt vollständig erhalten:
+  assert.ok(updatedNote.body.includes('Schritt 1: git status'));
+  assert.deepEqual(updatedNote.frontmatter.tags, ['git', 'neuertag']);
+});
+

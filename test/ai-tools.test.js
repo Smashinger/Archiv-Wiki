@@ -11,6 +11,7 @@ const {
   searchNotes,
   readNote,
   listNotes,
+  getWikiTags,
   executeAiTool
 } = require('../main/ai-tools');
 
@@ -75,12 +76,14 @@ Dieser Inhalt ist archiviert.
 
 test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werkzeuge', () => {
   assert.ok(Array.isArray(AI_TOOLS_DEFINITIONS));
-  assert.equal(AI_TOOLS_DEFINITIONS.length, 11);
+  assert.equal(AI_TOOLS_DEFINITIONS.length, 13);
 
   const names = AI_TOOLS_DEFINITIONS.map(d => d.function?.name);
   assert.ok(names.includes('search_notes'), 'search_notes ist definiert');
   assert.ok(names.includes('read_note'), 'read_note ist definiert');
   assert.ok(names.includes('list_notes'), 'list_notes ist definiert');
+  assert.ok(names.includes('get_wiki_tags'), 'get_wiki_tags ist definiert');
+  assert.ok(names.includes('suggest_wikilinks'), 'suggest_wikilinks ist definiert');
   assert.ok(names.includes('propose_create_note'), 'propose_create_note ist definiert');
   assert.ok(names.includes('propose_update_note'), 'propose_update_note ist definiert');
   assert.ok(names.includes('propose_create_category'), 'propose_create_category ist definiert');
@@ -263,5 +266,43 @@ test('KI-Tools 8: executeAiTool führt audit_knowledge_base und find_duplicate_n
   assert.ok(Array.isArray(dupRes.data.duplicatePairs));
   assert.equal(typeof dupRes.data.evaluatedNotes, 'number');
 });
+
+test('KI-Tools 9: getWikiTags liefert vorhandene Tags sortiert nach Häufigkeit', async t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  const res = await executeAiTool(wikiDir, 'get_wiki_tags', { limit: 10 });
+  assert.equal(res.success, true);
+  assert.ok(res.data);
+  assert.equal(typeof res.data.totalDistinctTags, 'number');
+  assert.ok(Array.isArray(res.data.tags));
+  assert.ok(res.data.totalDistinctTags >= 2, 'Mindestens die Test-Tags electron und nodejs sind vorhanden');
+
+  const hasElectron = res.data.tags.some(item => item.tag === 'electron');
+  assert.ok(hasElectron, 'Tag "electron" wurde in der Sammlung gefunden');
+});
+
+test('KI-Tools 10: executeAiTool führt suggest_wikilinks aus', async t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  // In Architektur.md steht: "Hier steht wichtiges Wissen über lokale KI-Modelle."
+  // Wir testen suggest_wikilinks mit direktem content, der "Pfannkuchen" erwähnt
+  const res = await executeAiTool(wikiDir, 'suggest_wikilinks', {
+    relPath: 'Projekte/Archiv-Wiki/Architektur.md',
+    content: 'Hier testen wir die Architektur. Danach backen wir leckere Pfannkuchen in der Küche.'
+  });
+
+  assert.equal(res.success, true);
+  assert.ok(res.data);
+  assert.equal(res.data.relPath, 'Projekte/Archiv-Wiki/Architektur.md');
+  assert.ok(Array.isArray(res.data.candidates));
+  assert.ok(res.data.candidates.length >= 1, 'Mindestens 1 Kandidat gefunden');
+
+  const pfannkuchenMatch = res.data.candidates.find(c => c.term === 'Pfannkuchen');
+  assert.ok(pfannkuchenMatch, 'Kandidat Pfannkuchen gefunden');
+  assert.equal(pfannkuchenMatch.targetTitle, 'Rezept für Pfannkuchen');
+  assert.equal(pfannkuchenMatch.occurrences, 1);
+  assert.equal(pfannkuchenMatch.suggestedSyntax, '[[Rezept für Pfannkuchen|Pfannkuchen]]');
+});
+
 
 
