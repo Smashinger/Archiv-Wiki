@@ -180,12 +180,14 @@ test('KI-Chat UI 7: renderDiffLines und escapeHtml formatieren Diffs sicher', as
   const diff = [
     { type: 'same', line: 'Unverändert' },
     { type: 'remove', line: 'Gelöscht' },
-    { type: 'add', line: '<script>neu</script>' }
+    { type: 'add', line: '<script>neu</script>' },
+    { type: 'truncated', line: '… und 10 weitere Zeilen' }
   ];
   const rendered = renderDiffLines(diff);
   assert.ok(rendered.includes('is-same'));
   assert.ok(rendered.includes('is-remove'));
   assert.ok(rendered.includes('is-add'));
+  assert.ok(rendered.includes('is-truncated'), 'Truncated marker vorhanden');
   assert.ok(!rendered.includes('<script>neu</script>'), 'HTML in Diff muss escaped sein');
   assert.ok(rendered.includes('&lt;script&gt;neu&lt;/script&gt;'));
 });
@@ -523,4 +525,293 @@ test('KI-Chat Phase 1: Aktive Notiz als sichtbarer Composer-Kontext', () => {
 
   // 4. Dispatch in editor.js
   assert.ok(editorJs.includes('archiv:active-note-changed'), 'editor.js sendet archiv:active-note-changed');
+});
+
+test('KI-Chat UI 15: renderProposalCard respektiert beforeApply Hook (Abbruch bei false, Ausführung bei true)', async () => {
+  const { renderProposalCard } = await import('../renderer/js/ai-chat.js');
+
+  function createMockElement(tag) {
+    const el = {
+      tagName: tag.toUpperCase(),
+      className: '',
+      innerHTML: '',
+      textContent: '',
+      dataset: {},
+      style: {},
+      children: [],
+      classList: {
+        _classes: new Set(),
+        add(c) { this._classes.add(c); },
+        remove(c) { this._classes.delete(c); },
+        contains(c) { return this._classes.has(c); }
+      },
+      appendChild(child) { el.children.push(child); return child; },
+      insertBefore(child) { el.children.unshift(child); return child; },
+      listeners: {},
+      addEventListener(type, handler) { el.listeners[type] = handler; },
+      click() { if (el.listeners.click) return el.listeners.click({ preventDefault: () => {} }); }
+    };
+    return el;
+  }
+
+  const prevDoc = global.document;
+  global.document = { createElement: createMockElement };
+
+  let applyCallCount = 0;
+  const prevWindow = global.window;
+  global.window = {
+    archivAPI: {
+      ai: {
+        applyProposal: async () => {
+          applyCallCount++;
+          return { success: true, relPath: 'Notiz.md' };
+        }
+      }
+    }
+  };
+
+  try {
+    const proposal = {
+      proposalId: 'prop_hook_test',
+      type: 'update',
+      title: 'Hook Test Notiz',
+      relPath: 'Kategorie/Unterkategorie/Notiz.md',
+      diff: []
+    };
+
+    // 1. Fall: beforeApply liefert false -> applyProposal darf NICHT aufgerufen werden
+    let beforeApplyCalled = false;
+    const cardBlocked = renderProposalCard(proposal, {
+      beforeApply: async () => {
+        beforeApplyCalled = true;
+        return false;
+      }
+    });
+
+    const actionsBlocked = cardBlocked.children.find(c => c.className === 'ai-proposal-actions');
+    const applyBtnBlocked = actionsBlocked.children.find(c => c.className.includes('ai-proposal-apply-btn'));
+    await applyBtnBlocked.click();
+
+    assert.equal(beforeApplyCalled, true);
+    assert.equal(applyCallCount, 0, 'applyProposal darf bei false nicht aufgerufen werden');
+    assert.equal(cardBlocked.classList.contains('is-applied'), false);
+    assert.equal(applyBtnBlocked.disabled, false, 'Button muss nach Abbruch wieder aktiviert sein');
+
+    // 2. Fall: beforeApply liefert true -> applyProposal wird aufgerufen
+    const cardAllowed = renderProposalCard(proposal, {
+      beforeApply: async () => true
+    });
+
+    const actionsAllowed = cardAllowed.children.find(c => c.className === 'ai-proposal-actions');
+    const applyBtnAllowed = actionsAllowed.children.find(c => c.className.includes('ai-proposal-apply-btn'));
+    await applyBtnAllowed.click();
+
+    assert.equal(applyCallCount, 1, 'applyProposal muss bei true aufgerufen werden');
+    assert.equal(cardAllowed.classList.contains('is-applied'), true);
+  } finally {
+    global.document = prevDoc;
+    global.window = prevWindow;
+  }
+});
+
+test('KI-Chat UI 16: initAiChat Cleanup-Funktion deregistriert Stream-Listener und räumt Status auf', async () => {
+  const { initAiChat } = await import('../renderer/js/ai-chat.js');
+
+  const elements = new Map();
+  function getOrCreateElement(id, tag = 'div') {
+    if (!elements.has(id)) {
+      const el = {
+        id,
+        tagName: tag.toUpperCase(),
+        dataset: {},
+        style: {},
+        classList: {
+          _classes: new Set(),
+          add(c) { this._classes.add(c); },
+          remove(c) { this._classes.delete(c); },
+          toggle(c, force) { if (force !== undefined) { force ? this.add(c) : this.remove(c); } else { this._classes.has(c) ? this.remove(c) : this.add(c); } },
+          contains(c) { return this._classes.has(c); }
+        },
+        options: [],
+        appendChild(child) { this.options.push(child); return child; },
+        listeners: new Map(),
+        addEventListener(type, handler) {
+          if (!this.listeners.has(type)) this.listeners.set(type, []);
+          this.listeners.get(type).push(handler);
+        },
+        removeEventListener(type, handler) {
+          const list = this.listeners.get(type) || [];
+          this.listeners.set(type, list.filter(h => h !== handler));
+        },
+        querySelectorAll() { return []; },
+        querySelector(selector) {
+          if (selector === '[data-ai-drag-handle]') {
+            return getOrCreateElement('aiChatHeader');
+          }
+          return null;
+        },
+        setAttribute() {},
+        removeAttribute() {},
+        getAttribute() { return null; },
+        getBoundingClientRect() { return { left: 0, top: 0, width: 400, height: 500 }; }
+      };
+      elements.set(id, el);
+    }
+    return elements.get(id);
+  }
+
+  const windowListeners = new Map();
+  const documentListeners = new Map();
+
+  let unlistenCount = 0;
+  const mockUnlisten = () => { unlistenCount++; };
+
+  const prevDoc = global.document;
+  const prevWindow = global.window;
+  const prevLocalStorage = global.localStorage;
+
+  global.localStorage = {
+    getItem() { return null; },
+    setItem() {}
+  };
+
+  global.document = {
+    getElementById(id) { return getOrCreateElement(id); },
+    createElement(tag) { return getOrCreateElement(`dyn_${Math.random()}`, tag); },
+    addEventListener(type, handler) {
+      if (!documentListeners.has(type)) documentListeners.set(type, []);
+      documentListeners.get(type).push(handler);
+    },
+    removeEventListener(type, handler) {
+      const list = documentListeners.get(type) || [];
+      documentListeners.set(type, list.filter(h => h !== handler));
+    }
+  };
+
+  global.window = {
+    addEventListener(type, handler) {
+      if (!windowListeners.has(type)) windowListeners.set(type, []);
+      windowListeners.get(type).push(handler);
+    },
+    removeEventListener(type, handler) {
+      const list = windowListeners.get(type) || [];
+      windowListeners.set(type, list.filter(h => h !== handler));
+    },
+    innerWidth: 1000,
+    innerHeight: 800,
+    requestAnimationFrame: (cb) => { cb(); },
+    archivAPI: {
+      ai: {
+        getSettings: async () => ({ enabled: true, mode: 'safe' }),
+        checkConnection: async () => ({ online: true }),
+        getModels: async () => ({ success: true, models: [{ name: 'llama3.2' }] }),
+        getHistory: async () => [],
+        updateSettings: async () => ({ success: true }),
+        abort: async () => ({ success: true }),
+        onStreamChunk: () => mockUnlisten,
+        onStreamToolCall: () => mockUnlisten,
+        onStreamProposal: () => mockUnlisten,
+        onStreamEnd: () => mockUnlisten,
+        onStreamError: () => mockUnlisten,
+        onSettingsUpdated: () => mockUnlisten
+      }
+    }
+  };
+
+  try {
+    const cleanup = initAiChat();
+    assert.equal(typeof cleanup, 'function', 'initAiChat liefert Cleanup-Funktion');
+
+    const panel = getOrCreateElement('aiChatPanel');
+    assert.equal(panel.dataset.initialized, 'true', 'Panel als initialized markiert');
+
+    // Warten bis initiale asynchrone Statusaufrufe durch sind
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    // Cleanup ausführen
+    cleanup();
+
+    assert.equal(panel.dataset.initialized, undefined, 'dataset.initialized nach Cleanup gelöscht');
+    assert.equal(unlistenCount, 6, 'Alle 6 Stream- und Settings-Listener abgemeldet');
+  } finally {
+    global.document = prevDoc;
+    global.window = prevWindow;
+    global.localStorage = prevLocalStorage;
+  }
+});
+
+test('KI-Chat UI 17: H2 - shouldAllowProposalApplication Lebenszyklus (echte Produktionsfunktion)', async () => {
+  const { shouldAllowProposalApplication } = await import('../renderer/js/ai-chat.js');
+
+  let dirty = true;
+  let confirmDialogResult = false;
+  let confirmDialogCalls = [];
+  let editorClosed = false;
+  let canLeaveResult = false;
+  let canLeaveCalls = 0;
+  const openRelPath = 'Kategorie/Unterkategorie/Notiz.md';
+
+  const bindings = {
+    getOpenRelPath: () => openRelPath,
+    isDirty: () => dirty,
+    showConfirmDialog: async (opts) => {
+      confirmDialogCalls.push(opts);
+      return confirmDialogResult;
+    },
+    canLeaveCurrentRoute: async () => {
+      canLeaveCalls++;
+      return canLeaveResult;
+    },
+    closeEditor: () => {
+      editorClosed = true;
+    },
+    getNoteTitle: () => 'Notiz'
+  };
+
+  const proposal = {
+    type: 'update',
+    relPath: 'Kategorie/Unterkategorie/Notiz.md',
+    title: 'Notiz'
+  };
+
+  // Fall 1: Offene Notiz dirty, Nutzer bricht Bestätigungsdialog ab
+  dirty = true;
+  confirmDialogResult = false;
+  editorClosed = false;
+  const res1 = await shouldAllowProposalApplication(proposal, bindings);
+  assert.equal(res1, false, 'Abbrechen im Dialog muss Proposal blockieren');
+  assert.equal(editorClosed, false, 'Editor darf nicht geschlossen werden');
+  assert.equal(confirmDialogCalls.length, 1, 'Bestätigungsdialog muss aufgerufen worden sein');
+
+  // Fall 2: Offene Notiz dirty, Nutzer bestätigt Verwerfen
+  confirmDialogResult = true;
+  editorClosed = false;
+  const res2 = await shouldAllowProposalApplication(proposal, bindings);
+  assert.equal(res2, true, 'Bestätigung muss Proposal freigeben');
+  assert.equal(editorClosed, true, 'Editor muss vor dem Anwenden geschlossen werden');
+
+  // Fall 3: Offene Notiz nicht dirty -> kein Dialog nötig
+  dirty = false;
+  confirmDialogCalls = [];
+  editorClosed = false;
+  const res3 = await shouldAllowProposalApplication(proposal, bindings);
+  assert.equal(res3, true, 'Nicht dirty Notiz muss direkt freigegeben werden');
+  assert.equal(confirmDialogCalls.length, 0, 'Kein Bestätigungsdialog bei sauberer Notiz');
+  assert.equal(editorClosed, true, 'Editor muss dennoch geschlossen werden');
+
+  // Fall 4: Fremde Notiz betroffen, Editor ist dirty
+  const otherProposal = {
+    type: 'update',
+    relPath: 'Andere/Kategorie/Notiz2.md',
+    title: 'Notiz2'
+  };
+  dirty = true;
+  canLeaveResult = false;
+  const res4 = await shouldAllowProposalApplication(otherProposal, bindings);
+  assert.equal(res4, false, 'canLeaveCurrentRoute = false blockiert Proposal');
+  assert.equal(canLeaveCalls, 1);
+
+  canLeaveResult = true;
+  const res5 = await shouldAllowProposalApplication(otherProposal, bindings);
+  assert.equal(res5, true, 'canLeaveCurrentRoute = true erlaubt Proposal');
 });

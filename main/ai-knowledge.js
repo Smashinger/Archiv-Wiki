@@ -8,6 +8,15 @@ const path = require('path');
 const notesFs = require('./notes-fs');
 
 const WIKILINK_PATTERN = /\[\[([^\]\n|]+?)(?:\|([^\]\n]+?))?\]\]/g;
+const RAW_URL_PATTERN = /\b(?:https?|ftp|file):\/\/[^\s<>)"]+|\bmailto:[^\s<>)"]+/gi;
+
+const MAX_WIKILINK_BODY_CHARS = 100_000;
+const MAX_WIKILINK_TARGETS = 500;
+const MAX_DUPLICATE_CANDIDATES = 300;
+
+function maskRawUrls(markdown) {
+  return String(markdown || '').replace(RAW_URL_PATTERN, match => ' '.repeat(match.length));
+}
 
 const GERMAN_STOPWORDS = new Set([
   'aber', 'alle', 'allem', 'allen', 'aller', 'alles', 'als', 'also', 'am', 'an',
@@ -82,12 +91,23 @@ function auditKnowledgeBase(projectPath) {
   const existingTitles = new Set();
   const existingBaseNames = new Set();
   const docByRelPath = new Map();
+  const docsByTargetNorm = new Map();
 
   for (const doc of activeDocs) {
     const titleNorm = String(doc.title || '').trim().toLocaleLowerCase('de');
-    if (titleNorm) existingTitles.add(titleNorm);
+    if (titleNorm) {
+      existingTitles.add(titleNorm);
+      if (!docsByTargetNorm.has(titleNorm)) docsByTargetNorm.set(titleNorm, []);
+      docsByTargetNorm.get(titleNorm).push(doc.relPath);
+    }
     const baseNorm = path.basename(doc.relPath, '.md').trim().toLocaleLowerCase('de');
-    if (baseNorm) existingBaseNames.add(baseNorm);
+    if (baseNorm) {
+      existingBaseNames.add(baseNorm);
+      if (baseNorm !== titleNorm) {
+        if (!docsByTargetNorm.has(baseNorm)) docsByTargetNorm.set(baseNorm, []);
+        docsByTargetNorm.get(baseNorm).push(doc.relPath);
+      }
+    }
     docByRelPath.set(doc.relPath, doc);
   }
 
@@ -160,12 +180,11 @@ function auditKnowledgeBase(projectPath) {
           suggestedSubCategory: sourceDir !== '.' ? sourceDir : (doc.category || '')
         });
       } else {
-        // Zähle eingehenden Link auf passendes Dokument
-        for (const targetDoc of activeDocs) {
-          const tDocTitle = String(targetDoc.title || '').trim().toLocaleLowerCase('de');
-          const tDocBase = path.basename(targetDoc.relPath, '.md').trim().toLocaleLowerCase('de');
-          if (tDocTitle === targetNorm || tDocBase === targetNorm) {
-            incomingLinkCounts.set(targetDoc.relPath, (incomingLinkCounts.get(targetDoc.relPath) || 0) + 1);
+        // Zähle eingehenden Link auf passendes Dokument via Map-Lookup in O(1)
+        const targetRelPaths = docsByTargetNorm.get(targetNorm);
+        if (targetRelPaths) {
+          for (const targetPath of targetRelPaths) {
+            incomingLinkCounts.set(targetPath, (incomingLinkCounts.get(targetPath) || 0) + 1);
           }
         }
       }
@@ -229,16 +248,25 @@ function auditKnowledgeBase(projectPath) {
   };
 }
 
-function findDuplicateNotes(projectPath, { query = '', threshold = 0.45 } = {}) {
+function findDuplicateNotes(projectPath, { query = '', threshold = 0.45, maxCandidates = MAX_DUPLICATE_CANDIDATES } = {}) {
   if (!projectPath) {
     throw new Error('Kein Projektordner angegeben.');
   }
 
+  // Threshold strikt validieren und clampen (Bereich 0.1 bis 1.0, Standard 0.45)
+  let numericThreshold = Number(threshold);
+  if (!Number.isFinite(numericThreshold)) {
+    numericThreshold = 0.45;
+  }
+  numericThreshold = Math.max(0.1, Math.min(1.0, numericThreshold));
+
+  const cleanQuery = typeof query === 'string' ? query.trim().slice(0, 200) : '';
+
   const docs = notesFs.getSearchDocuments(projectPath) || [];
   let candidateDocs = docs.filter(d => !d.archived);
 
-  if (query && String(query).trim()) {
-    const cleanQ = String(query).trim().toLowerCase();
+  if (cleanQuery) {
+    const cleanQ = cleanQuery.toLowerCase();
     candidateDocs = candidateDocs.filter(d => {
       return (
         String(d.title || '').toLowerCase().includes(cleanQ) ||
@@ -248,10 +276,16 @@ function findDuplicateNotes(projectPath, { query = '', threshold = 0.45 } = {}) 
     });
   }
 
+  // Schutz vor übermäßiger Komplexität: Begrenzung auf maxCandidates Notizen
+  if (candidateDocs.length > maxCandidates) {
+    candidateDocs = candidateDocs.slice(0, maxCandidates);
+  }
+
   if (candidateDocs.length < 2) {
     return {
-      query: query || null,
+      query: cleanQuery || null,
       evaluatedNotes: candidateDocs.length,
+      threshold: numericThreshold,
       duplicatePairs: [],
       message: candidateDocs.length === 0
         ? 'Keine passenden Notizen für die Analyse gefunden.'
@@ -281,15 +315,43 @@ function findDuplicateNotes(projectPath, { query = '', threshold = 0.45 } = {}) 
     };
   });
 
+  // Invertierter Index: Token -> Dokument-Indizes für schnelles Auffinden von Kandidaten-Paaren
+  const invertedIndex = new Map();
+  for (let i = 0; i < docTokens.length; i++) {
+    const dt = docTokens[i];
+    if (dt.tokenCount === 0) continue;
+    for (const token of dt.allTokens) {
+      let docList = invertedIndex.get(token);
+      if (!docList) {
+        docList = [];
+        invertedIndex.set(token, docList);
+      }
+      docList.push(i);
+    }
+  }
+
   const duplicatePairs = [];
 
-  // Paarweiser Vergleich
+  // Paarweiser Vergleich über den invertierten Index (nur Paare mit mindestens 1 gemeinsamen Begriff)
   for (let i = 0; i < docTokens.length; i++) {
-    for (let j = i + 1; j < docTokens.length; j++) {
-      const a = docTokens[i];
-      const b = docTokens[j];
+    const a = docTokens[i];
+    if (a.tokenCount === 0) continue;
 
-      if (a.tokenCount === 0 || b.tokenCount === 0) continue;
+    const candidateJSet = new Set();
+    for (const token of a.allTokens) {
+      const docIndices = invertedIndex.get(token);
+      if (docIndices) {
+        for (const j of docIndices) {
+          if (j > i) {
+            candidateJSet.add(j);
+          }
+        }
+      }
+    }
+
+    for (const j of candidateJSet) {
+      const b = docTokens[j];
+      if (b.tokenCount === 0) continue;
 
       // Schnittmenge berechnen
       const commonTerms = [];
@@ -321,7 +383,7 @@ function findDuplicateNotes(projectPath, { query = '', threshold = 0.45 } = {}) 
       }
 
       const score = Math.round(dice * 100) / 100;
-      if (score >= threshold) {
+      if (score >= numericThreshold) {
         duplicatePairs.push({
           noteA: {
             relPath: a.doc.relPath,
@@ -344,13 +406,13 @@ function findDuplicateNotes(projectPath, { query = '', threshold = 0.45 } = {}) 
   duplicatePairs.sort((x, y) => y.similarityScore - x.similarityScore);
 
   return {
-    query: query || null,
+    query: cleanQuery || null,
     evaluatedNotes: candidateDocs.length,
-    threshold,
+    threshold: numericThreshold,
     duplicatePairs: duplicatePairs.slice(0, 20),
     message: duplicatePairs.length > 0
-      ? `${duplicatePairs.length} potenzielle(s) Notiz-Duplikat(e) mit Ähnlichkeit >= ${threshold} gefunden.`
-      : `Keine auffälligen Duplikate mit Ähnlichkeit >= ${threshold} gefunden.`
+      ? `${duplicatePairs.length} potenzielle(s) Notiz-Duplikat(e) mit Ähnlichkeit >= ${numericThreshold} gefunden.`
+      : `Keine auffälligen Duplikate mit Ähnlichkeit >= ${numericThreshold} gefunden.`
   };
 }
 
@@ -394,6 +456,11 @@ function findWikilinkCandidates(projectPath, { relPath, title, content, limit = 
     noteTitle = note.frontmatter?.title || path.basename(cleanRelPath, '.md');
   } else {
     throw new Error('Weder relPath noch content angegeben.');
+  }
+
+  // Notiz-Text bei übermäßiger Länge auf sicheres Maß kappen
+  if (noteBody.length > MAX_WIKILINK_BODY_CHARS) {
+    noteBody = noteBody.slice(0, MAX_WIKILINK_BODY_CHARS);
   }
 
   // Zielnotizen: nicht archiviert, und nicht die untersuchte Notiz selbst
@@ -443,8 +510,10 @@ function findWikilinkCandidates(projectPath, { relPath, title, content, limit = 
     }
   }
 
-  // Nach Begriffslänge absteigend sortieren, damit längere Phrasen zuerst matchen
-  const sortedTargets = Array.from(targetsMap.values()).sort((a, b) => b.length - a.length);
+  // Nach Begriffslänge absteigend sortieren, damit längere Phrasen zuerst matchen, und auf Obergrenze deckeln
+  const sortedTargets = Array.from(targetsMap.values())
+    .sort((a, b) => b.length - a.length)
+    .slice(0, MAX_WIKILINK_TARGETS);
 
   // Maskiere Code-Blöcke
   let searchContext = maskCodeRegions(noteBody);
@@ -454,12 +523,21 @@ function findWikilinkCandidates(projectPath, { relPath, title, content, limit = 
   searchContext = searchContext.replace(WIKILINK_PATTERN, match => ' '.repeat(match.length));
   // Maskiere Markdown-Links und Bilder [text](url)
   searchContext = searchContext.replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/g, match => ' '.repeat(match.length));
+  // Maskiere rohe URLs (http, https, ftp, file, mailto) positionsstabil (Audit M6)
+  searchContext = maskRawUrls(searchContext);
   // Maskiere HTML-Tags
   searchContext = searchContext.replace(/<[^>\n]+>/g, match => ' '.repeat(match.length));
 
   const candidates = [];
+  let searchLower = searchContext.toLowerCase();
 
   for (const target of sortedTargets) {
+    // Schneller Pre-Check: Wenn der Begriff gar nicht im verbleibenden Text vorkommt,
+    // Regex-Kompilierung und Ausführung komplett überspringen
+    if (!searchLower.includes(target.term.toLowerCase())) {
+      continue;
+    }
+
     const escaped = target.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(`(?<![\\p{L}\\p{N}_])(${escaped})(?![\\p{L}\\p{N}_])`, 'gui');
 
@@ -484,13 +562,14 @@ function findWikilinkCandidates(projectPath, { relPath, title, content, limit = 
 
       // Maskiere gefundene Treffer, damit kürzere Teilbegriffe nicht redundant matchen
       searchContext = searchContext.replace(regex, match => ' '.repeat(match.length));
+      searchLower = searchContext.toLowerCase();
     }
   }
 
   // Sortiere Kandidaten nach Häufigkeit (occurrences) absteigend
   candidates.sort((a, b) => b.occurrences - a.occurrences);
 
-  const maxLimit = Math.max(1, Math.min(50, Number(limit) || 15));
+  const maxLimit = Math.max(1, Math.min(100, Number(limit) || 15));
 
   return {
     relPath: cleanRelPath || null,
@@ -505,6 +584,8 @@ module.exports = {
   findDuplicateNotes,
   findWikilinkCandidates,
   maskCodeRegions,
+  maskRawUrls,
+  RAW_URL_PATTERN,
   extractWikilinks,
   tokenize
 };

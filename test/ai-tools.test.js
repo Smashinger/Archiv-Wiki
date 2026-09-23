@@ -304,5 +304,35 @@ test('KI-Tools 10: executeAiTool führt suggest_wikilinks aus', async t => {
   assert.equal(pfannkuchenMatch.suggestedSyntax, '[[Rezept für Pfannkuchen|Pfannkuchen]]');
 });
 
+test('KI-Tools 11: M7 - executeAiTool validiert threshold und limit strikt', async t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  // 1. Ungültiger threshold bei find_duplicate_notes (zu hoch)
+  const resHigh = await executeAiTool(wikiDir, 'find_duplicate_notes', { threshold: 1.5 });
+  assert.equal(resHigh.success, false);
+  assert.ok(resHigh.error.includes('Ähnlichkeits-Schwellenwert'));
+
+  // 2. Ungültiger threshold (negativ)
+  const resNeg = await executeAiTool(wikiDir, 'find_duplicate_notes', { threshold: -0.2 });
+  assert.equal(resNeg.success, false);
+  assert.ok(resNeg.error.includes('Ähnlichkeits-Schwellenwert'));
+
+  // 3. Ungültiges limit bei suggest_wikilinks (0)
+  const resLimit0 = await executeAiTool(wikiDir, 'suggest_wikilinks', {
+    relPath: 'Projekte/Archiv-Wiki/Architektur.md',
+    limit: 0
+  });
+  assert.equal(resLimit0.success, false);
+  assert.ok(resLimit0.error.includes('Limit'));
+
+  // 4. Ungültiges limit bei suggest_wikilinks (> 100)
+  const resLimit101 = await executeAiTool(wikiDir, 'suggest_wikilinks', {
+    relPath: 'Projekte/Archiv-Wiki/Architektur.md',
+    limit: 101
+  });
+  assert.equal(resLimit101.success, false);
+  assert.ok(resLimit101.error.includes('Limit'));
+});
+
 
 

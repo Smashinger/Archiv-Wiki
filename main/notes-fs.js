@@ -344,16 +344,23 @@ function createNote(projectPath, subCategoryRelPath, title, templateBody, option
   // Zusätzliche Herkunfts-/Import-Metadaten dürfen das normale Notizmodell
   // nicht überschreiben. Titel, Kategorie, Tags und Zeitstempel bleiben daher
   // weiterhin ausschließlich in der Verantwortung der bestehenden Notizlogik.
-  const reservedFrontmatterKeys = new Set(['title', 'tags', 'category', 'mainCategory', 'created', 'modified']);
+  const reservedFrontmatterKeys = new Set(['title', 'category', 'mainCategory', 'created', 'modified']);
   const extraFrontmatter = Object.fromEntries(
-    Object.entries(requestedFrontmatter).filter(([key]) => !reservedFrontmatterKeys.has(key))
+    Object.entries(requestedFrontmatter).filter(([key]) => !reservedFrontmatterKeys.has(key) && key !== 'tags')
   );
+
+  const rawTags = Array.isArray(creationOptions.tags)
+    ? creationOptions.tags
+    : (Array.isArray(requestedFrontmatter.tags) ? requestedFrontmatter.tags : []);
+  const initialTags = rawTags
+    .filter(t => typeof t === 'string' && t.trim())
+    .map(t => t.trim());
 
   const now = new Date().toISOString();
   const frontmatter = {
     ...extraFrontmatter,
     title: displayTitle,
-    tags: [],
+    tags: [...new Set(initialTags)],
     category: path.basename(dirPath),
     mainCategory: path.basename(path.dirname(dirPath)),
     created: now,
@@ -817,8 +824,23 @@ function renameEntry(projectPath, relPath, newName) {
   renameOrMove(fullPath, newPath);
 
   if (kind === 'note') {
-    const { frontmatter, body } = readNoteRaw(newPath);
-    writeNoteRaw(newPath, { ...frontmatter, title: baseName, modified: new Date().toISOString() }, body);
+    try {
+      const { frontmatter, body } = readNoteRaw(newPath);
+      writeNoteRaw(newPath, { ...frontmatter, title: baseName, modified: new Date().toISOString() }, body);
+    } catch (err) {
+      try {
+        renameOrMove(newPath, fullPath);
+      } catch (rollbackErr) {
+        const criticalErr = new Error(
+          `Fehler beim Aktualisieren der Notiz nach dem Umbenennen (${err.message}) und Rollback fehlgeschlagen (${rollbackErr.message}).`
+        );
+        criticalErr.code = 'ROLLBACK_FAILED';
+        criticalErr.cause = err;
+        criticalErr.rollbackError = rollbackErr;
+        throw criticalErr;
+      }
+      throw err;
+    }
   }
 
   return { relPath: path.relative(projectPath, newPath) };
@@ -862,13 +884,28 @@ function moveEntry(projectPath, relPath, targetRelPath) {
   renameOrMove(fullPath, destPath);
 
   if (!isDir) {
-    const { frontmatter, body } = readNoteRaw(destPath);
-    writeNoteRaw(destPath, {
-      ...frontmatter,
-      category: path.basename(targetDir),
-      mainCategory: path.basename(path.dirname(targetDir)),
-      modified: new Date().toISOString()
-    }, body);
+    try {
+      const { frontmatter, body } = readNoteRaw(destPath);
+      writeNoteRaw(destPath, {
+        ...frontmatter,
+        category: path.basename(targetDir),
+        mainCategory: path.basename(path.dirname(targetDir)),
+        modified: new Date().toISOString()
+      }, body);
+    } catch (err) {
+      try {
+        renameOrMove(destPath, fullPath);
+      } catch (rollbackErr) {
+        const criticalErr = new Error(
+          `Fehler beim Aktualisieren der Notiz nach dem Verschieben (${err.message}) und Rollback fehlgeschlagen (${rollbackErr.message}).`
+        );
+        criticalErr.code = 'ROLLBACK_FAILED';
+        criticalErr.cause = err;
+        criticalErr.rollbackError = rollbackErr;
+        throw criticalErr;
+      }
+      throw err;
+    }
   }
 
   return { relPath: path.relative(projectPath, destPath) };
@@ -1184,6 +1221,8 @@ function emptyTrash(projectPath) {
 module.exports = {
   sanitizeName,
   resolveSafe,
+  resolveWikiEntrySafe,
+  resolveNoteSafe,
   getDepth,
   classifyEntry,
   listProjectTree,

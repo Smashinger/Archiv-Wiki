@@ -41,7 +41,7 @@ import { resolveUiDesign, applyUiDesign } from './ui-design.js';
 import { setupToolbarOverflow } from './toolbar-overflow.js';
 import { countLabel, pluralWord } from './count-label.js';
 import { findNotesLinkingToTitle, renameBreaksTitleLinks } from './wikilink-refs.js';
-import { initAiChat, triggerAiPrompt, isAiChatEnabled } from './ai-chat.js';
+import { initAiChat, triggerAiPrompt, isAiChatEnabled, shouldAllowProposalApplication } from './ai-chat.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -11799,12 +11799,15 @@ function resolveAccentForActiveDesign(config) {
 }
 
 (async function init() {
-  initAiChat({
+  const cleanupAiChat = initAiChat({
     onProposalApplied: async (result) => {
       try {
         if (result?.action === 'deleted') {
-          const openRelPath = getOpenRelPath();
-          if (openRelPath && (openRelPath === result.relPath || openRelPath.startsWith(result.relPath + '/'))) {
+          const currentNotePath = currentSlug().startsWith('note/')
+            ? decodeURIComponent(currentSlug().slice('note/'.length))
+            : null;
+          const deletedPath = result.relPath || '';
+          if (currentNotePath && (currentNotePath === deletedPath || currentNotePath.startsWith(deletedPath + '/'))) {
             closeEditor();
             void navigateAfterEntryMutation('#home');
           }
@@ -11817,6 +11820,17 @@ function resolveAccentForActiveDesign(config) {
         console.error('[Archiv Wiki] Aktualisierung nach KI-Vorschlag fehlgeschlagen:', err);
       }
     },
+    onBeforeApplyProposal: (proposal) => {
+      return shouldAllowProposalApplication(proposal, {
+        getOpenRelPath,
+        isDirty,
+        showConfirmDialog,
+        canLeaveCurrentRoute,
+        closeEditor,
+        getNoteTitle: (relPath) => fs.findNode(state.tree, relPath)?.frontmatter?.title
+          || relPath.split('/').pop().replace(/\.md$/, '')
+      });
+    },
     getActiveNote: () => {
       const relPath = getOpenRelPath();
       if (!relPath) return null;
@@ -11827,6 +11841,7 @@ function resolveAccentForActiveDesign(config) {
       };
     }
   });
+  window.addEventListener('beforeunload', () => cleanupAiChat?.());
   state.project = await window.archivAPI.getCurrentProject();
   // Bewusst VOR waitForUnlock() (im Gegensatz zu Akzentfarbe/Sidebar-Größe/
   // Lesebreite weiter unten): ein falsches Theme wäre bei aktivem App-Lock

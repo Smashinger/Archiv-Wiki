@@ -394,3 +394,368 @@ test('AI-Proposals 13: applyProposal aktualisiert nur Tags wenn content nicht ü
   assert.deepEqual(updatedNote.frontmatter.tags, ['git', 'neuertag']);
 });
 
+test('AI-Proposals 14: applyProposal weist veraltetes update-Proposal ab wenn Body geändert wurde (AI_PROPOSAL_STALE)', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  // 1. Proposal für Notiz erstellen
+  const proposal = aiProposals.createProposal(wikiDir, {
+    type: 'update',
+    relPath: 'Entwicklung/Workflows/Git Leitfaden.md',
+    content: '# Git Leitfaden\n\nKI-Inhalt.',
+    reason: 'Überarbeitung durch KI'
+  });
+
+  // 2. Zwischenzeitliche Änderung der Notiz außerhalb des Proposals simulieren
+  notesFs.writeNote(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md', '# Git Leitfaden\n\nManuelle Änderung des Nutzers.');
+
+  // 3. applyProposal muss mit AI_PROPOSAL_STALE fehlschlagen
+  assert.throws(() => {
+    aiProposals.applyProposal(proposal.id, wikiDir);
+  }, err => {
+    assert.equal(err.code, 'AI_PROPOSAL_STALE');
+    assert.ok(err.message.includes('zwischenzeitlich geändert'));
+    return true;
+  });
+
+  // 4. Manuelle Änderung des Nutzers muss unversehrt erhalten bleiben
+  const currentNote = notesFs.readNote(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md');
+  assert.ok(currentNote.body.includes('Manuelle Änderung des Nutzers.'));
+});
+
+test('AI-Proposals 15: applyProposal weist veraltetes update-Proposal ab wenn Frontmatter geändert wurde (AI_PROPOSAL_STALE)', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  const proposal = aiProposals.createProposal(wikiDir, {
+    type: 'update',
+    relPath: 'Entwicklung/Workflows/Git Leitfaden.md',
+    content: '# Git Leitfaden\n\nKI-Inhalt.',
+    reason: 'Überarbeitung durch KI'
+  });
+
+  // Zwischenzeitliche Änderung nur der Tags im Frontmatter
+  notesFs.writeNote(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md', undefined, { tags: ['git', 'vcs', 'manuell'] });
+
+  assert.throws(() => {
+    aiProposals.applyProposal(proposal.id, wikiDir);
+  }, err => {
+    assert.equal(err.code, 'AI_PROPOSAL_STALE');
+    return true;
+  });
+});
+
+test('AI-Proposals 16: applyProposal weist veraltetes delete-Proposal ab wenn Notiz geändert wurde (AI_PROPOSAL_STALE)', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  const proposal = aiProposals.createProposal(wikiDir, {
+    type: 'delete',
+    relPath: 'Entwicklung/Workflows/Git Leitfaden.md',
+    reason: 'Sollte gelöscht werden'
+  });
+
+  // Nutzer hat die Notiz weiterbearbeitet
+  notesFs.writeNote(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md', '# Git Leitfaden\n\nWichtige neue Notizen.');
+
+  assert.throws(() => {
+    aiProposals.applyProposal(proposal.id, wikiDir);
+  }, err => {
+    assert.equal(err.code, 'AI_PROPOSAL_STALE');
+    return true;
+  });
+
+  // Notiz wurde NICHT gelöscht
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md')));
+});
+
+test('AI-Proposals 17: applyProposal weist veraltetes move-Proposal ab wenn Notiz geändert wurde oder Zieldatei existiert', t => {
+  const wikiDir = createTestWikiFixture(t);
+  const targetSubDir = path.join(wikiDir, 'Entwicklung', 'DevOps');
+  fs.mkdirSync(targetSubDir, { recursive: true });
+
+  const proposal = aiProposals.createProposal(wikiDir, {
+    type: 'move',
+    relPath: 'Entwicklung/Workflows/Git Leitfaden.md',
+    targetSubCategoryRelPath: 'Entwicklung/DevOps'
+  });
+
+  // Fall A: Body geändert
+  notesFs.writeNote(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md', '# Neuer Inhalt');
+  assert.throws(() => {
+    aiProposals.applyProposal(proposal.id, wikiDir);
+  }, err => err.code === 'AI_PROPOSAL_STALE');
+
+  // Fall B: Zieldatei existiert bereits
+  const freshProp = aiProposals.createProposal(wikiDir, {
+    type: 'move',
+    relPath: 'Entwicklung/Workflows/Git Leitfaden.md',
+    targetSubCategoryRelPath: 'Entwicklung/DevOps'
+  });
+  fs.writeFileSync(path.join(targetSubDir, 'Git Leitfaden.md'), '# Kollision', 'utf8');
+  assert.throws(() => {
+    aiProposals.applyProposal(freshProp.id, wikiDir);
+  }, err => err.code === 'AI_PROPOSAL_STALE');
+});
+
+test('AI-Proposals 18: applyProposal weist veraltetes rename-Proposal ab wenn Notiz geändert wurde oder Zielname existiert', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  const proposal = aiProposals.createProposal(wikiDir, {
+    type: 'rename',
+    relPath: 'Entwicklung/Workflows/Git Leitfaden.md',
+    newTitle: 'Neuer Titel'
+  });
+
+  // Fall A: Notiz zwischenzeitlich geändert
+  notesFs.writeNote(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md', '# Geänderter Inhalt');
+  assert.throws(() => {
+    aiProposals.applyProposal(proposal.id, wikiDir);
+  }, err => err.code === 'AI_PROPOSAL_STALE');
+
+  // Fall B: Zieldatei existiert bereits
+  const freshProp = aiProposals.createProposal(wikiDir, {
+    type: 'rename',
+    relPath: 'Entwicklung/Workflows/Git Leitfaden.md',
+    newTitle: 'Kollidierender Titel'
+  });
+  fs.writeFileSync(path.join(wikiDir, 'Entwicklung/Workflows/Kollidierender Titel.md'), '# Schon da', 'utf8');
+  assert.throws(() => {
+    aiProposals.applyProposal(freshProp.id, wikiDir);
+  }, err => err.code === 'AI_PROPOSAL_STALE');
+});
+
+test('AI-Proposals 19: applyProposal weist create-Proposal ab wenn Zieldatei inzwischen existiert', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  const proposal = aiProposals.createProposal(wikiDir, {
+    type: 'create',
+    subCategoryRelPath: 'Entwicklung/Workflows',
+    title: 'Neue Notiz',
+    content: '# Neu'
+  });
+
+  // Datei wird vor Apply von anderem Prozess/Nutzer angelegt
+  fs.writeFileSync(path.join(wikiDir, 'Entwicklung/Workflows/Neue Notiz.md'), '# Schon da', 'utf8');
+
+  assert.throws(() => {
+    aiProposals.applyProposal(proposal.id, wikiDir);
+  }, err => {
+    assert.equal(err.code, 'AI_PROPOSAL_STALE');
+    return true;
+  });
+});
+
+test('AI-Proposals 20: applyProposal weist Proposal ab wenn Notiz zwischenzeitlich gelöscht wurde', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  const proposal = aiProposals.createProposal(wikiDir, {
+    type: 'update',
+    relPath: 'Entwicklung/Workflows/Git Leitfaden.md',
+    content: '# Neuer Inhalt'
+  });
+
+  // Notiz wird auf der Festplatte entfernt
+  fs.unlinkSync(path.join(wikiDir, 'Entwicklung/Workflows/Git Leitfaden.md'));
+
+  assert.throws(() => {
+    aiProposals.applyProposal(proposal.id, wikiDir);
+  }, err => {
+    assert.equal(err.code, 'AI_PROPOSAL_STALE');
+    return true;
+  });
+});
+
+test('AI-Proposals 21: createProposal weist interne/ausgeblendete Pfade ab und erzeugt keine Ordner (M1)', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  // 1. Neuer Notizvorschlag in .wiki-trash oder .intern
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, {
+      type: 'create',
+      subCategoryRelPath: '.wiki-trash/geheim',
+      title: 'Schädlich',
+      content: 'Inhalt'
+    });
+  }, /Interne oder ungültige Wiki-Pfade sind nicht zulässig/);
+
+  // Es darf kein Ordner angelegt worden sein
+  assert.equal(fs.existsSync(path.join(wikiDir, '.wiki-trash', 'geheim')), false);
+
+  // 2. Unterkategorie in .wiki-trash
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, {
+      type: 'create_category',
+      name: 'Unterordner',
+      parentCategoryRelPath: '.wiki-trash'
+    });
+  }, /Interne oder ungültige Wiki-Pfade sind nicht zulässig/);
+
+  assert.equal(fs.existsSync(path.join(wikiDir, '.wiki-trash', 'Unterordner')), false);
+});
+
+test('AI-Proposals 22: M4 - Atomarer Create mit Tags', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  // 1. notesFs.createNote mit options.tags
+  const createdRaw = notesFs.createNote(wikiDir, 'Entwicklung/Workflows', 'Atomare Notiz', '# Inhalt', {
+    tags: ['tag1', 'tag2', 'tag1'] // deduplizierend
+  });
+  const readRaw = notesFs.readNote(wikiDir, createdRaw.relPath);
+  assert.deepEqual(readRaw.frontmatter.tags, ['tag1', 'tag2'], 'Tags wurden direkt im ersten Schreibvorgang gesetzt');
+
+  // 2. aiProposals.applyProposal mit Create und Tags
+  const prop = aiProposals.createProposal(wikiDir, {
+    type: 'create',
+    subCategoryRelPath: 'Entwicklung/Workflows',
+    title: 'Proposal Notiz Mit Tags',
+    content: '# Vorschlag Inhalt',
+    tags: ['architektur', 'qualität']
+  });
+  const applyRes = aiProposals.applyProposal(prop.id, wikiDir);
+  assert.equal(applyRes.success, true);
+  const readApplied = notesFs.readNote(wikiDir, applyRes.relPath);
+  assert.deepEqual(readApplied.frontmatter.tags, ['architektur', 'qualität'], 'Tags sind atomar vorhanden');
+});
+
+test('AI-Proposals 23: M3 - Speicherverwaltung (Max-Count, TTL, Projekt-Cleanup, Content-Limit)', t => {
+  const wikiDir = createTestWikiFixture(t);
+  aiProposals.clearAllProposals();
+
+  // 1. Max-Count (50) & FIFO-Eviction
+  for (let i = 1; i <= 55; i++) {
+    aiProposals.createProposal(wikiDir, {
+      type: 'create',
+      subCategoryRelPath: 'Entwicklung/Workflows',
+      title: `Notiz ${i}`,
+      content: `Inhalt ${i}`
+    });
+  }
+  // Überprüfung: Proposal anlegen
+  const firstProp = aiProposals.createProposal(wikiDir, {
+    type: 'create',
+    subCategoryRelPath: 'Entwicklung/Workflows',
+    title: 'Test-Verdrängung',
+    content: 'Inhalt'
+  });
+  assert.ok(aiProposals.getProposal(firstProp.id));
+
+  // 2. TTL-Ablauf
+  firstProp.createdAtTimestamp = Date.now() - (aiProposals.PROPOSAL_TTL_MS + 5000);
+  assert.equal(aiProposals.getProposal(firstProp.id), null, 'Abgelaufener Vorschlag liefert null');
+  assert.throws(() => {
+    aiProposals.applyProposal(firstProp.id, wikiDir);
+  }, err => {
+    assert.equal(err.code, 'AI_PROPOSAL_STALE');
+    return true;
+  });
+
+  // 3. Projekt-Cleanup
+  const propProject1 = aiProposals.createProposal(wikiDir, {
+    type: 'create',
+    subCategoryRelPath: 'Entwicklung/Workflows',
+    title: 'Projekt 1 Notiz'
+  });
+  const otherDir = path.join(testHome, 'ai-prop-other-project');
+  fs.mkdirSync(otherDir, { recursive: true });
+  t.after(() => fs.rmSync(otherDir, { recursive: true, force: true }));
+
+  const propProject2 = aiProposals.createProposal(otherDir, {
+    type: 'create',
+    subCategoryRelPath: 'Entwicklung/Workflows',
+    title: 'Projekt 2 Notiz'
+  });
+
+  aiProposals.clearProposalsForProject(wikiDir);
+  assert.equal(aiProposals.getProposal(propProject1.id), null, 'Vorschlag von Projekt 1 wurde aufgeräumt');
+  assert.ok(aiProposals.getProposal(propProject2.id), 'Vorschlag von Projekt 2 bleibt erhalten');
+
+  // 4. Content-Limit
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, {
+      type: 'create',
+      subCategoryRelPath: 'Entwicklung/Workflows',
+      title: 'Übergroße Notiz',
+      content: 'A'.repeat(aiProposals.MAX_CONTENT_LENGTH + 10)
+    });
+  }, /Inhalt überschreitet die maximale Größe/);
+});
+
+test('AI-Proposals 24: M5 - Diff-Präzision (LCS), CRLF-Normalisierung, NUL-Ablehnung & Truncation-Marker', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  // 1. CRLF-Normalisierung: keine Scheindiffs
+  const diffCRLF = aiProposals.computeLineDiff('Zeile 1\r\nZeile 2\r\n', 'Zeile 1\nZeile 2\n');
+  assert.ok(diffCRLF.every(d => d.type === 'same'), 'CRLF vs LF führt zu keinem Scheindiff');
+
+  // 2. NUL-Ablehnung
+  assert.throws(() => {
+    aiProposals.computeLineDiff('Test\0Inhalt', 'Test');
+  }, /Binäre Inhalte werden nicht unterstützt/);
+
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, {
+      type: 'create',
+      subCategoryRelPath: 'Entwicklung/Workflows',
+      title: 'NUL-Notiz',
+      content: 'Hallo\0Welt'
+    });
+  }, /Binäre Inhalte werden nicht unterstützt/);
+
+  // 3. LCS: Einfügung desynchronisiert nachfolgende Zeilen nicht
+  const oldText = 'A\nB\nC\nD\nE';
+  const newText = 'A\nNEU\nB\nC\nD\nE';
+  const diffLCS = aiProposals.computeLineDiff(oldText, newText);
+  const types = diffLCS.map(d => d.type);
+  assert.deepEqual(types, ['same', 'add', 'same', 'same', 'same', 'same']);
+  assert.equal(diffLCS[1].line, 'NEU');
+
+  // 4. Truncation-Marker bei neuen Inhalten (> 150 Zeilen)
+  const lines160 = Array.from({ length: 160 }, (_, i) => `Zeile ${i + 1}`).join('\n');
+  const diffTruncatedNew = aiProposals.computeLineDiff('', lines160);
+  assert.equal(diffTruncatedNew.length, 151); // 150 adds + 1 truncated
+  const lastNew = diffTruncatedNew[150];
+  assert.equal(lastNew.type, 'truncated');
+  assert.ok(lastNew.line.includes('10 weitere Zeilen'));
+  assert.ok(lastNew.line.includes('160 Zeilen'));
+
+  // 5. Vollständige Änderungshunks bei komplett ersetztem Inhalt (> 200 Einträge)
+  const old250 = Array.from({ length: 250 }, (_, i) => `Alt ${i + 1}`).join('\n');
+  const new250 = Array.from({ length: 250 }, (_, i) => `Neu ${i + 1}`).join('\n');
+  const diffTruncatedMod = aiProposals.computeLineDiff(old250, new250);
+  assert.equal(diffTruncatedMod.filter(d => d.type === 'remove').length, 250);
+  assert.equal(diffTruncatedMod.filter(d => d.type === 'add').length, 250);
+  assert.equal(diffTruncatedMod.some(d => d.line === 'Alt 250'), true);
+  assert.equal(diffTruncatedMod.some(d => d.line === 'Neu 250'), true);
+});
+
+test('AI-Proposals 25: M5 - Hunk-Faltung behält Änderungen am Ende langer Dateien (> 300 unveränderte Zeilen) bei', t => {
+  const unchangedLines = Array.from({ length: 300 }, (_, i) => `Unverändert Zeile ${i + 1}`).join('\n');
+  const oldText = `${unchangedLines}\nAlter Inhalt`;
+  const newText = `${unchangedLines}\nNeuer Inhalt`;
+
+  const diff = aiProposals.computeLineDiff(oldText, newText);
+
+  // Die Faltung muss die 300 unveränderten Zeilen zusammenfassen
+  const folded = diff.find(d => d.type === 'truncated' && d.line.includes('unveränderte Zeilen übersprungen'));
+  assert.ok(folded, 'Unveränderte Zeilen müssen mit Überspringen-Marker gefaltet sein');
+
+  // Die tatsächliche Änderung darf NICHT herausgeschnitten werden!
+  const addLine = diff.find(d => d.type === 'add');
+  const removeLine = diff.find(d => d.type === 'remove');
+  assert.ok(addLine, 'Hinzugefügte Zeile muss im Diff vorhanden sein');
+  assert.equal(addLine.line, 'Neuer Inhalt');
+  assert.ok(removeLine, 'Gelöschte Zeile muss im Diff vorhanden sein');
+  assert.equal(removeLine.line, 'Alter Inhalt');
+});
+
+test('AI-Proposals 26: M5 - Hunk-Faltung behält alle verteilten Änderungen über dem Anzeigelimit', () => {
+  const oldLines = Array.from({ length: 320 }, (_, i) => `Zeile ${i + 1}`);
+  const newLines = oldLines.map((line, i) => i % 4 === 3 ? `${line} geändert` : line);
+
+  const diff = aiProposals.computeLineDiff(oldLines.join('\n'), newLines.join('\n'));
+  const additions = diff.filter(entry => entry.type === 'add');
+  const removals = diff.filter(entry => entry.type === 'remove');
+
+  assert.equal(additions.length, 80, 'Alle 80 hinzugefügten Zeilen müssen sichtbar sein');
+  assert.equal(removals.length, 80, 'Alle 80 entfernten Zeilen müssen sichtbar sein');
+  assert.ok(additions.some(entry => entry.line === 'Zeile 320 geändert'), 'Letzte Änderung muss sichtbar bleiben');
+  assert.ok(removals.some(entry => entry.line === 'Zeile 320'), 'Letzte entfernte Zeile muss sichtbar bleiben');
+});

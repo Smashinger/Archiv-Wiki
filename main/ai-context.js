@@ -65,6 +65,21 @@ function buildWikiStructureSnapshot(projectPath, { maxChars = DEFAULT_MAX_STRUCT
   return lines.join('\n');
 }
 
+function escapeXmlAttr(val) {
+  return String(val || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function sanitizeDelimiters(text) {
+  return String(text || '')
+    .replace(/<\/?(?:current_note|editor_selection|wiki_structure|system_instruction)[^>]*>/gi, match => {
+      return match.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    });
+}
+
 function formatActiveNoteContext(activeNote, {
   maxContentChars = DEFAULT_MAX_NOTE_CONTENT_CHARS,
   maxSelectionChars = DEFAULT_MAX_SELECTION_CHARS
@@ -79,7 +94,7 @@ function formatActiveNoteContext(activeNote, {
   const parts = [];
 
   if (relPath || content) {
-    let safeContent = content;
+    let safeContent = sanitizeDelimiters(content);
     let truncated = false;
     if (safeContent.length > maxContentChars) {
       safeContent = safeContent.slice(0, maxContentChars);
@@ -87,7 +102,7 @@ function formatActiveNoteContext(activeNote, {
     }
 
     parts.push(
-      `<current_note path="${relPath || 'Unbekannt'}">\n` +
+      `<current_note path="${escapeXmlAttr(relPath || 'Unbekannt')}">\n` +
       `Aktuell im Editor geöffnete Notiz:\n` +
       `---\n` +
       safeContent +
@@ -98,7 +113,7 @@ function formatActiveNoteContext(activeNote, {
   }
 
   if (selection) {
-    let safeSelection = selection;
+    let safeSelection = sanitizeDelimiters(selection);
     if (safeSelection.length > maxSelectionChars) {
       safeSelection = safeSelection.slice(0, maxSelectionChars) + '\n... [Auswahl gekürzt]';
     }
@@ -118,5 +133,7 @@ module.exports = {
   DEFAULT_MAX_NOTE_CONTENT_CHARS,
   DEFAULT_MAX_SELECTION_CHARS,
   buildWikiStructureSnapshot,
-  formatActiveNoteContext
+  formatActiveNoteContext,
+  escapeXmlAttr,
+  sanitizeDelimiters
 };

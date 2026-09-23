@@ -7,8 +7,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ollama = require('../main/ai-ollama');
-const { createAiHistory, MAX_HISTORY_MESSAGES } = require('../main/ai-history');
-const { registerAiIpc } = require('../main/ai-ipc');
+const {
+  createAiHistory,
+  truncateMessageContent,
+  MAX_HISTORY_MESSAGES,
+  MAX_HISTORY_MESSAGE_BYTES,
+  MAX_HISTORY_MESSAGE_CHARS
+} = require('../main/ai-history');
+const { registerAiIpc, sanitizeIpcError } = require('../main/ai-ipc');
 
 const root = path.join(__dirname, '..');
 const testHome = path.join(root, '.Codex-test-home');
@@ -497,17 +503,31 @@ test('KI 11: registerAiIpc registriert Proposal-Kanäle und leitet Vorschläge a
   assert.ok(handlers.has('ai:applyProposal'), 'ai:applyProposal ist registriert');
   assert.ok(handlers.has('ai:rejectProposal'), 'ai:rejectProposal ist registriert');
 
-  // Ungültige Argumente abweisen
-  assert.throws(
-    () => handlers.get('ai:applyProposal')(event, { wrongKey: 'val' }),
-    err => err?.code === 'IPC_ARGUMENT_INVALID'
-  );
+  // Ungültige Argumente strukturiert und ohne Electron-Exception abweisen
+  const invalidApply = await handlers.get('ai:applyProposal')(event, { wrongKey: 'val' });
+  assert.deepEqual(invalidApply, {
+    success: false,
+    error: 'Ungültige Argumente für KI-IPC.',
+    code: 'IPC_ARGUMENT_INVALID',
+    category: 'validation'
+  });
 
-  // Untrusted Sender abweisen
-  assert.throws(
-    () => handlers.get('ai:applyProposal')({ trusted: false }, { proposalId: 'prop_test_123' }),
-    err => err?.code === 'IPC_SENDER_INVALID'
+  // Untrusted Sender strukturiert und ohne Detail-Leak abweisen
+  const untrustedApply = await handlers.get('ai:applyProposal')(
+    { trusted: false },
+    { proposalId: 'prop_test_123' }
   );
+  assert.deepEqual(untrustedApply, {
+    success: false,
+    error: 'Unautorisierter IPC-Aufruf.',
+    code: 'IPC_SENDER_INVALID',
+    category: 'security'
+  });
+
+  const invalidReject = await handlers.get('ai:rejectProposal')(event, { wrongKey: 'val' });
+  assert.equal(invalidReject.success, false);
+  assert.equal(invalidReject.code, 'IPC_ARGUMENT_INVALID');
+  assert.equal(invalidReject.category, 'validation');
 
   // Vorschlags-Übermittlung via Stream-Event
   await handlers.get('ai:sendMessage')(event, {
@@ -524,4 +544,394 @@ test('KI 11: registerAiIpc registriert Proposal-Kanäle und leitet Vorschläge a
   assert.equal(propEvent.payload.proposal.type, 'create');
 });
 
+test('KI 12: normalizeHost und isLoopbackHost erlauben ausschließlich lokale Loopback-Adressen', () => {
+  // Gültige Loopback-Hosts
+  assert.equal(ollama.normalizeHost('http://127.0.0.1:11434'), 'http://127.0.0.1:11434');
+  assert.equal(ollama.normalizeHost('http://localhost:11434'), 'http://localhost:11434');
+  assert.equal(ollama.normalizeHost('http://[::1]:11434'), 'http://[::1]:11434');
+  assert.equal(ollama.normalizeHost('http://127.0.0.2:11434/'), 'http://127.0.0.2:11434');
+  assert.equal(ollama.normalizeHost('https://127.0.0.1:8443'), 'https://127.0.0.1:8443');
+  assert.equal(ollama.normalizeHost('http://127.0.0.1'), 'http://127.0.0.1');
 
+  // Ungültige Remote- oder Netzwerk-Hosts
+  const invalidHosts = [
+    'http://192.168.1.50:11434',
+    'https://example.com:11434',
+    'http://0.0.0.0:11434',
+    'http://[::]:11434',
+    'http://evil.corp',
+    'http://localhost.attacker.com',
+    'http://127.0.0.1.nip.io:11434',
+    'http://user:pass@127.0.0.1:11434',
+    'http://127.0.0.1:11434?query=1',
+    'http://127.0.0.1:11434#hash',
+    'ftp://127.0.0.1:11434',
+    'file:///etc/passwd',
+    '',
+    'not-a-url'
+  ];
+
+  for (const host of invalidHosts) {
+    assert.throws(() => {
+      ollama.normalizeHost(host);
+    }, err => {
+      assert.ok(err instanceof ollama.OllamaError, `Sollte OllamaError für ${host} werfen`);
+      return true;
+    });
+  }
+});
+
+test('KI 13: registerAiIpc weist entfernte Hosts bei updateSettings, checkConnection und getModels strikt ab', async () => {
+  const handlers = new Map();
+  const state = { aiSettings: { host: 'http://127.0.0.1:11434', enabled: true } };
+
+  registerAiIpc({
+    getCurrentProject: () => null,
+    getMainWindow: () => ({ isDestroyed: () => false, webContents: { send: () => {} } }),
+    ipcMainApi: { handle: (channel, handler) => handlers.set(channel, handler) },
+    isTrustedSender: event => event?.trusted === true,
+    ollamaClient: {
+      DEFAULT_HOST: 'http://127.0.0.1:11434',
+      normalizeHost: ollama.normalizeHost
+    },
+    readState: () => state,
+    writeState: patch => Object.assign(state, patch)
+  });
+
+  const event = { trusted: true };
+
+  // 1. updateSettings mit externem Server wird abgewiesen
+  assert.throws(
+    () => handlers.get('ai:updateSettings')(event, { host: 'http://192.168.1.100:11434' }),
+    err => {
+      assert.equal(err.code, 'IPC_ARGUMENT_INVALID');
+      assert.ok(err.message.includes('Loopback'));
+      return true;
+    }
+  );
+
+  // 2. checkConnection mit Domain wird abgewiesen
+  assert.throws(
+    () => handlers.get('ai:checkConnection')(event, { host: 'https://external-ai.com' }),
+    err => {
+      assert.equal(err.code, 'IPC_ARGUMENT_INVALID');
+      assert.ok(err.message.includes('Loopback'));
+      return true;
+    }
+  );
+
+  // 3. getModels mit 0.0.0.0 wird abgewiesen
+  assert.throws(
+    () => handlers.get('ai:getModels')(event, { host: 'http://0.0.0.0:11434' }),
+    err => {
+      assert.equal(err.code, 'IPC_ARGUMENT_INVALID');
+      assert.ok(err.message.includes('Loopback'));
+      return true;
+    }
+  );
+});
+
+test('KI 14: M2 - Historie weist überlange Nachrichten ab (MAX_HISTORY_MESSAGE_CHARS)', t => {
+  const state = makeIsolatedState(t);
+  const history = createAiHistory({ readState: () => state.read(), writeState: patch => state.write(patch) });
+
+  assert.throws(() => {
+    history.addMessage({
+      id: 'msg-huge',
+      role: 'user',
+      content: 'A'.repeat(MAX_HISTORY_MESSAGE_CHARS + 10),
+      timestamp: new Date().toISOString()
+    });
+  }, err => {
+    assert.equal(err.code, 'AI_HISTORY_INVALID');
+    return true;
+  });
+});
+
+test('KI 15: M2 - NDJSON-Zeilen- und Stream-Obergrenze stoppt unbegrenzte Antworten (response_too_large)', async t => {
+  const { host } = await startMockServer(t, (req, res) => {
+    res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+    // Schreibe eine Zeile ohne Newline über MAX_NDJSON_LINE_BYTES
+    res.write('X'.repeat(ollama.MAX_NDJSON_LINE_BYTES + 1024));
+  });
+
+  await assert.rejects(async () => {
+    await ollama.executeChatTurn({
+      host,
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'test' }]
+    });
+  }, err => {
+    assert.equal(err.category, 'response_too_large');
+    assert.match(err.message, /zu groß|NDJSON/i);
+    return true;
+  });
+});
+
+test('KI 16: M2 - Gesamtdauer-Timeout bricht langsame Streams ab', async t => {
+  let timer;
+  const { host } = await startMockServer(t, (req, res) => {
+    res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+    timer = setInterval(() => {
+      try { res.write(`${JSON.stringify({ message: { content: '.' }, done: false })}\n`); } catch {}
+    }, 15);
+    timer.unref();
+    req.on('close', () => clearInterval(timer));
+    res.on('close', () => clearInterval(timer));
+  });
+  t.after(() => clearInterval(timer));
+
+  await assert.rejects(async () => {
+    await ollama.executeChatTurn({
+      host,
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'test' }],
+      idleTimeoutMs: 1000,
+      totalTimeoutMs: 60
+    });
+  }, err => {
+    assert.equal(err.category, 'timeout');
+    return true;
+  });
+});
+
+test('KI 17: M8 - ai:updateSettings mit enabled: false bricht alle aktiven Requests ab', async t => {
+  let requestClosed = false;
+  const { host } = await startMockServer(t, (req, res) => {
+    req.on('close', () => { requestClosed = true; });
+    res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+    res.write(`${JSON.stringify({ message: { content: 'Beginn' }, done: false })}\n`);
+  });
+  const handlers = new Map();
+  const events = [];
+  const state = { aiSettings: { host, enabled: true } };
+  registerAiIpc({
+    getMainWindow: () => ({
+      isDestroyed: () => false,
+      webContents: { send: (channel, payload) => events.push({ channel, payload }) }
+    }),
+    ipcMainApi: { handle: (channel, handler) => handlers.set(channel, handler) },
+    isTrustedSender: event => event?.trusted === true,
+    readState: () => state,
+    writeState: patch => Object.assign(state, patch)
+  });
+  const event = { trusted: true };
+
+  assert.deepEqual(await handlers.get('ai:sendMessage')(event, {
+    messageId: 'disable-test',
+    model: 'phi:2.7b',
+    text: 'Bitte antworten'
+  }), { started: true, messageId: 'disable-test' });
+
+  await waitFor(() => events.find(entry => entry.channel === 'ai:stream-chunk'));
+
+  // KI-Assistent in den Einstellungen deaktivieren
+  await handlers.get('ai:updateSettings')(event, { enabled: false });
+
+  const streamError = await waitFor(() => events.find(entry => entry.channel === 'ai:stream-error'));
+  assert.equal(streamError.payload.messageId, 'disable-test');
+  assert.equal(streamError.payload.category, 'aborted');
+  await waitFor(() => requestClosed);
+});
+
+test('KI 18: G1 - Modellnamen werden gegen Ollama-Muster validiert', async t => {
+  const handlers = new Map();
+  const state = { aiSettings: { enabled: true, defaultModel: 'llama3.2' } };
+  registerAiIpc({
+    getMainWindow: () => null,
+    ipcMainApi: { handle: (channel, handler) => handlers.set(channel, handler) },
+    isTrustedSender: event => event?.trusted === true,
+    readState: () => state,
+    writeState: patch => Object.assign(state, patch)
+  });
+  const event = { trusted: true };
+
+  // 1. Gültige Modellnamen in updateSettings
+  const validModels = ['llama3.2', 'qwen2.5:7b', 'deepseek-r1:1.5b', 'library/model:tag', 'custom_model-v1.0'];
+  for (const m of validModels) {
+    const res = await handlers.get('ai:updateSettings')(event, { defaultModel: m });
+    assert.equal(res.defaultModel, m);
+  }
+
+  // 2. Ungültige Modellnamen in updateSettings (Leerzeichen, Sonderzeichen, Steuerzeichen)
+  const invalidModels = ['model with spaces', 'model;rm', 'model$name', 'model\nname', '', 'a'.repeat(200)];
+  for (const inv of invalidModels) {
+    assert.throws(
+      () => handlers.get('ai:updateSettings')(event, { defaultModel: inv }),
+      /Ungültiger Modellname/,
+      `Ungültiger Name ${inv} muss abgewiesen werden`
+    );
+  }
+
+  // 3. Ungültige Modellnamen in sendMessage
+  assert.throws(
+    () => handlers.get('ai:sendMessage')(event, {
+      messageId: 'msg-invalid-model',
+      text: 'Test',
+      model: 'bad model name with space'
+    }),
+    /Ungültiger Modellname/
+  );
+});
+
+test('KI 19: G2 - Einheitliche Fehlerstruktur und Sanitization unbekannter Fehler', async t => {
+  // 1. friendlyError sanitisiert unbekannte Fehler mit sensiblen Pfaden
+  const sensitiveError = new Error('EACCES /home/smashii/.secret/key.pem');
+  const sanitized = ollama.friendlyError(sensitiveError);
+  assert.equal(sanitized.category, 'unknown');
+  assert.ok(!sanitized.message.includes('/home/smashii'), 'Sensible Pfade dürfen nicht im Fehlertext vorkommen');
+  assert.equal(sanitized.message, 'Ein unerwarteter Fehler bei der Kommunikation mit der KI ist aufgetreten.');
+
+  // 2. ai:checkConnection liefert einheitliche Struktur { success, online, ... }
+  const handlers = new Map();
+  const state = { aiSettings: { host: 'http://127.0.0.1:1', enabled: true } };
+  registerAiIpc({
+    getMainWindow: () => null,
+    ipcMainApi: { handle: (channel, handler) => handlers.set(channel, handler) },
+    isTrustedSender: event => event?.trusted === true,
+    readState: () => state,
+    writeState: patch => Object.assign(state, patch)
+  });
+  const event = { trusted: true };
+
+  const connRes = await handlers.get('ai:checkConnection')(event);
+  assert.equal(connRes.success, false);
+  assert.equal(connRes.online, false);
+  assert.equal(connRes.category, 'connection');
+  assert.equal(typeof connRes.error, 'string');
+  assert.ok(connRes.code);
+
+  // 3. ai:getModels liefert einheitliche Struktur { success, models, error, category, code }
+  const modelsRes = await handlers.get('ai:getModels')(event);
+  assert.equal(modelsRes.success, false);
+  assert.deepEqual(modelsRes.models, []);
+  assert.equal(modelsRes.category, 'connection');
+  assert.equal(typeof modelsRes.error, 'string');
+  assert.ok(modelsRes.code);
+
+  // 4. ai:applyProposal liefert strukturierte Fehlermeldung statt Exception
+  const applyRes = await handlers.get('ai:applyProposal')(event, { proposalId: 'non-existent-prop' });
+  assert.equal(applyRes.success, false);
+  assert.ok(applyRes.error);
+  assert.ok(applyRes.code);
+
+  // 5. ai:rejectProposal liefert einheitliche Struktur bei nicht gefundenem Vorschlag
+  const rejectRes = await handlers.get('ai:rejectProposal')(event, { proposalId: 'non-existent-prop' });
+  assert.equal(rejectRes.success, false);
+  assert.equal(rejectRes.code, 'PROPOSAL_NOT_FOUND');
+  assert.equal(rejectRes.category, 'proposal');
+
+  // 6. ROLLBACK_FAILED darf keinen technischen Dateipfad an den Renderer geben
+  const rollbackError = new Error('EACCES /home/smashii/private/wiki/Notiz.md');
+  rollbackError.code = 'ROLLBACK_FAILED';
+  const previousConsoleError = console.error;
+  console.error = () => {};
+  try {
+    const rollbackRes = sanitizeIpcError(rollbackError);
+    assert.equal(rollbackRes.success, false);
+    assert.equal(rollbackRes.code, 'ROLLBACK_FAILED');
+    assert.equal(rollbackRes.category, 'filesystem');
+    assert.ok(!rollbackRes.error.includes('/home/smashii'));
+    assert.ok(!rollbackRes.error.includes('Notiz.md'));
+  } finally {
+    console.error = previousConsoleError;
+  }
+});
+
+test('KI 20: M2 - Requestweiter Gesamttimeout stoppt ein nie auflösendes Tool-Promise', async t => {
+  const { host } = await startMockServer(t, (req, res) => {
+    res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+    // Erste Runde gibt Tool-Call zurück
+    res.end(JSON.stringify({
+      done: true,
+      message: {
+        role: 'assistant',
+        tool_calls: [{
+          function: { name: 'slow_tool', arguments: {} }
+        }]
+      }
+    }) + '\n');
+  });
+
+  const startedAt = Date.now();
+  await assert.rejects(async () => {
+    await ollama.streamChat({
+      host,
+      model: 'test-model',
+      text: 'Führe Tool aus',
+      totalTimeoutMs: 50,
+      tools: [{ type: 'function', function: { name: 'slow_tool' } }],
+      executeTool: async () => new Promise(() => {})
+    });
+  }, err => {
+    assert.equal(err.code, 'ETIMEDOUT');
+    return true;
+  });
+  assert.ok(Date.now() - startedAt < 500, 'Hängendes Tool muss zeitnah durch die requestweite Deadline enden');
+});
+
+test('KI 21: M2 - Überlange Nachrichten (> 32 KB) brechen Chat nicht ab und werden in Historie gekürzt', async t => {
+  const handlers = new Map();
+  const events = [];
+  const state = { aiSettings: { host: 'http://127.0.0.1:1', enabled: true, persistHistory: true } };
+  const mockHistory = createAiHistory({
+    readState: () => state,
+    writeState: patch => Object.assign(state, patch)
+  });
+
+  const { host } = await startMockServer(t, (req, res) => {
+    res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+    res.end(JSON.stringify({ message: { role: 'assistant', content: 'Antwort' }, done: true }) + '\n');
+  });
+  state.aiSettings.host = host;
+
+  registerAiIpc({
+    getMainWindow: () => ({
+      isDestroyed: () => false,
+      webContents: {
+        send: (channel, payload) => events.push({ channel, payload }),
+        mainFrame: {}
+      }
+    }),
+    ipcMainApi: { handle: (channel, handler) => handlers.set(channel, handler) },
+    isTrustedSender: () => true,
+    readState: () => state,
+    writeState: patch => Object.assign(state, patch),
+    ollamaClient: ollama,
+    history: mockHistory
+  });
+
+  const event = { trusted: true };
+  const longText = 'Dies ist eine sehr lange Nachricht. '.repeat(1500); // > 50 KB
+
+  await handlers.get('ai:sendMessage')(event, {
+    messageId: 'msg-long-test',
+    text: longText
+  });
+
+  await waitFor(() => events.find(e => e.channel === 'ai:stream-end'));
+
+  const endEvent = events.find(e => e.channel === 'ai:stream-end');
+  assert.ok(endEvent, 'ai:stream-end muss erfolgreich ausgelöst worden sein');
+  assert.equal(endEvent.payload.fullText, 'Antwort');
+
+  // Prüfe, dass die Nachricht in der Historie gekürzt gespeichert wurde
+  const savedHistory = mockHistory.getHistory();
+  const savedUserMsg = savedHistory.find(m => m.id === 'msg-long-test');
+  assert.ok(savedUserMsg, 'Nachricht wurde in der Historie gespeichert');
+  assert.ok(savedUserMsg.content.includes('[Historie gekürzt]'), 'Nachricht wurde gekürzt');
+  assert.ok(Buffer.byteLength(savedUserMsg.content, 'utf8') <= 32 * 1024, 'Nachricht überschreitet 32 KB nicht');
+});
+
+test('KI 22: M2 - Historienkürzung respektiert UTF-8-Codepoint-Grenzen nahe 32 KB', () => {
+  for (let asciiBytes = 32_740; asciiBytes <= 32_745; asciiBytes++) {
+    const input = 'a'.repeat(asciiBytes) + '😀'.repeat(20);
+    const truncated = truncateMessageContent(input);
+    assert.ok(
+      Buffer.byteLength(truncated, 'utf8') <= MAX_HISTORY_MESSAGE_BYTES,
+      `Kürzung bei ${asciiBytes} ASCII-Bytes überschreitet das Byte-Limit`
+    );
+    assert.ok(!truncated.includes('\uFFFD'), 'Kürzung darf kein Unicode-Ersatzzeichen erzeugen');
+    assert.ok(truncated.includes('[Historie gekürzt]'));
+  }
+});

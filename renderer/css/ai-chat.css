@@ -694,6 +694,13 @@ body.theme-light .ai-diff-line.is-remove{
 .ai-diff-line.is-same{
   color:var(--text-muted);
 }
+.ai-diff-line.is-truncated{
+  color:var(--text-muted);
+  font-style:italic;
+  opacity:0.85;
+  padding-top:4px;
+  padding-bottom:4px;
+}
 .ai-diff-empty{
   color:var(--text-faint);
   font-style:italic;

@@ -257,7 +257,7 @@ const AI_TOOLS_DEFINITIONS = [
           },
           threshold: {
             type: 'number',
-            description: 'Ähnlichkeits-Schwellenwert zwischen 0.2 und 1.0 (Standard: 0.45).'
+            description: 'Ähnlichkeits-Schwellenwert zwischen 0.1 und 1.0 (Standard: 0.45).'
           }
         }
       }
@@ -297,7 +297,7 @@ const AI_TOOLS_DEFINITIONS = [
           },
           limit: {
             type: 'integer',
-            description: 'Maximale Anzahl Vorschläge (Standard: 15).'
+            description: 'Maximale Anzahl Vorschläge zwischen 1 und 100 (Standard: 15).'
           }
         }
       }
@@ -499,6 +499,7 @@ async function executeAiTool(projectPath, name, args = {}) {
             type: proposal.type,
             title: proposal.title,
             relPath: proposal.relPath,
+            sourceRelPath: proposal.sourceRelPath,
             diff: proposal.diff,
             reason: proposal.reason,
             requiresConfirmation: true,
@@ -521,6 +522,7 @@ async function executeAiTool(projectPath, name, args = {}) {
             type: proposal.type,
             title: proposal.title,
             relPath: proposal.relPath,
+            sourceRelPath: proposal.sourceRelPath,
             diff: proposal.diff,
             reason: proposal.reason,
             requiresConfirmation: true,
@@ -542,6 +544,7 @@ async function executeAiTool(projectPath, name, args = {}) {
             type: proposal.type,
             title: proposal.title,
             relPath: proposal.relPath,
+            sourceRelPath: proposal.sourceRelPath,
             diff: proposal.diff,
             reason: proposal.reason,
             requiresConfirmation: true,
@@ -563,6 +566,7 @@ async function executeAiTool(projectPath, name, args = {}) {
             type: proposal.type,
             title: proposal.title,
             relPath: proposal.relPath,
+            sourceRelPath: proposal.sourceRelPath,
             diff: proposal.diff,
             reason: proposal.reason,
             requiresConfirmation: true,
@@ -584,6 +588,7 @@ async function executeAiTool(projectPath, name, args = {}) {
             type: proposal.type,
             title: proposal.title,
             relPath: proposal.relPath,
+            sourceRelPath: proposal.sourceRelPath,
             diff: proposal.diff,
             reason: proposal.reason,
             requiresConfirmation: true,
@@ -604,6 +609,7 @@ async function executeAiTool(projectPath, name, args = {}) {
             type: proposal.type,
             title: proposal.title,
             relPath: proposal.relPath,
+            sourceRelPath: proposal.sourceRelPath,
             diff: proposal.diff,
             reason: proposal.reason,
             isDanger: true,
@@ -641,6 +647,7 @@ async function executeAiTool(projectPath, name, args = {}) {
                 type: proposal.type,
                 title: proposal.title,
                 relPath: proposal.relPath,
+                sourceRelPath: proposal.sourceRelPath,
                 diff: proposal.diff,
                 reason: proposal.reason,
                 requiresConfirmation: true,
@@ -652,18 +659,36 @@ async function executeAiTool(projectPath, name, args = {}) {
         return { success: true, data: { ...report, proposals } };
       }
       case 'find_duplicate_notes': {
+        let threshold = 0.45;
+        if (args.threshold !== undefined && args.threshold !== null) {
+          const t = Number(args.threshold);
+          if (Number.isFinite(t) && t >= 0.1 && t <= 1.0) {
+            threshold = t;
+          } else {
+            return { success: false, error: 'Ungültiger Ähnlichkeits-Schwellenwert (threshold muss zwischen 0.1 und 1.0 liegen).' };
+          }
+        }
         const duplicates = aiKnowledge.findDuplicateNotes(projectPath, {
           query: args.query,
-          threshold: args.threshold
+          threshold
         });
         return { success: true, data: duplicates };
       }
       case 'suggest_wikilinks': {
+        let limit = 15;
+        if (args.limit !== undefined && args.limit !== null) {
+          const l = Number(args.limit);
+          if (Number.isInteger(l) && l >= 1 && l <= 100) {
+            limit = l;
+          } else {
+            return { success: false, error: 'Ungültiges Limit für Wikilinks (muss eine Ganzzahl zwischen 1 und 100 sein).' };
+          }
+        }
         const result = aiKnowledge.findWikilinkCandidates(projectPath, {
           relPath: args.relPath,
           title: args.title,
           content: args.content,
-          limit: args.limit
+          limit
         });
         return { success: true, data: result };
       }

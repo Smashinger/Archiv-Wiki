@@ -13,6 +13,7 @@ Archiv-Wiki speichert dein Wissen lokal in einem frei wählbaren Ordner als vers
 - **Local First:** Notizen liegen als lesbare `.md`-Dateien in deinem Dateisystem – volle Kontrolle ohne Vendor-Lock-in.
 - **Zweigeteilter Editor:** Leistungsfähige Split-Ansicht mit synchronem Scrollen, Live-Vorschau und moderner Werkzeugleiste.
 - **Struktur & Hierarchie:** Haupt- und Unterkategorien mit eigenen Icons, Tags, Backlinks und Favoriten.
+- **Lokale KI (optional):** 100% offline via Ollama. Hilft beim Formulieren, Zusammenfassen und findet Querverweise – streng sicher über ein interaktives Vorschlagssystem mit Diff-Vorschau.
 - **Web Clipper:** Schnelles Sammeln von Web-Artikeln, Codeblöcken und Bildern aus Firefox, Brave und Chromium direkt in den Eingang.
 - **Volltextsuche & Wissenspflege:** Schnelles Finden nach Begriffen, Tags oder Kategorien sowie automatische Erkennung verwaister oder defekter Links.
 - **Datensicherheit:** Automatische und manuelle ZIP-Backups, Papierkorb mit Wiederherstellung und optionaler Passwortschutz.
@@ -25,19 +26,27 @@ Archiv-Wiki speichert dein Wissen lokal in einem frei wählbaren Ordner als vers
 
 Der Editor verbindet direktes Markdown-Schreiben mit einer synchronen Vorschau. Codeblöcke mit Syntaxhervorhebung, mathematische Formeln (KaTeX), Hinweisblöcke (Callouts), Tabellen und interne Wiki-Links (`[[Notiz]]`) werden in Echtzeit gerendert.
 
-![Editor mit Sidebar und Split-Ansicht](docs/screenshots/editor-split.png)
+![Editor mit Sidebar und Split-Ansicht](docs/screenshots/mockup-editor-split.png)
 
 ### Zentrales Dashboard
 
 Das Dashboard bietet beim Programmstart einen schnellen Überblick über kürzlich bearbeitete Seiten, angepinnte Favoriten, Wiki-Statistiken und die Notizstruktur.
 
-![Dashboard von Archiv-Wiki](docs/screenshots/dashboard-aktuell.png)
+![Dashboard von Archiv-Wiki](docs/screenshots/mockup-dashboard.png)
+
+### Lokaler KI-Assistent & sicheres Vorschlagssystem
+
+Ein optionaler, vollständig lokaler KI-Assistent auf Basis von [Ollama](https://ollama.com/) unterstützt beim Verfassen, Zusammenfassen und Vernetzen von Notizen. Über das schwebende Chat-Panel wird die aktuell geöffnete Notiz direkt mit einbezogen.
+
+**Schutz deiner Daten:** Die KI überschreibt niemals eigenmächtig deine Notizen. Alle Änderungen werden als übersichtliche Vorschlagskarte mit farbigem Diff angezeigt und erst nach deinem Klick auf *„Änderung anwenden“* übernommen.
+
+![Lokaler KI-Assistent und Proposal-System](docs/screenshots/mockup-ai-assistant.png)
 
 ### Anpassbare Oberfläche & Einstellungen
 
-Über das zentrale Einstellungsfenster lassen sich Akzentfarben, Modus (Dunkel/Hell), Sidebar-Größe, Lesebreite, Backups, Updates und Web-Clipper-Anbindungen bequem anpassen.
+Über das zentrale Einstellungsfenster lassen sich Akzentfarben, Modus (Dunkel/Hell), Sidebar-Größe, Lesebreite, Backups, Updates, Web Clipper und der lokale KI-Assistent bequem konfigurieren.
 
-![Einstellungsfenster von Archiv-Wiki](docs/screenshots/einstellungen.png)
+![Einstellungsfenster von Archiv-Wiki](docs/screenshots/mockup-einstellungen.png)
 
 ### Alternatives Oberflächendesign (Design 2 Vorschau)
 
@@ -63,6 +72,14 @@ Neben dem bewährten und produktionsreifen **Classic**-Design enthält Archiv-Wi
 - **Tags & Favoriten:** Verschlagwortung über Tags sowie Anpinnen wichtiger Seiten direkt auf das Dashboard.
 - **Wissenspflege:** Findet defekte Verlinkungen, Notizen ohne Tags oder leere Einträge mit direktem Korrektursprung.
 - **Eingang:** Lokaler Zwischenspeicher für Web-Clips, Notizen und Textfragmente, die erst später einsortiert werden sollen.
+
+### Lokale KI-Unterstützung (optional via Ollama)
+- **100% Offline & Privat:** Direkte Anbindung an eine lokale [Ollama](https://ollama.com/)-Instanz – deine Notizen verlassen niemals deinen Rechner.
+- **Freie Modellwahl:** Nutze quelloffene Sprachmodelle passend zu deiner Hardware (z. B. Qwen 2.5, Llama 3.1 oder Gemma 2).
+- **Non-destruktives Vorschlagssystem:** Die KI überschreibt niemals eigenmächtig deine Notizen. Jede Änderung wird als farbiges Diff dargestellt und erfordert stets deine Bestätigung.
+- **Kontext der aktiven Notiz:** Beziehe die geöffnete Notiz oder markierten Text per Mausklick in die Unterhaltung ein.
+- **Intelligenter Wikilink-Finder:** Erkennt automatisch passende Textstellen zu existierenden Notizen und schlägt interne Querverweise (`[[Notiz]]`) vor.
+- **Kontextmenü-Aktionen:** Schneller Zugriff per Rechtsklick im Editor (z. B. Zusammenfassen, Verbessern oder Wikilinks finden).
 
 ### Suchen und Finden
 - **Echtzeit-Volltextsuche:** Durchsucht blitzschnell Titel, Textinhalte, Kategorien und Tags.
@@ -120,13 +137,11 @@ Mit dem Web Clipper lassen sich Webseiten, markierte Absätze oder Bilder direkt
 
 ---
 
-## Entwicklung mit KI-Unterstützung
+## Entwicklung & Datenschutz
 
-Archiv-Wiki wurde von Anfang an mit umfangreicher Unterstützung durch KI-Werkzeuge und Coding-Assistenten entwickelt. Sie werden unter anderem für Code-Erstellung, Analyse, Fehlersuche, Dokumentation und Reviews eingesetzt. Planung, Funktionsumfang, Designentscheidungen, Tests und die Freigabe von Änderungen bleiben dabei menschlich gesteuert.
+Archiv-Wiki wurde von Anfang an mit Unterstützung moderner KI-Werkzeuge und Coding-Assistenten entwickelt (Code-Erstellung, Tests, Dokumentation und Reviews). Planung, Funktionsumfang, Designentscheidungen und finale Freigaben bleiben dabei vollständig menschlich gesteuert.
 
-Von einer KI erzeugte oder vorgeschlagene Änderungen gelten nicht allein deshalb als korrekt oder fertig. Die tatsächliche Anwendung und ihr Verhalten werden geprüft und getestet.
-
-Die KI-Unterstützung betrifft den Entwicklungsprozess; Archiv-Wiki selbst ist keine KI-Anwendung. Eigene Wiki-Daten bleiben grundsätzlich lokal, es gibt keine Telemetrie und kein Benutzerkonto. Optionale Dienste wie WebDAV werden nur auf Wunsch des Nutzers eingerichtet.
+Der in Archiv-Wiki integrierte KI-Assistent arbeitet rein optional und bindet ausschließlich deine eigene, lokale [Ollama](https://ollama.com/)-Instanz an. Eigene Notizen und Wiki-Daten bleiben ausnahmslos auf deiner Festplatte: Es gibt keine Telemetrie, keine Cloud-Zwänge und kein Benutzerkonto.
 
 ## Für Entwickler
 

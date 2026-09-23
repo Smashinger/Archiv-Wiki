@@ -85,13 +85,64 @@ export function renderDiffLines(diff = []) {
     return '<div class="ai-diff-empty">Keine Änderungen</div>';
   }
   return diff.map(line => {
+    if (line.type === 'truncated') {
+      return `<div class="ai-diff-line is-truncated"><span class="ai-diff-prefix">…</span><span class="ai-diff-text">${escapeHtml(line.line)}</span></div>`;
+    }
     const typeClass = line.type === 'add' ? 'is-add' : line.type === 'remove' ? 'is-remove' : 'is-same';
     const prefix = line.type === 'add' ? '+ ' : line.type === 'remove' ? '- ' : '  ';
     return `<div class="ai-diff-line ${typeClass}"><span class="ai-diff-prefix">${prefix}</span><span class="ai-diff-text">${escapeHtml(line.line)}</span></div>`;
   }).join('');
 }
 
-export function renderProposalCard(proposal, { onApply, onReject } = {}) {
+export async function shouldAllowProposalApplication(proposal, {
+  getOpenRelPath = () => null,
+  isDirty = () => false,
+  showConfirmDialog: confirmDialog = showConfirmDialog,
+  canLeaveCurrentRoute = async () => true,
+  closeEditor = () => {},
+  getNoteTitle = null
+} = {}) {
+  const openRelPath = typeof getOpenRelPath === 'function' ? getOpenRelPath() : null;
+  if (!openRelPath) return true;
+
+  const targetPath = proposal?.relPath || proposal?.targetRelPath || '';
+  const sourcePath = proposal?.sourceRelPath || proposal?.relPath || '';
+  const type = proposal?.type;
+
+  const affectsOpenNote = Boolean(
+    openRelPath === sourcePath ||
+    openRelPath === targetPath ||
+    (type === 'delete' && (openRelPath === sourcePath || openRelPath.startsWith(sourcePath + '/'))) ||
+    (type === 'move' && (openRelPath === sourcePath || openRelPath.startsWith(sourcePath + '/')))
+  );
+
+  if (affectsOpenNote) {
+    if (typeof isDirty === 'function' && isDirty()) {
+      const noteTitle = typeof getNoteTitle === 'function'
+        ? getNoteTitle(openRelPath)
+        : openRelPath.split('/').pop().replace(/\.md$/, '');
+      const discard = typeof confirmDialog === 'function' ? await confirmDialog({
+        title: 'Ungespeicherte Änderungen verwerfen?',
+        message: `Die Notiz „${noteTitle}“ enthält ungespeicherte Änderungen im Editor. Wenn du den KI-Vorschlag anwendest, werden diese ungespeicherten Änderungen verworfen.`,
+        confirmLabel: 'Änderungen verwerfen & Vorschlag anwenden',
+        cancelLabel: 'Abbrechen',
+        danger: true
+      }) : true;
+      if (!discard) return false;
+    }
+    if (typeof closeEditor === 'function') closeEditor();
+    return true;
+  }
+
+  // Proposal betrifft eine andere Notiz oder Kategorie
+  if (typeof isDirty === 'function' && isDirty()) {
+    const canLeave = typeof canLeaveCurrentRoute === 'function' ? await canLeaveCurrentRoute() : true;
+    if (!canLeave) return false;
+  }
+  return true;
+}
+
+export function renderProposalCard(proposal, { onApply, onReject, beforeApply } = {}) {
   const card = document.createElement('div');
   card.className = 'ai-proposal-card';
   const proposalId = proposal.proposalId || proposal.id;
@@ -172,7 +223,16 @@ export function renderProposalCard(proposal, { onApply, onReject } = {}) {
   applyBtn.addEventListener('click', async () => {
     applyBtn.disabled = true;
     rejectBtn.disabled = true;
+    statusEl.hidden = true;
     try {
+      if (typeof beforeApply === 'function') {
+        const canProceed = await beforeApply(proposal);
+        if (!canProceed) {
+          applyBtn.disabled = false;
+          rejectBtn.disabled = false;
+          return;
+        }
+      }
       const res = await window.archivAPI.ai.applyProposal(proposalId);
       if (res?.success) {
         card.classList.add('is-applied');
@@ -280,12 +340,17 @@ export function setAiChatEnabled(enabled) {
       openButton.setAttribute('aria-pressed', 'false');
     }
   }
+  if (!aiChatEnabled) {
+    try {
+      window.dispatchEvent(new CustomEvent('archiv:ai-abort-active'));
+    } catch {}
+  }
   try {
     window.dispatchEvent(new CustomEvent('archiv:ai-state-changed', { detail: { enabled: aiChatEnabled } }));
   } catch {}
 }
 
-export function initAiChat({ onProposalApplied, getActiveNote } = {}) {
+export function initAiChat({ onProposalApplied, onBeforeApplyProposal, getActiveNote } = {}) {
   const panel = document.getElementById('aiChatPanel');
   const openButton = document.getElementById('titlebarAiChatBtn');
   const closeButton = document.getElementById('aiChatCloseBtn');
@@ -354,6 +419,13 @@ export function initAiChat({ onProposalApplied, getActiveNote } = {}) {
     }
   };
   window.addEventListener('archiv:ai-settings-changed', handleCustomSettingsChanged);
+
+  const handleAbortActive = () => {
+    if (activeMessageId) {
+      window.archivAPI.ai.abort(activeMessageId).catch(() => {});
+    }
+  };
+  window.addEventListener('archiv:ai-abort-active', handleAbortActive);
 
   let activeMessageId = null;
   let activeDeltaBuffer = '';
@@ -639,9 +711,13 @@ export function initAiChat({ onProposalApplied, getActiveNote } = {}) {
     }
   }
 
+  const MAX_DELTA_BUFFER_LENGTH = 2_000_000;
   const removeChunkListener = window.archivAPI.ai.onStreamChunk((payload) => {
     if (!payload || payload.messageId !== activeMessageId) return;
-    activeDeltaBuffer += (payload.delta || '');
+    const delta = payload.delta || '';
+    if (activeDeltaBuffer.length + delta.length <= MAX_DELTA_BUFFER_LENGTH) {
+      activeDeltaBuffer += delta;
+    }
     if (activeBubbleEl) {
       const contentEl = activeBubbleEl.querySelector('.ai-msg-content');
       if (contentEl) {
@@ -679,6 +755,7 @@ export function initAiChat({ onProposalApplied, getActiveNote } = {}) {
       const existing = targetBubble.querySelector(`[data-proposal-id="${proposalId}"]`);
       if (!existing) {
         const card = renderProposalCard(payload.proposal, {
+          beforeApply: onBeforeApplyProposal,
           onApply: (res) => {
             onProposalApplied?.(res);
             try {
@@ -891,21 +968,24 @@ export function initAiChat({ onProposalApplied, getActiveNote } = {}) {
   document.addEventListener('keydown', handleShortcut);
   header.addEventListener('mousedown', startDragging);
   input.addEventListener('input', resizeInput);
-  input.addEventListener('keydown', (event) => {
+  const handleInputKeydown = (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       sendMessage();
     }
-  });
-  sendButton.addEventListener('click', sendMessage);
-  clearButton?.addEventListener('click', handleClearHistory);
-  modelSelect?.addEventListener('change', () => {
-    if (modelSelect.value) {
+  };
+
+  const handleSendClick = () => sendMessage();
+  const handleClearClick = () => handleClearHistory();
+
+  const handleModelChange = () => {
+    if (modelSelect?.value) {
       window.archivAPI.ai.updateSettings({ defaultModel: modelSelect.value }).catch(() => {});
     }
-  });
+  };
 
-  modelRefreshBtn?.addEventListener('click', async () => {
+  const handleModelRefreshClick = async () => {
+    if (!modelRefreshBtn) return;
     modelRefreshBtn.classList.add('is-refreshing');
     modelRefreshBtn.disabled = true;
     try {
@@ -916,24 +996,35 @@ export function initAiChat({ onProposalApplied, getActiveNote } = {}) {
         modelRefreshBtn.disabled = false;
       }, 400);
     }
-  });
+  };
 
-  contextSelect?.addEventListener('change', () => {
+  const handleContextChange = () => {
+    if (!contextSelect) return;
     const contextSize = parseInt(contextSelect.value, 10);
     if (Number.isInteger(contextSize)) {
       window.archivAPI.ai.updateSettings({ contextSize }).catch(() => {});
     }
-  });
+  };
 
+  const modeButtonHandlers = new Map();
   for (const btn of modeButtons) {
-    btn.addEventListener('click', () => {
+    const handler = () => {
       const mode = btn.dataset.mode;
       if (mode && mode !== currentMode) {
         setActiveMode(mode);
         window.archivAPI.ai.updateSettings({ mode }).catch(() => {});
       }
-    });
+    };
+    modeButtonHandlers.set(btn, handler);
+    btn.addEventListener('click', handler);
   }
+
+  input.addEventListener('keydown', handleInputKeydown);
+  sendButton.addEventListener('click', handleSendClick);
+  clearButton?.addEventListener('click', handleClearClick);
+  modelSelect?.addEventListener('change', handleModelChange);
+  modelRefreshBtn?.addEventListener('click', handleModelRefreshClick);
+  contextSelect?.addEventListener('change', handleContextChange);
 
   const handleSuggestionClick = (event) => {
     const chip = event.target.closest('.ai-suggestion-chip');
@@ -1100,6 +1191,10 @@ export function initAiChat({ onProposalApplied, getActiveNote } = {}) {
   updateActiveNoteUI();
 
   return () => {
+    if (activeMessageId) {
+      window.archivAPI.ai.abort(activeMessageId).catch(() => {});
+      activeMessageId = null;
+    }
     stopDragging();
     resizeObserver?.disconnect();
     window.removeEventListener('resize', handleWindowResize);
@@ -1111,10 +1206,12 @@ export function initAiChat({ onProposalApplied, getActiveNote } = {}) {
     window.removeEventListener('hashchange', updateActiveNoteUI);
     window.removeEventListener('archiv:active-note-changed', updateActiveNoteUI);
     document.removeEventListener('selectionchange', handleSelectionChange);
+    window.removeEventListener('archiv:ai-abort-active', handleAbortActive);
     removeChunkListener?.();
     removeToolCallListener?.();
     removeProposalListener?.();
     removeEndListener?.();
+    removeErrorListener?.();
     removeSettingsListener?.();
     window.removeEventListener('archiv:ai-settings-changed', handleCustomSettingsChanged);
     openButton.removeEventListener('click', togglePanel);
@@ -1122,6 +1219,16 @@ export function initAiChat({ onProposalApplied, getActiveNote } = {}) {
     document.removeEventListener('keydown', handleShortcut);
     header.removeEventListener('mousedown', startDragging);
     input.removeEventListener('input', resizeInput);
+    input.removeEventListener('keydown', handleInputKeydown);
+    sendButton.removeEventListener('click', handleSendClick);
+    clearButton?.removeEventListener('click', handleClearClick);
+    modelSelect?.removeEventListener('change', handleModelChange);
+    modelRefreshBtn?.removeEventListener('click', handleModelRefreshClick);
+    contextSelect?.removeEventListener('change', handleContextChange);
+    for (const [btn, handler] of modeButtonHandlers.entries()) {
+      btn.removeEventListener('click', handler);
+    }
+    modeButtonHandlers.clear();
     delete panel.dataset.initialized;
   };
 }

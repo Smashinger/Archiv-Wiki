@@ -27,7 +27,8 @@ const {
 const { registerExportIpc, exportProjectZip } = require('./main/export-ipc');
 const { registerSyncIpc, isSyncInProgress, getSyncStatusSnapshot } = require('./main/sync-ipc');
 const { registerSettingsIpc, matchesStoredAppLockPassword } = require('./main/settings-ipc');
-const { registerAiIpc } = require('./main/ai-ipc');
+const { registerAiIpc, abortAllAiRequests } = require('./main/ai-ipc');
+const aiProposals = require('./main/ai-proposals');
 const {
   maybeRunAutoBackup,
   getBackupFolderState,
@@ -735,6 +736,8 @@ function handleProjectReady(projectPath, config) {
   console.log(`[Archiv Wiki] Projekt bereit: ${projectPath}`);
   currentProject = { path: projectPath, config: cloneProjectConfig(config) };
   syncLockStateFromProjectConfig();
+  abortAllAiRequests();
+  aiProposals.clearAllProposals();
   if (mainWindow && !mainWindow.isDestroyed()) {
     // Bereits laufendes Hauptfenster wechselt das Projekt: kompletter Reload
     // lädt den Renderer frisch, dessen init() den jetzt aktuellen

@@ -11,6 +11,8 @@ const {
   findWikilinkCandidates,
   tokenize,
   maskCodeRegions,
+  maskRawUrls,
+  RAW_URL_PATTERN,
   extractWikilinks
 } = require('../main/ai-knowledge');
 
@@ -233,5 +235,54 @@ Und ein Markdown-Link [Insel Notiz](http://example.com) wird auch ignoriert.
   // Eigene Notiz (Notiz A) darf nicht vorgeschlagen werden
   const notizACandidate = res.candidates.find(c => c.term === 'Notiz A');
   assert.equal(notizACandidate, undefined, 'Eigene Notiz wird nicht vorgeschlagen');
+});
+
+test('AI-Knowledge 6: M6 - maskRawUrls und findWikilinkCandidates maskieren rohe URLs positionsstabil', t => {
+  // 1. maskRawUrls direkt prüfen
+  const rawSample = 'Vor der URL https://example.org/Docker-Leitfaden und mailto:admin@test.de nach der URL.';
+  const masked = maskRawUrls(rawSample);
+  assert.equal(masked.length, rawSample.length, 'Länge bleibt nach Maskierung exakt identisch (positionsstabil)');
+  assert.ok(!masked.includes('https://'), 'https-URL maskiert');
+  assert.ok(!masked.includes('Docker-Leitfaden'), 'Docker-Leitfaden innerhalb der URL maskiert');
+  assert.ok(!masked.includes('mailto:'), 'mailto-URL maskiert');
+  assert.ok(masked.startsWith('Vor der URL '), 'Text vor der URL bleibt erhalten');
+  assert.ok(masked.endsWith(' nach der URL.'), 'Text nach der URL bleibt erhalten');
+
+  // 2. Integration in findWikilinkCandidates
+  const wikiDir = createKnowledgeTestWiki(t);
+  const textWithUrls = `
+Hier ist echter Text mit Docker Leitfaden.
+Hier ist eine rohe URL: https://example.org/Docker-Leitfaden
+Und eine Mail-Adresse: mailto:Docker-Leitfaden@example.com
+`;
+
+  const res = findWikilinkCandidates(wikiDir, {
+    relPath: 'Themen/Allgemein/Notiz A.md',
+    content: textWithUrls
+  });
+
+  const candidate = res.candidates.find(c => c.term === 'Docker Leitfaden');
+  assert.ok(candidate, 'Docker Leitfaden im Fließtext gefunden');
+  // Muss exakt 1x gefunden werden (nur im Fließtext, nicht in der URL und nicht in der Mailadresse)
+  assert.equal(candidate.occurrences, 1, 'Treffer in rohen URLs und Mailto werden nicht gezählt');
+});
+
+test('AI-Knowledge 7: M7 - findDuplicateNotes validiert threshold strikt und skaliert performant', t => {
+  const wikiDir = createKnowledgeTestWiki(t);
+
+  // 1. threshold außerhalb des Bereichs (zu klein) wird auf mindestens 0.1 geclampt
+  const resLow = findDuplicateNotes(wikiDir, { threshold: -0.5 });
+  assert.equal(resLow.threshold, 0.1, 'Negativer threshold wird auf 0.1 geclampt');
+
+  // 2. threshold außerhalb des Bereichs (zu groß) wird auf 1.0 geclampt
+  const resHigh = findDuplicateNotes(wikiDir, { threshold: 2.0 });
+  assert.equal(resHigh.threshold, 1.0, 'Überhöhter threshold wird auf 1.0 geclampt');
+
+  // 3. Nicht-numerischer threshold fällt auf Standard 0.45 zurück
+  const resNaN = findDuplicateNotes(wikiDir, { threshold: 'keine-zahl' });
+  assert.equal(resNaN.threshold, 0.45, 'Ungültiger threshold fällt auf 0.45 zurück');
+
+  // 4. Sehr hoher threshold (1.0) schließt Paare mit geringerem Score aus
+  assert.ok(resHigh.duplicatePairs.every(p => p.similarityScore >= 1.0), 'Nur perfekte Übereinstimmungen (Score 1.0)');
 });
 

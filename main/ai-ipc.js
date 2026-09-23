@@ -30,6 +30,35 @@ function invalidArgument(message = 'Ungültige Argumente für KI-IPC.') {
   return error;
 }
 
+function sanitizeIpcError(err) {
+  if (!err) return { success: false, error: 'Unbekannter Fehler.', code: 'UNKNOWN', category: 'unknown' };
+  if (err.code === 'AI_PROPOSAL_STALE') {
+    return { success: false, error: err.message, code: 'AI_PROPOSAL_STALE', category: 'stale' };
+  }
+  if (err.code === 'IPC_ARGUMENT_INVALID') {
+    return { success: false, error: err.message, code: 'IPC_ARGUMENT_INVALID', category: 'validation' };
+  }
+  if (err.code === 'IPC_SENDER_INVALID') {
+    return { success: false, error: 'Unautorisierter IPC-Aufruf.', code: 'IPC_SENDER_INVALID', category: 'security' };
+  }
+  if (err.code === 'ROLLBACK_FAILED') {
+    console.error('[KI] Rollback fehlgeschlagen:', err);
+    return {
+      success: false,
+      error: 'Die Notiz konnte nach einem Fehler nicht in den ursprünglichen Zustand zurückversetzt werden (Rollback fehlgeschlagen).',
+      code: 'ROLLBACK_FAILED',
+      category: 'filesystem'
+    };
+  }
+  const clean = ollama.friendlyError(err);
+  return {
+    success: false,
+    error: clean.message,
+    code: clean.code || err.code || 'INTERNAL_ERROR',
+    category: clean.category || 'unknown'
+  };
+}
+
 function isPlainObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
@@ -42,10 +71,22 @@ function requireAllowedKeys(value, allowed) {
 
 function validateHost(host) {
   try { return ollama.normalizeHost(host); }
-  catch { throw invalidArgument('Ungültige Ollama-Server-URL.'); }
+  catch (err) { throw invalidArgument(err?.message || 'Ungültige Ollama-Server-URL.'); }
+}
+
+const OLLAMA_MODEL_PATTERN = /^[a-zA-Z0-9_.:\/-]{1,128}$/;
+
+function validateModelName(model) {
+  if (typeof model !== 'string') throw invalidArgument('Ungültiger Modellname.');
+  const trimmed = model.trim();
+  if (!trimmed || trimmed.length > 128 || !OLLAMA_MODEL_PATTERN.test(trimmed)) {
+    throw invalidArgument('Ungültiger Modellname (nur alphanumerische Zeichen, Bindestriche, Punkte, Doppelpunkte, Schrägstriche und Unterstriche erlaubt).');
+  }
+  return trimmed;
 }
 
 function validateSettingsPatch(patch) {
+  if (!isPlainObject(patch)) throw invalidArgument();
   requireAllowedKeys(patch, SETTING_KEYS);
   const clean = {};
   if ('enabled' in patch) {
@@ -54,8 +95,7 @@ function validateSettingsPatch(patch) {
   }
   if ('host' in patch) clean.host = validateHost(patch.host);
   if ('defaultModel' in patch) {
-    if (typeof patch.defaultModel !== 'string' || !patch.defaultModel.trim() || patch.defaultModel.length > 200) throw invalidArgument();
-    clean.defaultModel = patch.defaultModel;
+    clean.defaultModel = validateModelName(patch.defaultModel);
   }
   if ('temperature' in patch) {
     if (!Number.isFinite(patch.temperature) || patch.temperature < 0 || patch.temperature > 1) throw invalidArgument();
@@ -97,7 +137,9 @@ function validateSendRequest(args) {
   requireAllowedKeys(request, SEND_ARGUMENT_KEYS);
   if (typeof request.messageId !== 'string' || !/^[A-Za-z0-9._:-]{1,200}$/.test(request.messageId)) throw invalidArgument();
   if (typeof request.text !== 'string' || !request.text.trim() || request.text.length > 200_000) throw invalidArgument();
-  if (request.model !== undefined && (typeof request.model !== 'string' || !request.model.trim() || request.model.length > 200)) throw invalidArgument();
+  if (request.model !== undefined) {
+    request.model = validateModelName(request.model);
+  }
   if (request.mode !== undefined && (typeof request.mode !== 'string' || !['safe', 'auto', 'plan'].includes(request.mode))) throw invalidArgument('Ungültiger KI-Modus.');
   let activeNote = null;
   if (request.activeNote !== undefined && request.activeNote !== null) {
@@ -182,24 +224,60 @@ function registerAiIpc({
     });
   }
 
+  function handleStructured(channel, validate, handler) {
+    ipcMainApi.handle(channel, async (event, ...args) => {
+      try {
+        if (!senderIsTrusted(event)) {
+          const error = new Error('IPC-Aufruf stammt nicht aus dem Hauptfenster.');
+          error.code = 'IPC_SENDER_INVALID';
+          throw error;
+        }
+        const value = validate(args);
+        return await handler(event, value);
+      } catch (error) {
+        return sanitizeIpcError(error);
+      }
+    });
+  }
+
   const noArguments = args => {
     if (args.length !== 0) throw invalidArgument();
   };
 
+  function abortAllRequests() {
+    for (const [msgId, controller] of activeRequests.entries()) {
+      try { controller.abort(); } catch {}
+    }
+    activeRequests.clear();
+  }
+
   handle('ai:checkConnection', validateOptionalHostArgument, async (_event, input) => {
     const settings = resolveSettings(readState);
-    try { return await ollamaClient.checkConnection({ host: input.host || settings.host }); }
-    catch (error) { return { online: false, error: ollamaClient.friendlyError(error).message }; }
+    try {
+      const conn = await ollamaClient.checkConnection({ host: input.host || settings.host });
+      return { success: true, ...conn };
+    } catch (error) {
+      const friendly = ollamaClient.friendlyError(error);
+      return { online: false, success: false, error: friendly.message, category: friendly.category, code: friendly.code || 'CONNECTION_FAILED' };
+    }
   });
 
   handle('ai:getModels', validateOptionalHostArgument, async (_event, input) => {
     const settings = resolveSettings(readState);
-    try { return { success: true, models: await ollamaClient.getModels({ host: input.host || settings.host }) }; }
-    catch (error) { return { success: false, models: [], error: ollamaClient.friendlyError(error).message }; }
+    try {
+      const models = await ollamaClient.getModels({ host: input.host || settings.host });
+      return { success: true, models };
+    } catch (error) {
+      const friendly = ollamaClient.friendlyError(error);
+      return { success: false, models: [], error: friendly.message, category: friendly.category, code: friendly.code || 'MODELS_FETCH_FAILED' };
+    }
   });
 
   handle('ai:getHistory', noArguments, () => history.getHistory());
-  handle('ai:clearHistory', noArguments, () => history.clearHistory());
+  handle('ai:clearHistory', noArguments, () => {
+    aiProposals.clearAllProposals();
+    return history.clearHistory();
+  });
   handle('ai:getSettings', noArguments, () => resolveSettings(readState));
   handle('ai:updateSettings', args => {
     if (args.length !== 1) throw invalidArgument();
@@ -207,6 +285,9 @@ function registerAiIpc({
   }, (_event, patch) => {
     const next = { ...resolveSettings(readState), ...patch };
     writeState({ aiSettings: next });
+    if (patch.enabled === false) {
+      abortAllRequests();
+    }
     sendToMainWindow('ai:settings-updated', next);
     return next;
   });
@@ -234,14 +315,16 @@ function registerAiIpc({
     };
   });
 
-  handle('ai:applyProposal', validateProposalIdArgument, (_event, proposalId) => {
+  handleStructured('ai:applyProposal', validateProposalIdArgument, async (_event, proposalId) => {
     const currentProject = typeof getCurrentProject === 'function' ? getCurrentProject() : null;
     const projectPath = currentProject?.path || null;
-    if (!projectPath) throw invalidArgument('Kein geöffnetes Wiki-Projekt vorhanden.');
+    if (!projectPath) {
+      return { success: false, error: 'Kein geöffnetes Wiki-Projekt vorhanden.', code: 'NO_PROJECT', category: 'project' };
+    }
     return aiProposals.applyProposal(proposalId, projectPath);
   });
 
-  handle('ai:rejectProposal', validateProposalIdArgument, (_event, proposalId) => {
+  handleStructured('ai:rejectProposal', validateProposalIdArgument, (_event, proposalId) => {
     return aiProposals.rejectProposal(proposalId);
   });
 
@@ -273,7 +356,11 @@ function registerAiIpc({
     (async () => {
       try {
         if (settings.persistHistory) {
-          history.addMessage({ id: request.messageId, role: 'user', content: request.text, timestamp: now(), model });
+          try {
+            history.addMessage({ id: request.messageId, role: 'user', content: request.text, timestamp: now(), model }, { truncate: true });
+          } catch (histErr) {
+            console.warn('[KI] Historie konnte Nutzer-Nachricht nicht speichern:', histErr?.message || histErr);
+          }
         }
         const currentProject = typeof getCurrentProject === 'function' ? getCurrentProject() : null;
         const projectPath = currentProject?.path || null;
@@ -340,7 +427,11 @@ function registerAiIpc({
         });
         flush();
         if (settings.persistHistory) {
-          history.addMessage({ id: `${request.messageId}:assistant`, role: 'assistant', content: result.fullText, timestamp: now(), model });
+          try {
+            history.addMessage({ id: `${request.messageId}:assistant`, role: 'assistant', content: result.fullText, timestamp: now(), model }, { truncate: true });
+          } catch (histErr) {
+            console.warn('[KI] Historie konnte Assistent-Antwort nicht speichern:', histErr?.message || histErr);
+          }
         }
         sendToMainWindow('ai:stream-end', { messageId: request.messageId, fullText: result.fullText, stats: result.stats });
       } catch (error) {
@@ -348,8 +439,10 @@ function registerAiIpc({
         const clean = ollamaClient.friendlyError(error);
         sendToMainWindow('ai:stream-error', {
           messageId: request.messageId,
+          success: false,
           error: clean.message,
-          category: clean.category || 'unknown'
+          category: clean.category || 'unknown',
+          code: clean.code || 'AI_STREAM_ERROR'
         });
       } finally {
         if (flushTimer) clearTimeout(flushTimer);
@@ -360,14 +453,26 @@ function registerAiIpc({
     return { started: true, messageId: request.messageId };
   });
 
-  return { activeRequests };
+  const instance = { activeRequests, abortAllRequests };
+  activeAiIpcInstances.add(instance);
+  return instance;
+}
+
+const activeAiIpcInstances = new Set();
+
+function abortAllAiRequests() {
+  for (const instance of activeAiIpcInstances) {
+    try { instance.abortAllRequests(); } catch {}
+  }
 }
 
 module.exports = {
   DEFAULT_SETTINGS,
   invalidArgument,
+  sanitizeIpcError,
   validateSettingsPatch,
   validateSendRequest,
   resolveSettings,
-  registerAiIpc
+  registerAiIpc,
+  abortAllAiRequests
 };
