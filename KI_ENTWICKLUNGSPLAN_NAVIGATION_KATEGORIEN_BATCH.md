@@ -2,6 +2,19 @@
 
 Stand: 22.09.2026
 
+## Fortschritt (für andere KI-Sitzungen: hier zuerst nachsehen)
+
+| Block | Status |
+|---|---|
+| 1 – Notizen öffnen und zuletzt bearbeitet | ✅ ABGESCHLOSSEN (23.09.2026) |
+| 2 – Kategorien zuverlässig auflisten | ⬜ offen |
+| 3 – Kategorien umbenennen und verschieben | ⬜ offen |
+| 4 – Reine Batch-Analyse | ⬜ offen |
+| 5 – Batch-Proposal für Inhaltsänderungen | ⬜ offen |
+| 6 – Umbenennungen und Wikilinks | ⬜ offen |
+| 7 – Logische Reihenfolge | ⬜ offen |
+| Abschließender Integrationsblock | ⬜ offen |
+
 ## Zweck dieses Dokuments
 
 Dieses Dokument ist der Entwicklungs- und Übergabeplan für die nächsten Fähigkeiten der lokalen KI-Integration von Archiv-Wiki. Es soll von Claude Code, Codex oder anderen Entwicklungsassistenten verwendet werden können, ohne dass der vorherige Gesprächsverlauf benötigt wird.
@@ -40,6 +53,19 @@ Die Blöcke sind nacheinander und einzeln umzusetzen. Nach jedem Block: gezielte
 ---
 
 ## Entwicklungsblock 1: Notizen durch die KI öffnen
+
+**Status: ✅ ABGESCHLOSSEN (23.09.2026).** Implementiert und getestet
+(gezielte Tests + vollständige Testsuite, 342/342 grün). Umgesetzt:
+`get_recent_notes` und `open_note` (main/ai-tools.js), Navigations-Event
+`ai:stream-navigate` (main/ai-ipc.js, preload.js), Anbindung im Chat
+(renderer/js/ai-chat.js) über `onOpenNote` an app.js' bestehenden
+`canLeaveCurrentRoute()`/`navigateTo()`-Weg (kein zweiter
+Navigationsmechanismus). Sichere Titelauflösung mit Kandidatenliste bei
+Mehrdeutigkeit (`resolveNoteForOpen`), keine automatische Navigation bei
+mehreren Treffern. "Zuletzt bearbeitet" nutzt exakt dieselbe Sortierregel wie
+das Dashboard (`modified`, ersatzweise `created`). Nicht Teil dieses Blocks
+(wie vorgesehen): Kategorien und Batch-Operationen. Details siehe
+Commit-Historie ab diesem Datum.
 
 ### Ziel
 
@@ -404,7 +430,7 @@ Nach Umsetzung aller Einzelblöcke folgt eine gemeinsame Prüfung ausschließlic
 
 | Reihenfolge | Block | Umfang | Risiko |
 |---:|---|---:|---:|
-| 1 | Notiz öffnen und zuletzt bearbeitet | klein | gering |
+| 1 | Notiz öffnen und zuletzt bearbeitet ✅ ABGESCHLOSSEN | klein | gering |
 | 2 | Kategorien vollständig auflisten | klein | gering |
 | 3 | Kategorien umbenennen/verschieben | mittel | hoch |
 | 4 | Batch-Analyse ohne Änderungen | mittel | mittel |
@@ -415,8 +441,9 @@ Nach Umsetzung aller Einzelblöcke folgt eine gemeinsame Prüfung ausschließlic
 
 ## Nächster freigegebener Entwicklungsblock
 
-Als Nächstes ausschließlich Entwicklungsblock 1 umsetzen:
-
-> Notizen aus jeder Ansicht öffnen und „zuletzt bearbeitet“ zuverlässig auflösen.
-
-Dieser Block ist fachlich geschlossen, verwendet die vorhandene Navigation und lässt sich unabhängig von Kategorie- und Batch-Operationen vollständig testen. Keine Kategorie- oder Batch-Funktion in diesem Block vorwegnehmen.
+Entwicklungsblock 1 ist abgeschlossen (siehe Fortschritt-Tabelle und Status-
+Vermerk oben). Entwicklungsblock 2 („Kategorien zuverlässig auflisten“) ist
+**noch nicht freigegeben** — nicht eigenständig beginnen, ohne dass der Nutzer
+das ausdrücklich beauftragt. Bis dahin: AGENTS.md und den aktuellen Code
+erneut lesen, gezielte Tests und die vollständige Testsuite aus Block 1 als
+Ausgangsbasis bestätigen, dann auf Freigabe warten.

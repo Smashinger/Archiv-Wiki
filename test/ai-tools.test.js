@@ -12,6 +12,8 @@ const {
   readNote,
   listNotes,
   getWikiTags,
+  getRecentNotes,
+  resolveNoteForOpen,
   executeAiTool
 } = require('../main/ai-tools');
 
@@ -31,6 +33,8 @@ title: "Architektur und Schnittstellen"
 tags: ["architektur", "electron", "ipc"]
 category: "Archiv-Wiki"
 mainCategory: "Projekte"
+created: "2026-01-01T09:00:00.000Z"
+modified: "2026-01-05T09:00:00.000Z"
 ---
 # Architektur und Schnittstellen
 
@@ -43,6 +47,8 @@ title: "Rezept für Pfannkuchen"
 tags: ["kochen", "rezept"]
 category: "Küche"
 mainCategory: "Privat"
+created: "2026-01-02T09:00:00.000Z"
+modified: "2026-01-10T09:00:00.000Z"
 ---
 # Pfannkuchen
 
@@ -76,12 +82,14 @@ Dieser Inhalt ist archiviert.
 
 test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werkzeuge', () => {
   assert.ok(Array.isArray(AI_TOOLS_DEFINITIONS));
-  assert.equal(AI_TOOLS_DEFINITIONS.length, 13);
+  assert.equal(AI_TOOLS_DEFINITIONS.length, 15);
 
   const names = AI_TOOLS_DEFINITIONS.map(d => d.function?.name);
   assert.ok(names.includes('search_notes'), 'search_notes ist definiert');
   assert.ok(names.includes('read_note'), 'read_note ist definiert');
   assert.ok(names.includes('list_notes'), 'list_notes ist definiert');
+  assert.ok(names.includes('get_recent_notes'), 'get_recent_notes ist definiert');
+  assert.ok(names.includes('open_note'), 'open_note ist definiert');
   assert.ok(names.includes('get_wiki_tags'), 'get_wiki_tags ist definiert');
   assert.ok(names.includes('suggest_wikilinks'), 'suggest_wikilinks ist definiert');
   assert.ok(names.includes('propose_create_note'), 'propose_create_note ist definiert');
@@ -97,6 +105,8 @@ test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werk
   assert.ok(!names.includes('write_note'), 'write_note darf nicht existieren');
   assert.ok(!names.includes('create_note'), 'create_note darf nicht existieren');
   assert.ok(!names.includes('delete_note'), 'delete_note darf nicht existieren');
+  // open_note ist reine Navigation (kein Proposal, kein requiresConfirmation
+  // in seiner Beschreibung) — bewusst kein Schreibwerkzeug im obigen Sinn.
 });
 
 test('KI-Tools 2: searchNotes findet Notizen über Titel, Tags und Inhalt', t => {
@@ -332,6 +342,114 @@ test('KI-Tools 11: M7 - executeAiTool validiert threshold und limit strikt', asy
   });
   assert.equal(resLimit101.success, false);
   assert.ok(resLimit101.error.includes('Limit'));
+});
+
+test('KI-Tools 12: Block 1 - getRecentNotes sortiert nach modified (ersatzweise created), archivierte ausgeschlossen', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  const res = getRecentNotes(wikiDir);
+  assert.equal(res.totalCount, 2, 'archivierte Notiz zählt nicht mit');
+  // Pfannkuchen wurde später geändert (10.01.) als Architektur (05.01.) -> zuerst.
+  assert.equal(res.notes[0].title, 'Rezept für Pfannkuchen');
+  assert.equal(res.notes[1].title, 'Architektur und Schnittstellen');
+  assert.equal(res.notes[0].modified, '2026-01-10T09:00:00.000Z');
+  assert.ok(!('body' in res.notes[0]), 'Notizinhalt wird nicht mitgeliefert (nur Metadaten)');
+
+  const limited = getRecentNotes(wikiDir, { limit: 1 });
+  assert.equal(limited.notes.length, 1);
+  assert.equal(limited.notes[0].title, 'Rezept für Pfannkuchen');
+});
+
+function createDuplicateTitleFixture(t) {
+  fs.mkdirSync(testHome, { recursive: true });
+  const wikiDir = fs.mkdtempSync(path.join(testHome, 'ai-tools-dupe-'));
+
+  const dirA = path.join(wikiDir, 'Arbeit', 'Notizen');
+  const dirB = path.join(wikiDir, 'Privat', 'Notizen');
+  fs.mkdirSync(dirA, { recursive: true });
+  fs.mkdirSync(dirB, { recursive: true });
+
+  fs.writeFileSync(path.join(dirA, 'Meeting.md'), `---\ntitle: "Wochenplan"\ncategory: "Notizen"\nmainCategory: "Arbeit"\ncreated: "2026-02-01T08:00:00.000Z"\nmodified: "2026-02-03T08:00:00.000Z"\n---\n# Wochenplan (Arbeit)\n`, 'utf8');
+  fs.writeFileSync(path.join(dirB, 'Privatplan.md'), `---\ntitle: "Wochenplan"\ncategory: "Notizen"\nmainCategory: "Privat"\ncreated: "2026-02-02T08:00:00.000Z"\nmodified: "2026-02-04T08:00:00.000Z"\n---\n# Wochenplan (Privat)\n`, 'utf8');
+  // Groß-/kleinschreibungs-Variante mit anderem Titel als Kontrolle:
+  fs.writeFileSync(path.join(dirA, 'Anders.md'), `---\ntitle: "wochenplan"\ncategory: "Notizen"\nmainCategory: "Arbeit"\ncreated: "2026-02-05T08:00:00.000Z"\nmodified: "2026-02-06T08:00:00.000Z"\n---\n# klein geschrieben\n`, 'utf8');
+
+  t.after(() => {
+    fs.rmSync(wikiDir, { recursive: true, force: true });
+  });
+
+  return wikiDir;
+}
+
+test('KI-Tools 13: Block 1 - resolveNoteForOpen löst relPath und eindeutigen Titel sicher auf', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  // relPath gewinnt immer und wird unabhängig von Groß-/Kleinschreibung des Titels aufgelöst.
+  const byPath = resolveNoteForOpen(wikiDir, { relPath: 'Privat/Küche/Pfannkuchen.md' });
+  assert.equal(byPath.opened, true);
+  assert.equal(byPath.title, 'Rezept für Pfannkuchen');
+  assert.equal(byPath.relPath, 'Privat/Küche/Pfannkuchen.md');
+
+  // Ungültiger/fehlender Pfad: aktuelle Ansicht bleibt unverändert (opened:false), kein Absturz.
+  const missingPath = resolveNoteForOpen(wikiDir, { relPath: 'Existiert/Nicht.md' });
+  assert.equal(missingPath.opened, false);
+  assert.ok(missingPath.error);
+
+  // Eindeutiger Titel ohne relPath.
+  const byTitle = resolveNoteForOpen(wikiDir, { title: 'Architektur und Schnittstellen' });
+  assert.equal(byTitle.opened, true);
+  assert.equal(byTitle.relPath, 'Projekte/Archiv-Wiki/Architektur.md');
+
+  // Kein Treffer.
+  const noMatch = resolveNoteForOpen(wikiDir, { title: 'Gibt es nicht' });
+  assert.equal(noMatch.opened, false);
+  assert.ok(noMatch.error);
+
+  // Weder relPath noch title.
+  const nothing = resolveNoteForOpen(wikiDir, {});
+  assert.equal(nothing.opened, false);
+});
+
+test('KI-Tools 14: Block 1 - resolveNoteForOpen rät bei mehreren gleichnamigen Notizen nicht, sondern liefert Kandidaten', t => {
+  const wikiDir = createDuplicateTitleFixture(t);
+
+  // Exakter Titel "Wochenplan" trifft zwei Notizen (Arbeit + Privat) — die
+  // klein geschriebene dritte Variante gehört NICHT zur exakten Stufe.
+  const ambiguous = resolveNoteForOpen(wikiDir, { title: 'Wochenplan' });
+  assert.equal(ambiguous.opened, false);
+  assert.equal(ambiguous.ambiguous, true);
+  assert.equal(ambiguous.candidates.length, 2, 'nur die beiden exakten Treffer, nicht die Kleinschreibvariante');
+  const relPaths = ambiguous.candidates.map(c => c.relPath).sort();
+  assert.deepEqual(relPaths, ['Arbeit/Notizen/Meeting.md', 'Privat/Notizen/Privatplan.md']);
+
+  // Case-insensitive Suche ohne exakten Treffer: alle drei Groß-/
+  // Kleinschreibungsvarianten sind dann mehrdeutig.
+  const ambiguousCaseInsensitive = resolveNoteForOpen(wikiDir, { title: 'WOCHENPLAN' });
+  assert.equal(ambiguousCaseInsensitive.opened, false);
+  assert.equal(ambiguousCaseInsensitive.ambiguous, true);
+  assert.equal(ambiguousCaseInsensitive.candidates.length, 3);
+
+  // Danach erneuter Aufruf mit dem exakten relPath des gewählten Kandidaten:
+  const resolved = resolveNoteForOpen(wikiDir, { relPath: 'Arbeit/Notizen/Meeting.md' });
+  assert.equal(resolved.opened, true);
+  assert.equal(resolved.category, 'Notizen', 'category ist die Unterkategorie, wie bei den übrigen Werkzeugen (doc.category)');
+});
+
+test('KI-Tools 15: executeAiTool routet get_recent_notes und open_note', async t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  const recentRes = await executeAiTool(wikiDir, 'get_recent_notes', {});
+  assert.equal(recentRes.success, true);
+  assert.equal(recentRes.data.notes[0].title, 'Rezept für Pfannkuchen');
+
+  const openRes = await executeAiTool(wikiDir, 'open_note', { relPath: 'Projekte/Archiv-Wiki/Architektur.md' });
+  assert.equal(openRes.success, true);
+  assert.equal(openRes.data.opened, true);
+  assert.equal(openRes.data.relPath, 'Projekte/Archiv-Wiki/Architektur.md');
+
+  const openMissing = await executeAiTool(wikiDir, 'open_note', { title: 'Gibt es nicht' });
+  assert.equal(openMissing.success, true, 'kein Treffer ist kein Werkzeugfehler, sondern ein reguläres Ergebnis');
+  assert.equal(openMissing.data.opened, false);
 });
 
 

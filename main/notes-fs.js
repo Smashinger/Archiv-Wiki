@@ -187,7 +187,14 @@ function getSearchDocuments(projectPath) {
             // Feature A / Block 3: einziges neues Feld am Suchdokument, für
             // den Aktiv/Archiv/Alle-Statusfilter in der Suche (renderer/js/
             // search.js docMatchesFilters()). Keine zweite Datenquelle.
-            archived: Boolean(frontmatter.archived)
+            archived: Boolean(frontmatter.archived),
+            // KI-Block 1: modified/created werden 1:1 aus dem Frontmatter
+            // durchgereicht (keine eigene Zeitquelle) — dieselben beiden
+            // Felder, nach denen dashboard-data.js "Zuletzt bearbeitet"
+            // sortiert (modified, ersatzweise created). Rein additiv, ändert
+            // die bestehende Dokumentstruktur für andere Aufrufer nicht.
+            modified: frontmatter.modified || null,
+            created: frontmatter.created || null
           });
         } catch { /* defekte Notiz — einfach überspringen statt Index-Aufbau abzubrechen */ }
       }

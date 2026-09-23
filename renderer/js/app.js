@@ -11839,6 +11839,19 @@ function resolveAccentForActiveDesign(config) {
         content: getEditorContent() || '',
         selection: getEditorSelectionText() || ''
       };
+    },
+    // KI-Block 1 (Baustein 4+5): reine Navigation über den bestehenden, für
+    // "+ Notiz" und Wikilinks bereits genutzten Leave-Vertrag — kein zweiter
+    // Navigationsmechanismus, kein direktes location.hash. Ein Speicherfehler
+    // beim Verlassen ("Hier bleiben") oder ein inzwischen anderer Editor-/
+    // Notizzustand (canLeaveCurrentRoute()/navigateTo() werten renderedHash
+    // und laufende Pfadmutationen selbst aus) verhindert die Navigation
+    // fail-closed, ohne dass hier ein Sonderfall behandelt werden muss.
+    onOpenNote: async ({ relPath } = {}) => {
+      if (!relPath) return { opened: false };
+      if (!await canLeaveCurrentRoute()) return { opened: false };
+      const opened = await navigateTo('#note/' + encodeURIComponent(relPath));
+      return { opened };
     }
   });
   window.addEventListener('beforeunload', () => cleanupAiChat?.());

@@ -97,6 +97,15 @@ contextBridge.exposeInMainWorld('archivAPI', {
       ipcRenderer.on('ai:stream-proposal', listener);
       return () => ipcRenderer.removeListener('ai:stream-proposal', listener);
     },
+    // KI-Block 1: reine Navigationsabsicht (open_note), kein Proposal —
+    // dieselbe Payload-Form wie onStreamProposal, aber ein eigener Kanal,
+    // damit die Renderer-Seite Navigation nie mit einer bestätigungspflichtigen
+    // Datei-/Strukturänderung verwechseln kann.
+    onStreamNavigate: (callback) => {
+      const listener = (_event, payload) => callback(payload);
+      ipcRenderer.on('ai:stream-navigate', listener);
+      return () => ipcRenderer.removeListener('ai:stream-navigate', listener);
+    },
     onSettingsUpdated: (callback) => {
       const listener = (_event, payload) => callback(payload);
       ipcRenderer.on('ai:settings-updated', listener);

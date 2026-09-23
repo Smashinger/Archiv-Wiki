@@ -68,6 +68,13 @@ export function formatToolLabel(tool, args) {
     const q = args?.query ? ` „${args.query}“` : '';
     return `👥 Duplikatsuche${q} …`;
   }
+  if (tool === 'get_recent_notes') {
+    return '🕘 Zuletzt bearbeitete Notizen …';
+  }
+  if (tool === 'open_note') {
+    const target = args?.relPath || args?.title || '';
+    return `📂 Öffne Notiz${target ? ` „${target}“` : ''} …`;
+  }
   return `⚙️ ${tool || 'Werkzeug'} …`;
 }
 
@@ -350,7 +357,7 @@ export function setAiChatEnabled(enabled) {
   } catch {}
 }
 
-export function initAiChat({ onProposalApplied, onBeforeApplyProposal, getActiveNote } = {}) {
+export function initAiChat({ onProposalApplied, onBeforeApplyProposal, getActiveNote, onOpenNote } = {}) {
   const panel = document.getElementById('aiChatPanel');
   const openButton = document.getElementById('titlebarAiChatBtn');
   const closeButton = document.getElementById('aiChatCloseBtn');
@@ -772,6 +779,30 @@ export function initAiChat({ onProposalApplied, onBeforeApplyProposal, getActive
         scrollToBottom();
       }
     }
+  });
+
+  // KI-Block 1: reine Navigationsabsicht aus open_note. Kein Proposal, keine
+  // eigene Speicher-/Navigationslogik hier — onOpenNote (von app.js übergeben)
+  // ruft ausschließlich den bereits bestehenden canLeaveCurrentRoute()/
+  // navigateTo()-Weg auf. Scheitert das Öffnen (Dirty-Editor-Abbruch, Notiz
+  // inzwischen verschoben/gelöscht), bleibt die aktuelle Ansicht unverändert;
+  // ein kurzer Hinweis erscheint als Pill, im selben Muster wie Werkzeugaufrufe.
+  const removeNavigateListener = window.archivAPI.ai.onStreamNavigate?.((payload) => {
+    if (!payload || !payload.relPath || typeof onOpenNote !== 'function') return;
+    Promise.resolve(onOpenNote(payload)).then((res) => {
+      if (!res || res.opened !== false || !activeBubbleEl) return;
+      let toolsContainer = activeBubbleEl.querySelector('.ai-msg-tools');
+      if (!toolsContainer) {
+        toolsContainer = document.createElement('div');
+        toolsContainer.className = 'ai-msg-tools';
+        activeBubbleEl.insertBefore(toolsContainer, activeBubbleEl.firstChild);
+      }
+      const badge = document.createElement('div');
+      badge.className = 'ai-tool-pill';
+      badge.textContent = `⚠️ „${payload.title || payload.relPath}“ konnte nicht geöffnet werden`;
+      toolsContainer.appendChild(badge);
+      scrollToBottom();
+    }).catch(() => {});
   });
 
   const removeEndListener = window.archivAPI.ai.onStreamEnd((payload) => {
@@ -1210,6 +1241,7 @@ export function initAiChat({ onProposalApplied, onBeforeApplyProposal, getActive
     removeChunkListener?.();
     removeToolCallListener?.();
     removeProposalListener?.();
+    removeNavigateListener?.();
     removeEndListener?.();
     removeErrorListener?.();
     removeSettingsListener?.();

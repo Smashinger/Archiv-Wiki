@@ -121,6 +121,7 @@ test('KI-Chat UI 4: preload.js exponiert die vollständige KI-Schnittstelle ohne
     'applyProposal',
     'rejectProposal',
     'onStreamProposal',
+    'onStreamNavigate',
     'onSettingsUpdated'
   ];
 
@@ -139,6 +140,7 @@ test('KI-Chat UI 5: app.js initialisiert initAiChat beim Start und bindet trigge
   assert.ok(appJsSource.includes('triggerAiPrompt'), 'triggerAiPrompt wird importiert');
   assert.ok(appJsSource.includes('initAiChat('), 'initAiChat(...) wird beim Anwendungsstart aufgerufen');
   assert.ok(appJsSource.includes('onProposalApplied:'), 'onProposalApplied wird an initAiChat übergeben');
+  assert.ok(appJsSource.includes('onOpenNote:'), 'onOpenNote (Block 1: Notiz-Navigation) wird an initAiChat übergeben');
   assert.ok(appJsSource.includes('kcAiAnalyzeBtn'), 'Wissenspflege-Button kcAiAnalyzeBtn ist verdrahtet');
 });
 
@@ -165,6 +167,11 @@ test('KI-Chat UI 6: formatToolLabel formatiert Werkzeug-Aufrufe mit passendem Ic
   assert.equal(formatToolLabel('audit_knowledge_base', {}), '🩺 Wissenspflege-Prüfung …');
   assert.equal(formatToolLabel('find_duplicate_notes', { query: 'Docker' }), '👥 Duplikatsuche „Docker“ …');
   assert.equal(formatToolLabel('find_duplicate_notes', {}), '👥 Duplikatsuche …');
+
+  assert.equal(formatToolLabel('get_recent_notes', {}), '🕘 Zuletzt bearbeitete Notizen …');
+  assert.equal(formatToolLabel('open_note', { relPath: 'A/B/C.md' }), '📂 Öffne Notiz „A/B/C.md“ …');
+  assert.equal(formatToolLabel('open_note', { title: 'Mein Kuchen' }), '📂 Öffne Notiz „Mein Kuchen“ …');
+  assert.equal(formatToolLabel('open_note', {}), '📂 Öffne Notiz …');
 
   assert.equal(formatToolLabel('unknown_tool', {}), '⚙️ unknown_tool …');
 });
@@ -711,6 +718,7 @@ test('KI-Chat UI 16: initAiChat Cleanup-Funktion deregistriert Stream-Listener u
         onStreamChunk: () => mockUnlisten,
         onStreamToolCall: () => mockUnlisten,
         onStreamProposal: () => mockUnlisten,
+        onStreamNavigate: () => mockUnlisten,
         onStreamEnd: () => mockUnlisten,
         onStreamError: () => mockUnlisten,
         onSettingsUpdated: () => mockUnlisten
@@ -732,7 +740,109 @@ test('KI-Chat UI 16: initAiChat Cleanup-Funktion deregistriert Stream-Listener u
     cleanup();
 
     assert.equal(panel.dataset.initialized, undefined, 'dataset.initialized nach Cleanup gelöscht');
-    assert.equal(unlistenCount, 6, 'Alle 6 Stream- und Settings-Listener abgemeldet');
+    assert.equal(unlistenCount, 7, 'Alle 7 Stream- und Settings-Listener abgemeldet');
+  } finally {
+    global.document = prevDoc;
+    global.window = prevWindow;
+    global.localStorage = prevLocalStorage;
+  }
+});
+
+test('KI-Chat UI 16b: Block 1 - onStreamNavigate ruft onOpenNote mit relPath auf (reine Navigation, kein Proposal)', async () => {
+  const { initAiChat } = await import('../renderer/js/ai-chat.js');
+
+  const elements = new Map();
+  function getOrCreateElement(id, tag = 'div') {
+    if (!elements.has(id)) {
+      const el = {
+        id,
+        tagName: tag.toUpperCase(),
+        dataset: {},
+        style: {},
+        classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+        appendChild(child) { return child; },
+        listeners: new Map(),
+        addEventListener(type, handler) {
+          if (!this.listeners.has(type)) this.listeners.set(type, []);
+          this.listeners.get(type).push(handler);
+        },
+        removeEventListener() {},
+        querySelectorAll() { return []; },
+        querySelector(selector) {
+          if (selector === '[data-ai-drag-handle]') return getOrCreateElement('aiChatHeader');
+          return null;
+        },
+        setAttribute() {},
+        removeAttribute() {},
+        getAttribute() { return null; },
+        getBoundingClientRect() { return { left: 0, top: 0, width: 400, height: 500 }; }
+      };
+      elements.set(id, el);
+    }
+    return elements.get(id);
+  }
+
+  const prevDoc = global.document;
+  const prevWindow = global.window;
+  const prevLocalStorage = global.localStorage;
+
+  global.localStorage = { getItem() { return null; }, setItem() {} };
+  global.document = {
+    getElementById(id) { return getOrCreateElement(id); },
+    createElement(tag) { return getOrCreateElement(`dyn_${Math.random()}`, tag); },
+    addEventListener() {},
+    removeEventListener() {}
+  };
+
+  let capturedNavigateCallback = null;
+  const openNoteCalls = [];
+
+  global.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    innerWidth: 1000,
+    innerHeight: 800,
+    requestAnimationFrame: (cb) => { cb(); },
+    archivAPI: {
+      ai: {
+        getSettings: async () => ({ enabled: true, mode: 'safe' }),
+        checkConnection: async () => ({ online: true }),
+        getModels: async () => ({ success: true, models: [] }),
+        getHistory: async () => [],
+        updateSettings: async () => ({ success: true }),
+        abort: async () => ({ success: true }),
+        onStreamChunk: () => () => {},
+        onStreamToolCall: () => () => {},
+        onStreamProposal: () => () => {},
+        onStreamNavigate: (cb) => { capturedNavigateCallback = cb; return () => {}; },
+        onStreamEnd: () => () => {},
+        onStreamError: () => () => {},
+        onSettingsUpdated: () => () => {}
+      }
+    }
+  };
+
+  try {
+    initAiChat({
+      onOpenNote: async (payload) => {
+        openNoteCalls.push(payload);
+        return { opened: true };
+      }
+    });
+
+    assert.equal(typeof capturedNavigateCallback, 'function', 'onStreamNavigate wird registriert');
+
+    // Fehlende relPath: onOpenNote darf nicht aufgerufen werden (kein Absturz).
+    capturedNavigateCallback({ messageId: 'm1' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(openNoteCalls.length, 0, 'ohne relPath erfolgt kein Öffnen-Versuch');
+
+    // Reguläres Ereignis: relPath wird 1:1 an onOpenNote durchgereicht.
+    capturedNavigateCallback({ messageId: 'm1', relPath: 'A/B/Ziel.md', title: 'Ziel', category: 'B' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(openNoteCalls.length, 1);
+    assert.equal(openNoteCalls[0].relPath, 'A/B/Ziel.md');
+    assert.equal(openNoteCalls[0].title, 'Ziel');
   } finally {
     global.document = prevDoc;
     global.window = prevWindow;

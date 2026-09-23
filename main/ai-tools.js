@@ -302,6 +302,42 @@ const AI_TOOLS_DEFINITIONS = [
         }
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_recent_notes',
+      description: 'Liefert die zuletzt bearbeiteten Notizen im Wiki, sortiert nach Änderungsdatum (neueste zuerst) — exakt dieselbe Reihenfolge wie der Bereich "Zuletzt bearbeitet" auf dem Dashboard. Nutze dieses Werkzeug für Anfragen wie "zeige/öffne die zuletzt bearbeitete Notiz" oder "öffne die zweitletzte bearbeitete Notiz" (zweiter Eintrag der zurückgegebenen Liste), BEVOR du open_note aufrufst.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: {
+            type: 'integer',
+            description: 'Maximale Anzahl zurückgegebener Notizen (Standard: 10, Maximum: 30).'
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'open_note',
+      description: 'Öffnet eine Notiz direkt im Editor der Benutzeroberfläche (echte Navigation, kein reines Lesen wie read_note). Nutze relPath, sobald er bereits sicher bekannt ist (z. B. aus search_notes, list_notes oder get_recent_notes). Nutze title nur, wenn der Nutzer ausschließlich einen Titel genannt hat, keinen Pfad. WICHTIG bei mehreren Notizen mit demselben Titel: Rate NICHT, welche gemeint ist. Das Ergebnis liefert dann "ambiguous": true mit einer Liste von Kandidaten (Titel + Kategorie) — zeige diese dem Nutzer zur Auswahl an und rufe open_note danach erneut mit dem exakten relPath des gewählten Kandidaten auf. Existiert keine passende Notiz, bleibt die aktuelle Ansicht unverändert.',
+      parameters: {
+        type: 'object',
+        properties: {
+          relPath: {
+            type: 'string',
+            description: 'Der bereits sicher aufgelöste relative Pfad der zu öffnenden Notiz (bevorzugt).'
+          },
+          title: {
+            type: 'string',
+            description: 'Der genaue Titel der zu öffnenden Notiz, falls der Pfad nicht bekannt ist.'
+          }
+        }
+      }
+    }
   }
 ];
 
@@ -469,6 +505,90 @@ function getWikiTags(projectPath, { limit = 50 } = {}) {
   };
 }
 
+// KI-Block 1 (Baustein 1): "Zuletzt bearbeitet" für die KI — dieselbe Sortier-
+// regel wie buildDashboardViewModel() in renderer/js/dashboard-data.js
+// (modified, ersatzweise created, absteigend über String-Vergleich auf den
+// ISO-Zeitstempeln). Bewusst keine eigene Zeitquelle und keine eigene Regel:
+// weicht die KI-Antwort von "zeigt die zuletzt bearbeitete Notiz" auf dem
+// Dashboard ab, wäre das für den Nutzer nicht nachvollziehbar.
+function getRecentNotes(projectPath, { limit = 10 } = {}) {
+  const maxResults = Math.min(30, Math.max(1, Number(limit) || 10));
+  const docs = notesFs.getSearchDocuments(projectPath).filter(doc => !doc.archived);
+
+  const sorted = [...docs].sort((a, b) => {
+    const ta = a.modified || a.created || '';
+    const tb = b.modified || b.created || '';
+    return tb.localeCompare(ta);
+  });
+
+  return {
+    totalCount: sorted.length,
+    notes: sorted.slice(0, maxResults).map(doc => ({
+      title: doc.title,
+      relPath: doc.relPath,
+      categoryPath: doc.categoryPath,
+      modified: doc.modified || null,
+      created: doc.created || null
+    }))
+  };
+}
+
+// KI-Block 1 (Baustein 3): sichere Titelauflösung für open_note.
+// Reihenfolge exakt nach Funktionsvertrag:
+//   1. relPath, falls angegeben, gewinnt immer (bereits sicher aufgelöst).
+//   2. sonst: exakter Titel (case-sensitive) gewinnt vor case-insensitivem
+//      Treffer — beide Stufen getrennt auf Eindeutigkeit geprüft.
+//   3. mehrere Treffer auf derselben Stufe: keine automatische Navigation,
+//      stattdessen Kandidatenliste (Titel + Kategorie) zur Auswahl.
+//   4. kein Treffer: opened:false, aktuelle Ansicht bleibt unverändert.
+function resolveNoteForOpen(projectPath, { relPath, title } = {}) {
+  const trimmedRelPath = relPath ? String(relPath).trim() : '';
+  if (trimmedRelPath) {
+    try {
+      const note = notesFs.readNote(projectPath, trimmedRelPath);
+      return {
+        opened: true,
+        relPath: note.relPath,
+        title: note.frontmatter?.title || path.basename(trimmedRelPath, '.md'),
+        category: note.frontmatter?.category || note.frontmatter?.mainCategory || ''
+      };
+    } catch (error) {
+      return { opened: false, error: `Die Notiz unter „${trimmedRelPath}“ wurde nicht gefunden.` };
+    }
+  }
+
+  const trimmedTitle = title ? String(title).trim() : '';
+  if (!trimmedTitle) {
+    return { opened: false, error: 'Weder relPath noch title angegeben.' };
+  }
+
+  const docs = notesFs.getSearchDocuments(projectPath).filter(doc => !doc.archived);
+  const exactMatches = docs.filter(doc => doc.title === trimmedTitle);
+  const pool = exactMatches.length > 0
+    ? exactMatches
+    : docs.filter(doc => (doc.title || '').toLowerCase() === trimmedTitle.toLowerCase());
+
+  if (pool.length === 0) {
+    return { opened: false, error: `Keine Notiz mit dem Titel „${trimmedTitle}“ gefunden.` };
+  }
+  if (pool.length > 1) {
+    return {
+      opened: false,
+      ambiguous: true,
+      candidates: pool.map(doc => ({ relPath: doc.relPath, title: doc.title, categoryPath: doc.categoryPath })),
+      error: `Mehrere Notizen mit dem Titel „${trimmedTitle}“ gefunden. Bitte anhand der Kategorie auswählen.`
+    };
+  }
+
+  const match = pool[0];
+  return {
+    opened: true,
+    relPath: match.relPath,
+    title: match.title,
+    category: match.category || match.mainCategory || ''
+  };
+}
+
 async function executeAiTool(projectPath, name, args = {}) {
   if (!projectPath) {
     return { success: false, error: 'Kein Wiki-Projektpfad angegeben.' };
@@ -483,6 +603,10 @@ async function executeAiTool(projectPath, name, args = {}) {
         return { success: true, data: readNote(projectPath, args) };
       case 'list_notes':
         return { success: true, data: listNotes(projectPath, args) };
+      case 'get_recent_notes':
+        return { success: true, data: getRecentNotes(projectPath, args) };
+      case 'open_note':
+        return { success: true, data: resolveNoteForOpen(projectPath, args) };
       case 'propose_create_note': {
         const proposal = aiProposals.createProposal(projectPath, {
           type: 'create',
@@ -707,6 +831,8 @@ module.exports = {
   readNote,
   listNotes,
   getWikiTags,
+  getRecentNotes,
+  resolveNoteForOpen,
   executeAiTool,
   auditKnowledgeBase: aiKnowledge.auditKnowledgeBase,
   findDuplicateNotes: aiKnowledge.findDuplicateNotes,

@@ -421,6 +421,19 @@ function registerAiIpc({
                   proposal
                 });
               }
+            } else if (name === 'open_note' && result?.data?.opened === true && result.data.relPath) {
+              // Reine Navigation, kein Proposal (Funktionsvertrag Block 1,
+              // Punkt 7): die eigentliche Navigation samt Dirty-Editor-Schutz
+              // läuft ausschließlich im Renderer über den bestehenden
+              // navigateTo()/canLeaveCurrentRoute()-Weg (siehe ai-chat.js/
+              // app.js onOpenNote) — hier wird nur der bereits sicher
+              // aufgelöste Zielpfad übergeben.
+              sendToMainWindow('ai:stream-navigate', {
+                messageId: request.messageId,
+                relPath: result.data.relPath,
+                title: result.data.title || '',
+                category: result.data.category || ''
+              });
             }
           },
           onChunk: queueChunk
