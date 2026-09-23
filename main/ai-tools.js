@@ -307,7 +307,7 @@ const AI_TOOLS_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'get_recent_notes',
-      description: 'Liefert die zuletzt bearbeiteten Notizen im Wiki, sortiert nach Änderungsdatum (neueste zuerst) — exakt dieselbe Reihenfolge wie der Bereich "Zuletzt bearbeitet" auf dem Dashboard. Nutze dieses Werkzeug für Anfragen wie "zeige/öffne die zuletzt bearbeitete Notiz" oder "öffne die zweitletzte bearbeitete Notiz" (zweiter Eintrag der zurückgegebenen Liste), BEVOR du open_note aufrufst.',
+      description: 'Liefert die zuletzt bearbeiteten Notizen im Wiki, sortiert nach Änderungsdatum (neueste zuerst) — exakt dieselbe Reihenfolge wie der Bereich "Zuletzt bearbeitet" auf dem Dashboard. Nutze dieses Werkzeug BEVOR du open_note aufrufst, sobald sich die Anfrage auf die zeitliche Reihenfolge bearbeiteter Notizen bezieht, egal wie kurz oder umgangssprachlich formuliert — z. B. "zuletzt bearbeitet", "das zuletzt Bearbeitete", "die letzte Notiz", "meine neueste Notiz", "woran habe ich zuletzt gearbeitet", "zweitletzte bearbeitete Notiz" (zweiter Eintrag der zurückgegebenen Liste).',
       parameters: {
         type: 'object',
         properties: {
@@ -323,7 +323,7 @@ const AI_TOOLS_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'open_note',
-      description: 'Öffnet eine Notiz direkt im Editor der Benutzeroberfläche (echte Navigation, kein reines Lesen wie read_note). Nutze relPath, sobald er bereits sicher bekannt ist (z. B. aus search_notes, list_notes oder get_recent_notes). Nutze title nur, wenn der Nutzer ausschließlich einen Titel genannt hat, keinen Pfad. WICHTIG bei mehreren Notizen mit demselben Titel: Rate NICHT, welche gemeint ist. Das Ergebnis liefert dann "ambiguous": true mit einer Liste von Kandidaten (Titel + Kategorie) — zeige diese dem Nutzer zur Auswahl an und rufe open_note danach erneut mit dem exakten relPath des gewählten Kandidaten auf. Existiert keine passende Notiz, bleibt die aktuelle Ansicht unverändert.',
+      description: 'Öffnet eine Notiz direkt im Editor der Benutzeroberfläche (echte Navigation, kein reines Lesen wie read_note). Rufe dieses Werkzeug bei JEDER Anfrage auf, die eine Notiz sichtbar machen/öffnen/starten soll — auch bei kurzen, umgangssprachlichen Formulierungen ohne das Wort "öffne", z. B. "Notiz Fedora", "zeig mir X", "geh zu X", "das zuletzt Bearbeitete", "meine letzte Notiz". Nutze relPath, sobald er bereits sicher bekannt ist (z. B. aus search_notes, list_notes oder get_recent_notes). Nutze title nur, wenn der Nutzer ausschließlich einen Titel genannt hat, keinen Pfad. WICHTIG bei mehreren Notizen mit demselben Titel: Rate NICHT, welche gemeint ist. Das Ergebnis liefert dann "ambiguous": true mit einer Liste von Kandidaten (Titel + Kategorie) — zeige diese dem Nutzer zur Auswahl an und rufe open_note danach erneut mit dem exakten relPath des gewählten Kandidaten auf. Existiert keine passende Notiz, bleibt die aktuelle Ansicht unverändert.',
       parameters: {
         type: 'object',
         properties: {
