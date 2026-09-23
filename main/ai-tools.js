@@ -9,6 +9,7 @@ const path = require('path');
 const notesFs = require('./notes-fs');
 const aiProposals = require('./ai-proposals');
 const aiKnowledge = require('./ai-knowledge');
+const { readProjectConfig } = require('./project');
 
 const AI_TOOLS_DEFINITIONS = [
   {
@@ -338,6 +339,17 @@ const AI_TOOLS_DEFINITIONS = [
         }
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_categories',
+      description: 'Liefert ein vollständiges, strukturiertes Bild aller Haupt- und Unterkategorien im Wiki: Namen, relative Pfade, Anzahl enthaltener aktiver (nicht archivierter) Notizen, in der aktuell sichtbaren Reihenfolge (wie in der Seitenleiste, inklusive per Drag gesetzter eigener Sortierung). Enthält keine versteckten Ordner, keinen Papierkorb und keine internen Projektdateien. Der <wiki_structure>-Block im Kontext kann bei großen Wikis gekürzt sein — rufe list_categories auf, statt dich bei Fragen zu vorhandenen Kategorien, ihrer genauen Anzahl an Notizen oder ihrer Reihenfolge allein darauf zu verlassen.',
+      parameters: {
+        type: 'object',
+        properties: {}
+      }
+    }
   }
 ];
 
@@ -589,6 +601,63 @@ function resolveNoteForOpen(projectPath, { relPath, title } = {}) {
   };
 }
 
+// KI-Block 2: vollständige, strukturierte Kategorieliste. Nutzt bewusst
+// dieselben Bausteine wie die Seitenleiste (notesFs.listProjectTree für
+// Struktur + Ausschluss von versteckten/internen Einträgen und Papierkorb,
+// notesFs.applyChildOrder für die per Drag gesetzte sichtbare Reihenfolge)
+// statt einer eigenen zweiten Baum-/Sortierlogik.
+function countActiveNotes(node) {
+  if (node.type === 'note') return node.frontmatter?.archived ? 0 : 1;
+  if (node.type === 'folder') {
+    return (node.children || []).reduce((sum, child) => sum + countActiveNotes(child), 0);
+  }
+  return 0;
+}
+
+function listCategories(projectPath) {
+  let tree = notesFs.listProjectTree(projectPath);
+
+  // Fehlende/kaputte .wiki-config.json ist für eine reine Auflistung kein
+  // Fehlerfall — die Reihenfolge bleibt dann einfach die alphabetische aus
+  // listProjectTree() (dieselbe Rückfallregel wie beim ersten Laden eines
+  // Projekts, bevor überhaupt einmal etwas per Drag umsortiert wurde).
+  let config = {};
+  try {
+    const stored = readProjectConfig(projectPath);
+    if (stored) config = stored;
+  } catch { /* siehe Kommentar oben */ }
+
+  if (config.childOrder) tree = notesFs.applyChildOrder(tree, '', config.childOrder);
+
+  // Notizen direkt unter einer Hauptkategorie (ältere/abweichende Strukturen,
+  // siehe getDepth()-Kommentar in notes-fs.js) fließen in deren noteCount ein,
+  // erscheinen aber bewusst nicht als eigene "Unterkategorie" — list_categories
+  // bildet nur echte Ordner als Kategorien ab.
+  const mainCategories = tree
+    .filter(node => node.type === 'folder')
+    .map(mainNode => {
+      const subCategories = (mainNode.children || [])
+        .filter(child => child.type === 'folder')
+        .map(subNode => ({
+          name: subNode.name,
+          relPath: subNode.relPath,
+          noteCount: countActiveNotes(subNode)
+        }));
+      return {
+        name: mainNode.name,
+        relPath: mainNode.relPath,
+        noteCount: countActiveNotes(mainNode),
+        subCategories
+      };
+    });
+
+  return {
+    totalMainCategories: mainCategories.length,
+    totalSubCategories: mainCategories.reduce((sum, m) => sum + m.subCategories.length, 0),
+    categories: mainCategories
+  };
+}
+
 async function executeAiTool(projectPath, name, args = {}) {
   if (!projectPath) {
     return { success: false, error: 'Kein Wiki-Projektpfad angegeben.' };
@@ -607,6 +676,8 @@ async function executeAiTool(projectPath, name, args = {}) {
         return { success: true, data: getRecentNotes(projectPath, args) };
       case 'open_note':
         return { success: true, data: resolveNoteForOpen(projectPath, args) };
+      case 'list_categories':
+        return { success: true, data: listCategories(projectPath) };
       case 'propose_create_note': {
         const proposal = aiProposals.createProposal(projectPath, {
           type: 'create',
@@ -833,6 +904,7 @@ module.exports = {
   getWikiTags,
   getRecentNotes,
   resolveNoteForOpen,
+  listCategories,
   executeAiTool,
   auditKnowledgeBase: aiKnowledge.auditKnowledgeBase,
   findDuplicateNotes: aiKnowledge.findDuplicateNotes,

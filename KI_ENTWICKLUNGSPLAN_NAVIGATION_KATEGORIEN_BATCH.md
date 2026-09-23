@@ -7,7 +7,7 @@ Stand: 22.09.2026
 | Block | Status |
 |---|---|
 | 1 – Notizen öffnen und zuletzt bearbeitet | ✅ ABGESCHLOSSEN (23.09.2026) |
-| 2 – Kategorien zuverlässig auflisten | ⬜ offen |
+| 2 – Kategorien zuverlässig auflisten | ✅ ABGESCHLOSSEN (23.09.2026) |
 | 3 – Kategorien umbenennen und verschieben | ⬜ offen |
 | 4 – Reine Batch-Analyse | ⬜ offen |
 | 5 – Batch-Proposal für Inhaltsänderungen | ⬜ offen |
@@ -135,6 +135,18 @@ Nach diesem Block werden nur die Navigationstests und die vollständige Testsuit
 ---
 
 ## Entwicklungsblock 2: Kategorien zuverlässig auflisten
+
+**Status: ✅ ABGESCHLOSSEN (23.09.2026).** Implementiert und getestet
+(gezielte Tests + vollständige Testsuite, 345/345 grün). Umgesetzt:
+`list_categories` (main/ai-tools.js), liefert Haupt- und Unterkategorien mit
+relPath und Anzahl aktiver (nicht archivierter) Notizen, in der sichtbaren
+Reihenfolge (childOrder aus .wiki-config.json). Keine versteckten Ordner,
+kein Papierkorb, keine internen Projektdateien (nutzt dafür dieselbe
+notesFs.listProjectTree()-Filterung wie die Seitenleiste). Die
+Sortierfunktion `applyChildOrder()` wurde aus main/filesystem-ipc.js nach
+main/notes-fs.js verschoben und exportiert, damit Seitenleiste und
+list_categories dieselbe Logik nutzen (keine zweite Sortierung). Rein
+lesend, keine Schreiboperation eingeführt.
 
 ### Ziel
 
@@ -431,7 +443,7 @@ Nach Umsetzung aller Einzelblöcke folgt eine gemeinsame Prüfung ausschließlic
 | Reihenfolge | Block | Umfang | Risiko |
 |---:|---|---:|---:|
 | 1 | Notiz öffnen und zuletzt bearbeitet ✅ ABGESCHLOSSEN | klein | gering |
-| 2 | Kategorien vollständig auflisten | klein | gering |
+| 2 | Kategorien vollständig auflisten ✅ ABGESCHLOSSEN | klein | gering |
 | 3 | Kategorien umbenennen/verschieben | mittel | hoch |
 | 4 | Batch-Analyse ohne Änderungen | mittel | mittel |
 | 5 | Batch-Inhalts-Proposals | groß | hoch |
@@ -441,9 +453,11 @@ Nach Umsetzung aller Einzelblöcke folgt eine gemeinsame Prüfung ausschließlic
 
 ## Nächster freigegebener Entwicklungsblock
 
-Entwicklungsblock 1 ist abgeschlossen (siehe Fortschritt-Tabelle und Status-
-Vermerk oben). Entwicklungsblock 2 („Kategorien zuverlässig auflisten“) ist
-**noch nicht freigegeben** — nicht eigenständig beginnen, ohne dass der Nutzer
-das ausdrücklich beauftragt. Bis dahin: AGENTS.md und den aktuellen Code
-erneut lesen, gezielte Tests und die vollständige Testsuite aus Block 1 als
-Ausgangsbasis bestätigen, dann auf Freigabe warten.
+Entwicklungsblock 1 und 2 sind abgeschlossen (siehe Fortschritt-Tabelle und
+Status-Vermerke oben). Entwicklungsblock 3 („Kategorien umbenennen und
+verschieben") ist **noch nicht freigegeben** — nicht eigenständig beginnen,
+ohne dass der Nutzer das ausdrücklich beauftragt. Block 3 hat laut
+Arbeitsreihenfolge-Tabelle ein hohes Risiko (Struktur-/Pfadänderungen) — vor
+Beginn AGENTS.md und den aktuellen Code erneut lesen, insbesondere
+canLeaveCurrentRoute()/performEntryPathMutation() in renderer/js/app.js und
+notesFs.moveEntry()/renameEntry() in main/notes-fs.js.

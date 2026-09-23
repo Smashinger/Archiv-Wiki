@@ -14,6 +14,7 @@ const {
   getWikiTags,
   getRecentNotes,
   resolveNoteForOpen,
+  listCategories,
   executeAiTool
 } = require('../main/ai-tools');
 
@@ -82,7 +83,7 @@ Dieser Inhalt ist archiviert.
 
 test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werkzeuge', () => {
   assert.ok(Array.isArray(AI_TOOLS_DEFINITIONS));
-  assert.equal(AI_TOOLS_DEFINITIONS.length, 15);
+  assert.equal(AI_TOOLS_DEFINITIONS.length, 16);
 
   const names = AI_TOOLS_DEFINITIONS.map(d => d.function?.name);
   assert.ok(names.includes('search_notes'), 'search_notes ist definiert');
@@ -90,6 +91,7 @@ test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werk
   assert.ok(names.includes('list_notes'), 'list_notes ist definiert');
   assert.ok(names.includes('get_recent_notes'), 'get_recent_notes ist definiert');
   assert.ok(names.includes('open_note'), 'open_note ist definiert');
+  assert.ok(names.includes('list_categories'), 'list_categories ist definiert');
   assert.ok(names.includes('get_wiki_tags'), 'get_wiki_tags ist definiert');
   assert.ok(names.includes('suggest_wikilinks'), 'suggest_wikilinks ist definiert');
   assert.ok(names.includes('propose_create_note'), 'propose_create_note ist definiert');
@@ -450,6 +452,92 @@ test('KI-Tools 15: executeAiTool routet get_recent_notes und open_note', async t
   const openMissing = await executeAiTool(wikiDir, 'open_note', { title: 'Gibt es nicht' });
   assert.equal(openMissing.success, true, 'kein Treffer ist kein Werkzeugfehler, sondern ein reguläres Ergebnis');
   assert.equal(openMissing.data.opened, false);
+});
+
+function createCategoryListFixture(t) {
+  fs.mkdirSync(testHome, { recursive: true });
+  const wikiDir = fs.mkdtempSync(path.join(testHome, 'ai-tools-cats-'));
+
+  fs.mkdirSync(path.join(wikiDir, 'Wissen', 'Linux'), { recursive: true });
+  fs.mkdirSync(path.join(wikiDir, 'Wissen', 'Windows'), { recursive: true });
+  fs.writeFileSync(path.join(wikiDir, 'Wissen', 'Linux', 'Fedora.md'), '# Fedora', 'utf8');
+  fs.writeFileSync(path.join(wikiDir, 'Wissen', 'Linux', 'Debian.md'), '# Debian', 'utf8');
+  fs.writeFileSync(path.join(wikiDir, 'Wissen', 'Windows', 'Alt.md'), '---\narchived: true\n---\n# Alt', 'utf8');
+
+  fs.mkdirSync(path.join(wikiDir, 'Freizeit', 'Linux'), { recursive: true });
+  fs.writeFileSync(path.join(wikiDir, 'Freizeit', 'Linux', 'Gaming.md'), '# Gaming unter Linux', 'utf8');
+
+  fs.mkdirSync(path.join(wikiDir, '.wiki-trash'), { recursive: true });
+  fs.writeFileSync(path.join(wikiDir, '.wiki-trash', 'Geloescht.md'), '# Geloescht', 'utf8');
+  fs.mkdirSync(path.join(wikiDir, '.versteckt'), { recursive: true });
+  fs.writeFileSync(path.join(wikiDir, '.versteckt', 'Verborgen.md'), '# Verborgen', 'utf8');
+
+  fs.writeFileSync(path.join(wikiDir, '.wiki-config.json'), JSON.stringify({
+    childOrder: {
+      '': ['Freizeit', 'Wissen']
+    }
+  }, null, 2), 'utf8');
+
+  t.after(() => {
+    fs.rmSync(wikiDir, { recursive: true, force: true });
+  });
+
+  return wikiDir;
+}
+
+test('KI-Tools 16: Block 2 - listCategories liefert vollstaendige Struktur, Zaehlung und sichtbare Reihenfolge', t => {
+  const wikiDir = createCategoryListFixture(t);
+
+  const res = listCategories(wikiDir);
+  assert.equal(res.totalMainCategories, 2);
+  assert.equal(res.totalSubCategories, 3);
+
+  assert.deepEqual(res.categories.map(c => c.name), ['Freizeit', 'Wissen']);
+
+  const wissen = res.categories.find(c => c.name === 'Wissen');
+  assert.equal(wissen.relPath, 'Wissen');
+  assert.equal(wissen.noteCount, 2);
+  assert.equal(wissen.subCategories.length, 2);
+
+  const linuxUnterWissen = wissen.subCategories.find(s => s.relPath === 'Wissen/Linux');
+  assert.ok(linuxUnterWissen);
+  assert.equal(linuxUnterWissen.noteCount, 2);
+
+  const windowsUnterWissen = wissen.subCategories.find(s => s.relPath === 'Wissen/Windows');
+  assert.ok(windowsUnterWissen);
+  assert.equal(windowsUnterWissen.noteCount, 0);
+
+  const freizeit = res.categories.find(c => c.name === 'Freizeit');
+  const linuxUnterFreizeit = freizeit.subCategories.find(s => s.relPath === 'Freizeit/Linux');
+  assert.ok(linuxUnterFreizeit);
+  assert.equal(linuxUnterFreizeit.noteCount, 1);
+  assert.notEqual(linuxUnterFreizeit.relPath, linuxUnterWissen.relPath);
+
+  const allNames = JSON.stringify(res);
+  assert.ok(!allNames.includes('.wiki-trash'));
+  assert.ok(!allNames.includes('Geloescht'));
+  assert.ok(!allNames.includes('.versteckt'));
+  assert.ok(!allNames.includes('Verborgen'));
+});
+
+test('KI-Tools 17: Block 2 - listCategories funktioniert auch ohne .wiki-config.json (Fallback alphabetisch)', t => {
+  const wikiDir = createTestWikiFixture(t);
+  fs.rmSync(path.join(wikiDir, '.wiki-config.json'), { force: true });
+
+  const res = listCategories(wikiDir);
+  assert.equal(res.totalMainCategories, 3);
+  const archiv = res.categories.find(c => c.name === 'Archiv');
+  assert.ok(archiv);
+  assert.equal(archiv.subCategories.length, 0);
+  assert.equal(archiv.noteCount, 0);
+});
+
+test('KI-Tools 18: executeAiTool routet list_categories', async t => {
+  const wikiDir = createCategoryListFixture(t);
+
+  const res = await executeAiTool(wikiDir, 'list_categories', {});
+  assert.equal(res.success, true);
+  assert.equal(res.data.totalMainCategories, 2);
 });
 
 

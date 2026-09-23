@@ -327,28 +327,10 @@ function registerFilesystemIpc({
     return cloneProjectConfig(config);
   }
 
-  // Jede Ordner-Ebene (Wurzel = Hauptkategorien, jede Unterkategorie = ihre
-  // Notizen, jede Hauptkategorie = ihre Unterkategorien) wird vom
-  // Dateisystem selbst immer alphabetisch geliefert. Eine per Drag gesetzte
-  // eigene Reihenfolge wird deshalb separat in .wiki-config.json gemerkt —
-  // ein Objekt "übergeordneter Pfad -> Namensliste" (Wurzel = ""), rein
-  // anzeige-seitig, rührt keine Datei an. Einträge, die (noch) nicht in
-  // einer gespeicherten Liste stehen (z. B. gerade neu angelegt), werden
-  // ans Ende ihrer jeweiligen Ebene gehängt.
-  function applyChildOrder(nodes, parentRelPath, childOrder) {
-    const order = childOrder?.[parentRelPath];
-    let sorted = nodes;
-    if (Array.isArray(order) && order.length > 0) {
-      const byName = new Map(nodes.map(n => [n.name, n]));
-      const ordered = order.filter(name => byName.has(name)).map(name => byName.get(name));
-      const remaining = nodes.filter(n => !order.includes(n.name));
-      sorted = [...ordered, ...remaining];
-    }
-    for (const node of sorted) {
-      if (node.type === 'folder') node.children = applyChildOrder(node.children, node.relPath, childOrder);
-    }
-    return sorted;
-  }
+  // Sichtbare Reihenfolge aus .wiki-config.json (childOrder) — die
+  // eigentliche Sortierlogik lebt jetzt zentral in notes-fs.js
+  // (applyChildOrder), seit KI-Block 2 auch von main/ai-tools.js
+  // (list_categories) genutzt. Keine zweite Sortierlogik hier.
 
   // Eigene Icons pro Kategorie (gesetzt über Rechtsklick → "Icon ändern"),
   // gespeichert als "relPath -> Emoji"-Map in .wiki-config.json — reine
@@ -368,7 +350,7 @@ function registerFilesystemIpc({
     let tree = nfs.listProjectTree(projectPath);
     const config = requireProjectConfig(projectPath);
     adoptConfig(projectPath, config);
-    if (config.childOrder) tree = applyChildOrder(tree, '', config.childOrder);
+    if (config.childOrder) tree = nfs.applyChildOrder(tree, '', config.childOrder);
     if (config.categoryIcons) tree = applyCategoryIcons(tree, config.categoryIcons);
     return tree;
   });

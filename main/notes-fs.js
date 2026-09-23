@@ -248,6 +248,32 @@ function listProjectTree(projectPath) {
   return walk(path.resolve(projectPath), '');
 }
 
+// Jede Ordner-Ebene (Wurzel = Hauptkategorien, jede Unterkategorie = ihre
+// Notizen, jede Hauptkategorie = ihre Unterkategorien) wird vom Dateisystem
+// selbst immer alphabetisch geliefert. Eine per Drag gesetzte eigene
+// Reihenfolge wird deshalb separat in .wiki-config.json gemerkt — ein Objekt
+// "übergeordneter Pfad -> Namensliste" (Wurzel = ""), rein anzeige-seitig,
+// rührt keine Datei an. Einträge, die (noch) nicht in einer gespeicherten
+// Liste stehen (z. B. gerade neu angelegt), werden ans Ende ihrer jeweiligen
+// Ebene gehängt.
+// Ursprünglich nur lokal in main/filesystem-ipc.js (fs:listTree). Für
+// KI-Block 2 (list_categories, main/ai-tools.js) hierher verschoben, damit
+// beide dieselbe sichtbare Reihenfolge verwenden — keine zweite Sortierlogik.
+function applyChildOrder(nodes, parentRelPath, childOrder) {
+  const order = childOrder?.[parentRelPath];
+  let sorted = nodes;
+  if (Array.isArray(order) && order.length > 0) {
+    const byName = new Map(nodes.map(n => [n.name, n]));
+    const ordered = order.filter(name => byName.has(name)).map(name => byName.get(name));
+    const remaining = nodes.filter(n => !order.includes(n.name));
+    sorted = [...ordered, ...remaining];
+  }
+  for (const node of sorted) {
+    if (node.type === 'folder') node.children = applyChildOrder(node.children, node.relPath, childOrder);
+  }
+  return sorted;
+}
+
 // ---------------------------------------------------------------------------
 // Strikte 3-Ebenen-Hierarchie (Nutzerfeedback): Hauptkategorie (Tiefe 1)
 // → Unterkategorie (Tiefe 2) → Notiz (Datei in einer Unterkategorie).
@@ -1233,6 +1259,7 @@ module.exports = {
   getDepth,
   classifyEntry,
   listProjectTree,
+  applyChildOrder,
   getSearchDocuments,
   createMainCategory,
   createSubCategory,
