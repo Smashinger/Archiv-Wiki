@@ -75,6 +75,20 @@ export function formatToolLabel(tool, args) {
     const target = args?.relPath || args?.title || '';
     return `📂 Öffne Notiz${target ? ` „${target}“` : ''} …`;
   }
+  if (tool === 'list_categories') {
+    return '🗂️ Liste Kategorien auf …';
+  }
+  if (tool === 'propose_rename_category') {
+    const target = args?.newName ? ` in „${args.newName}“` : '';
+    return `🏷️ Kategorie umbenennen${target} …`;
+  }
+  if (tool === 'propose_move_subcategory') {
+    const target = args?.relPath ? ` „${args.relPath}“` : '';
+    return `📦 Unterkategorie verschieben${target} …`;
+  }
+  if (tool === 'propose_reorder_entries') {
+    return '↕️ Neue Reihenfolge vorschlagen …';
+  }
   return `⚙️ ${tool || 'Werkzeug'} …`;
 }
 
@@ -116,11 +130,18 @@ export async function shouldAllowProposalApplication(proposal, {
   const sourcePath = proposal?.sourceRelPath || proposal?.relPath || '';
   const type = proposal?.type;
 
+  // KI-Block 3: rename_category/move_subcategory betreffen einen ganzen
+  // Unterbaum (sourcePath ist dort ein Kategorie-, kein Notizpfad) — dieselbe
+  // Teilbaum-Prüfung wie bei delete/move oben, nur eine Ebene höher angesetzt.
+  // reorder_entries ändert nie den Pfad einer Notiz und braucht diese Prüfung
+  // nicht.
   const affectsOpenNote = Boolean(
     openRelPath === sourcePath ||
     openRelPath === targetPath ||
     (type === 'delete' && (openRelPath === sourcePath || openRelPath.startsWith(sourcePath + '/'))) ||
-    (type === 'move' && (openRelPath === sourcePath || openRelPath.startsWith(sourcePath + '/')))
+    (type === 'move' && (openRelPath === sourcePath || openRelPath.startsWith(sourcePath + '/'))) ||
+    (type === 'rename_category' && (openRelPath === sourcePath || openRelPath.startsWith(sourcePath + '/'))) ||
+    (type === 'move_subcategory' && (openRelPath === sourcePath || openRelPath.startsWith(sourcePath + '/')))
   );
 
   if (affectsOpenNote) {
@@ -179,6 +200,15 @@ export function renderProposalCard(proposal, { onApply, onReject, beforeApply } 
   } else if (type === 'delete') {
     badgeLabel = '🗑️ In den Papierkorb verschieben';
     applyBtnText = '🗑️ In den Papierkorb verschieben';
+  } else if (type === 'rename_category') {
+    badgeLabel = '🏷️ Kategorie umbenennen';
+    applyBtnText = '✓ Umbenennen';
+  } else if (type === 'move_subcategory') {
+    badgeLabel = '📦 Unterkategorie verschieben';
+    applyBtnText = '✓ Verschieben';
+  } else if (type === 'reorder_entries') {
+    badgeLabel = '↕️ Neue Reihenfolge';
+    applyBtnText = '✓ Reihenfolge übernehmen';
   }
 
   const titleText = proposal.title || 'Notiz';
@@ -250,6 +280,13 @@ export function renderProposalCard(proposal, { onApply, onReject, beforeApply } 
         } else if (type === 'create_category') {
           actionsEl.innerHTML = `
             <span class="ai-proposal-badge-success">✓ Kategorie angelegt</span>
+          `;
+        } else if (type === 'rename_category' || type === 'move_subcategory' || type === 'reorder_entries') {
+          // Reine Kategorie-/Struktur-Änderungen — kein "Notiz öffnen"-Link wie
+          // beim Notiz-Rename/-Move unten, da hier kein einzelnes Ziel-Dokument
+          // existiert (das Ergebnis kann einen ganzen Unterbaum betreffen).
+          actionsEl.innerHTML = `
+            <span class="ai-proposal-badge-success">✓ Übernommen</span>
           `;
         } else {
           const finalRelPath = res.relPath || proposal.relPath || '';

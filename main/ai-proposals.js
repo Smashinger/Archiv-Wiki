@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const notesFs = require('./notes-fs');
+const { updateProjectConfig, migrateConfigPaths } = require('./project');
 
 const activeProposals = new Map();
 const MAX_ACTIVE_PROPOSALS = 50;
@@ -231,8 +232,63 @@ function computeLineDiff(oldText = '', newText = '') {
   return result;
 }
 
+// KI-Block 3 (Kategorien umbenennen/verschieben/anordnen) — kleine, geteilte
+// Helfer. Die eigentliche Struktur-/Existenzprüfung übernehmen weiterhin die
+// bestehenden Funktionen aus notes-fs.js (resolveWikiEntrySafe, classifyEntry,
+// renameEntry, moveEntry) — hier steht nur, was speziell für Proposals dazu-
+// kommt: Betroffene-Notizen-Snapshot und Config-Migration.
+
+// Alle Notiz-relPaths, die unterhalb (oder direkt in) einer Kategorie liegen —
+// Grundlage für den Vorher-Snapshot und die Frischeprüfung vor der Übernahme.
+function collectNoteRelPathsUnder(projectPath, folderRelPath) {
+  const prefix = folderRelPath.endsWith('/') ? folderRelPath : `${folderRelPath}/`;
+  return notesFs.getSearchDocuments(projectPath)
+    .filter(doc => doc.relPath.startsWith(prefix))
+    .map(doc => doc.relPath);
+}
+
+// Prüft unmittelbar vor der Übernahme, ob sich der Inhalt der betroffenen
+// Kategorie seit der Vorschlagserstellung verändert hat — sowohl neue/
+// entfernte Notizen (Pfad-Menge) als auch geänderter Inhalt/Frontmatter
+// bereits bekannter Notizen (per notesFs.snapshotNotesForBatch(), derselbe
+// Mechanismus wie bei den bestehenden Mehrfachauswahl-Batches, keine zweite
+// Frischeprüfung).
+function verifyAffectedNotesFreshness(proposal) {
+  if (!Array.isArray(proposal.affectedSnapshot)) return;
+  const currentRelPaths = collectNoteRelPathsUnder(proposal.projectPath, proposal.sourceRelPath).sort();
+  const previousRelPaths = proposal.affectedSnapshot.map(entry => entry.relPath).sort();
+  if (JSON.stringify(currentRelPaths) !== JSON.stringify(previousRelPaths)) {
+    throw createStaleProposalError('Der Inhalt der Kategorie hat sich zwischenzeitlich geändert (Notizen wurden hinzugefügt oder entfernt). Der Vorschlag ist veraltet und kann nicht angewendet werden.');
+  }
+  const currentSnapshot = notesFs.snapshotNotesForBatch(proposal.projectPath, currentRelPaths);
+  const previousByRelPath = new Map(proposal.affectedSnapshot.map(entry => [entry.relPath, entry]));
+  for (const entry of currentSnapshot) {
+    const previous = previousByRelPath.get(entry.relPath);
+    if (!previous) continue;
+    if (entry.bodyVersion !== previous.bodyVersion || entry.frontmatterFingerprint !== previous.frontmatterFingerprint) {
+      throw createStaleProposalError('Eine Notiz in dieser Kategorie wurde zwischenzeitlich geändert. Der Vorschlag ist veraltet und kann nicht angewendet werden.');
+    }
+  }
+}
+
+// Dieselbe Konfigurationsmigration wie beim manuellen Umbenennen/Verschieben
+// über die Seitenleiste (siehe syncConfigOnPathMutation() in
+// main/filesystem-ipc.js) — KI-Proposals dürfen diese Migration nicht
+// umgehen (Kategorie-Icons, sichtbare Reihenfolge, gemerkte Scrollpositionen
+// usw.). Ein Fehler beim Config-Update macht die bereits erfolgte
+// Dateisystem-Änderung bewusst nicht rückgängig (identisches Verhalten zum
+// manuellen Weg).
+function migrateProjectConfigPaths(projectPath, oldRelPath, newRelPath) {
+  if (!oldRelPath || !newRelPath || oldRelPath === newRelPath) return;
+  try {
+    updateProjectConfig(projectPath, draft => {
+      migrateConfigPaths(draft, oldRelPath, newRelPath);
+    });
+  } catch { /* Config-Update darf die bereits erfolgte Dateimutation nicht rückgängig machen */ }
+}
+
 function createProposal(projectPath, {
-  type = 'create', // 'create' | 'update' | 'create_category' | 'move' | 'rename' | 'delete'
+  type = 'create', // 'create' | 'update' | 'create_category' | 'move' | 'rename' | 'delete' | 'rename_category' | 'move_subcategory' | 'reorder_entries'
   subCategoryRelPath,
   relPath,
   title,
@@ -242,7 +298,11 @@ function createProposal(projectPath, {
   name,
   parentCategoryRelPath,
   targetSubCategoryRelPath,
-  newTitle
+  newTitle,
+  newName,
+  targetMainCategoryRelPath,
+  parentRelPath,
+  orderedNames
 } = {}) {
   if (!projectPath) {
     throw new Error('Kein Projektordner angegeben.');
@@ -266,6 +326,7 @@ function createProposal(projectPath, {
   let oldContent = '';
   let targetRelPath = relPath;
   let computedDiff = null;
+  let proposalExtra = null; // KI-Block 3: siehe rename_category/move_subcategory/reorder_entries unten
 
   if (type === 'create') {
     if (!subCategoryRelPath) {
@@ -371,6 +432,105 @@ function createProposal(projectPath, {
     computedDiff = [
       { type: 'remove', line: `- [PAPIERKORB] ${relPath}` }
     ];
+  } else if (type === 'rename_category') {
+    if (!relPath) {
+      throw new Error('Für das Umbenennen einer Kategorie muss relPath angegeben werden.');
+    }
+    const cleanNewName = String(newName || '').trim();
+    if (!cleanNewName) {
+      throw new Error('Für das Umbenennen muss newName angegeben werden.');
+    }
+    const kind = notesFs.classifyEntry(projectPath, relPath);
+    if (kind !== 'mainCategory' && kind !== 'subCategory') {
+      throw new Error('Es kann nur eine Haupt- oder Unterkategorie umbenannt werden.');
+    }
+    const sanitized = notesFs.sanitizeName(cleanNewName);
+    const parentDir = path.dirname(relPath);
+    targetRelPath = parentDir === '.' ? sanitized : path.join(parentDir, sanitized);
+    if (targetRelPath === relPath) {
+      throw new Error('Der neue Name entspricht dem aktuellen Namen.');
+    }
+    const targetFullPath = notesFs.resolveWikiEntrySafe(projectPath, targetRelPath);
+    if (fs.existsSync(targetFullPath)) {
+      throw new Error('Am Zielort existiert bereits ein Eintrag mit diesem Namen.');
+    }
+    const oldName = path.basename(relPath);
+    const kindLabel = kind === 'mainCategory' ? 'Hauptkategorie' : 'Unterkategorie';
+    title = cleanNewName;
+    const affectedRelPaths = collectNoteRelPathsUnder(projectPath, relPath);
+    const affectedSnapshot = notesFs.snapshotNotesForBatch(projectPath, affectedRelPaths);
+    computedDiff = [
+      { type: 'remove', line: `- ${kindLabel}: ${oldName}` },
+      { type: 'add', line: `+ ${kindLabel}: ${cleanNewName}` },
+      { type: 'same', line: `  (${affectedRelPaths.length} betroffene ${affectedRelPaths.length === 1 ? 'Notiz' : 'Notizen'})` }
+    ];
+    proposalExtra = { affectedSnapshot, categoryKind: kind };
+  } else if (type === 'move_subcategory') {
+    if (!relPath) {
+      throw new Error('Für das Verschieben muss relPath angegeben werden.');
+    }
+    const cleanTargetMain = String(targetMainCategoryRelPath || '').trim();
+    if (!cleanTargetMain) {
+      throw new Error('Für das Verschieben muss targetMainCategoryRelPath angegeben werden.');
+    }
+    const sourceKind = notesFs.classifyEntry(projectPath, relPath);
+    if (sourceKind !== 'subCategory') {
+      throw new Error('Es kann nur eine Unterkategorie verschoben werden, keine Hauptkategorie.');
+    }
+    const targetKind = notesFs.classifyEntry(projectPath, cleanTargetMain);
+    if (targetKind !== 'mainCategory') {
+      throw new Error('Unterkategorien können nur in eine Hauptkategorie verschoben werden.');
+    }
+    if (path.dirname(relPath) === cleanTargetMain) {
+      throw new Error('Die Unterkategorie befindet sich bereits in dieser Hauptkategorie.');
+    }
+    const baseName = path.basename(relPath);
+    targetRelPath = path.join(cleanTargetMain, baseName);
+    const targetFullPath = notesFs.resolveWikiEntrySafe(projectPath, targetRelPath);
+    if (fs.existsSync(targetFullPath)) {
+      throw new Error('Am Zielort existiert bereits eine Unterkategorie mit diesem Namen.');
+    }
+    title = baseName;
+    const affectedRelPaths = collectNoteRelPathsUnder(projectPath, relPath);
+    const affectedSnapshot = notesFs.snapshotNotesForBatch(projectPath, affectedRelPaths);
+    computedDiff = [
+      { type: 'remove', line: `- ${relPath}` },
+      { type: 'add', line: `+ ${targetRelPath}` },
+      { type: 'same', line: `  (${affectedRelPaths.length} betroffene ${affectedRelPaths.length === 1 ? 'Notiz' : 'Notizen'})` }
+    ];
+    proposalExtra = { affectedSnapshot, targetMainCategoryRelPath: cleanTargetMain };
+  } else if (type === 'reorder_entries') {
+    const cleanParent = String(parentRelPath ?? '').trim();
+    const parentFullPath = cleanParent
+      ? notesFs.resolveWikiEntrySafe(projectPath, cleanParent)
+      : notesFs.resolveWikiEntrySafe(projectPath, '.', { allowRoot: true });
+    if (cleanParent && notesFs.classifyEntry(projectPath, cleanParent) !== 'mainCategory') {
+      throw new Error('Eine eigene Reihenfolge kann nur für die Hauptkategorien selbst oder die Unterkategorien EINER Hauptkategorie festgelegt werden.');
+    }
+    if (!Array.isArray(orderedNames) || orderedNames.length === 0) {
+      throw new Error('orderedNames darf nicht leer sein.');
+    }
+    const actualChildren = fs.readdirSync(parentFullPath, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map(entry => entry.name);
+    const cleanNames = [...new Set(orderedNames.map(n => String(n).trim()).filter(Boolean))];
+    const missing = cleanNames.filter(n => !actualChildren.includes(n));
+    if (missing.length > 0) {
+      throw new Error(`Folgende Einträge existieren hier nicht: ${missing.join(', ')}.`);
+    }
+    const notMentioned = actualChildren.filter(n => !cleanNames.includes(n));
+    const finalOrder = [...cleanNames, ...notMentioned];
+    targetRelPath = cleanParent;
+    title = cleanParent ? path.basename(cleanParent) : 'Hauptkategorien';
+    computedDiff = finalOrder.map((n, i) => ({
+      type: cleanNames.includes(n) ? 'add' : 'same',
+      line: `${i + 1}. ${n}`
+    }));
+    proposalExtra = {
+      reorderParentRelPath: cleanParent,
+      reorderOrderedNames: finalOrder,
+      reorderKnownChildren: actualChildren.slice().sort()
+    };
   } else {
     throw new Error(`Unbekannter Proposal-Typ: ${type}`);
   }
@@ -396,6 +556,14 @@ function createProposal(projectPath, {
     newTitle: newTitle || null,
     baseVersion,
     baseFrontmatterFingerprint,
+    // KI-Block 3: nur bei rename_category/move_subcategory/reorder_entries
+    // gesetzt (siehe proposalExtra in den jeweiligen Zweigen oben) — für alle
+    // übrigen Typen bleiben es unauffällige null/undefined-Felder.
+    affectedSnapshot: proposalExtra?.affectedSnapshot || null,
+    targetMainCategoryRelPath: proposalExtra?.targetMainCategoryRelPath || null,
+    reorderParentRelPath: proposalExtra?.reorderParentRelPath ?? null,
+    reorderOrderedNames: proposalExtra?.reorderOrderedNames || null,
+    reorderKnownChildren: proposalExtra?.reorderKnownChildren || null,
     createdAt: new Date(nowMs).toISOString(),
     createdAtTimestamp: nowMs
   };
@@ -535,6 +703,79 @@ function applyProposal(proposalId, currentProjectPath) {
       action: 'deleted',
       relPath: proposal.sourceRelPath || proposal.relPath,
       trashRelPath: result.trashRelPath,
+      title: proposal.title
+    };
+  } else if (proposal.type === 'rename_category') {
+    const sourceFullPath = notesFs.resolveWikiEntrySafe(proposal.projectPath, proposal.sourceRelPath);
+    if (!fs.existsSync(sourceFullPath) || !fs.statSync(sourceFullPath).isDirectory()) {
+      throw createStaleProposalError('Die Kategorie existiert nicht mehr. Der Vorschlag ist veraltet und kann nicht angewendet werden.');
+    }
+    const targetFullPath = notesFs.resolveWikiEntrySafe(proposal.projectPath, proposal.relPath);
+    if (fs.existsSync(targetFullPath)) {
+      throw createStaleProposalError('Am Zielort existiert bereits ein Eintrag mit diesem Namen. Der Vorschlag ist veraltet und kann nicht angewendet werden.');
+    }
+    verifyAffectedNotesFreshness(proposal);
+    result = notesFs.renameEntry(proposal.projectPath, proposal.sourceRelPath, proposal.title);
+    migrateProjectConfigPaths(proposal.projectPath, proposal.sourceRelPath, result.relPath);
+    activeProposals.delete(proposalId);
+    return {
+      success: true,
+      action: 'renamed_category',
+      oldRelPath: proposal.sourceRelPath,
+      relPath: result.relPath,
+      title: proposal.title
+    };
+  } else if (proposal.type === 'move_subcategory') {
+    const sourceFullPath = notesFs.resolveWikiEntrySafe(proposal.projectPath, proposal.sourceRelPath);
+    if (!fs.existsSync(sourceFullPath) || !fs.statSync(sourceFullPath).isDirectory()) {
+      throw createStaleProposalError('Die Unterkategorie existiert nicht mehr. Der Vorschlag ist veraltet und kann nicht angewendet werden.');
+    }
+    const targetMainFullPath = notesFs.resolveWikiEntrySafe(proposal.projectPath, proposal.targetMainCategoryRelPath);
+    if (!fs.existsSync(targetMainFullPath) || !fs.statSync(targetMainFullPath).isDirectory()) {
+      throw createStaleProposalError('Die Ziel-Hauptkategorie existiert nicht mehr. Der Vorschlag ist veraltet und kann nicht angewendet werden.');
+    }
+    const targetFullPath = notesFs.resolveWikiEntrySafe(proposal.projectPath, proposal.relPath);
+    if (fs.existsSync(targetFullPath)) {
+      throw createStaleProposalError('Am Zielort existiert bereits eine Unterkategorie mit diesem Namen. Der Vorschlag ist veraltet und kann nicht angewendet werden.');
+    }
+    verifyAffectedNotesFreshness(proposal);
+    result = notesFs.moveEntry(proposal.projectPath, proposal.sourceRelPath, proposal.targetMainCategoryRelPath);
+    migrateProjectConfigPaths(proposal.projectPath, proposal.sourceRelPath, result.relPath);
+    activeProposals.delete(proposalId);
+    return {
+      success: true,
+      action: 'moved_subcategory',
+      oldRelPath: proposal.sourceRelPath,
+      relPath: result.relPath,
+      title: proposal.title
+    };
+  } else if (proposal.type === 'reorder_entries') {
+    const parentRelPath = proposal.reorderParentRelPath || '';
+    const parentFullPath = parentRelPath
+      ? notesFs.resolveWikiEntrySafe(proposal.projectPath, parentRelPath)
+      : notesFs.resolveWikiEntrySafe(proposal.projectPath, '.', { allowRoot: true });
+    if (!fs.existsSync(parentFullPath) || !fs.statSync(parentFullPath).isDirectory()) {
+      throw createStaleProposalError('Die übergeordnete Kategorie existiert nicht mehr. Der Vorschlag ist veraltet und kann nicht angewendet werden.');
+    }
+    // Frischeprüfung: dieselbe Menge an Unterordnern wie beim Erstellen des
+    // Vorschlags, sonst könnte eine seither umbenannte/gelöschte/neue
+    // Kategorie eine veraltete Reihenfolge übernehmen.
+    const currentChildren = fs.readdirSync(parentFullPath, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map(entry => entry.name)
+      .sort();
+    if (Array.isArray(proposal.reorderKnownChildren)
+      && JSON.stringify(currentChildren) !== JSON.stringify(proposal.reorderKnownChildren)) {
+      throw createStaleProposalError('Die Kategorien an dieser Stelle haben sich zwischenzeitlich geändert. Der Vorschlag ist veraltet und kann nicht angewendet werden.');
+    }
+    updateProjectConfig(proposal.projectPath, draft => {
+      draft.childOrder = { ...(draft.childOrder || {}), [parentRelPath]: proposal.reorderOrderedNames };
+    });
+    activeProposals.delete(proposalId);
+    return {
+      success: true,
+      action: 'reordered',
+      relPath: parentRelPath,
       title: proposal.title
     };
   }

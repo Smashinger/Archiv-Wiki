@@ -885,6 +885,30 @@ function renameEntry(projectPath, relPath, newName) {
 //  - Unterkategorie: nur in eine (andere) Hauptkategorie verschiebbar
 //  - Notiz: nur in eine (andere) Unterkategorie verschiebbar
 // ---------------------------------------------------------------------------
+// Aktualisiert category/mainCategory im Frontmatter aller Notizen unterhalb
+// eines verschobenen Unterkategorie-Ordners auf dessen NEUEN Ort — siehe
+// Kommentar in moveEntry() unten. Rekursiv, damit auch eine (regelwidrige,
+// aber laut getDepth()-Kommentar nicht ausgeschlossene) tiefere Verschachtelung
+// erfasst wird. Eine einzelne defekte Notiz überspringt nur diese eine Datei,
+// bricht aber nicht die bereits erfolgte Verschiebung des restlichen Ordners ab.
+function updateMovedCategoryNoteFields(dirPath, category, mainCategory) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  } catch { return; }
+  for (const entry of entries) {
+    const entryPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      updateMovedCategoryNoteFields(entryPath, category, mainCategory);
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith(NOTE_EXT)) {
+      try {
+        const { frontmatter, body } = readNoteRaw(entryPath);
+        writeNoteRaw(entryPath, { ...frontmatter, category, mainCategory }, body);
+      } catch { /* einzelne defekte Notiz überspringen */ }
+    }
+  }
+}
+
 function moveEntry(projectPath, relPath, targetRelPath) {
   const kind = classifyEntry(projectPath, relPath);
   if (kind === 'mainCategory') {
@@ -939,6 +963,20 @@ function moveEntry(projectPath, relPath, targetRelPath) {
       }
       throw err;
     }
+  } else {
+    // Bugfix (per KI-Block-3-Test entdeckt, betrifft auch das manuelle
+    // Verschieben einer Unterkategorie per Drag&Drop): Wird eine ganze
+    // Unterkategorie verschoben, blieben die category/mainCategory-Felder im
+    // Frontmatter der darin enthaltenen Notizen bisher auf der alten
+    // Hauptkategorie stehen — nur beim Verschieben EINER einzelnen Notiz (oben)
+    // wurden sie aktualisiert. getSearchDocuments() bevorzugt einen
+    // vorhandenen Frontmatter-Wert vor dem tatsächlichen Ordnernamen, wodurch
+    // verschobene Notizen dauerhaft unter der falschen (alten) Hauptkategorie
+    // geführt worden wären. Bewusst OHNE modified-Zeitstempel: das Verschieben
+    // einer Kategorie ist keine inhaltliche Bearbeitung jeder einzelnen darin
+    // enthaltenen Notiz und soll "Zuletzt bearbeitet" nicht mit potenziell
+    // vielen Einträgen auf einmal fluten.
+    updateMovedCategoryNoteFields(destPath, path.basename(destPath), path.basename(path.dirname(destPath)));
   }
 
   return { relPath: path.relative(projectPath, destPath) };

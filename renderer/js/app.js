@@ -11799,6 +11799,16 @@ function resolveAccentForActiveDesign(config) {
 }
 
 (async function init() {
+  // KI-Block 3: Zwischenspeicher für den Pfad einer offenen Notiz, BEVOR ein
+  // Kategorie-Proposal (rename_category/move_subcategory) angewendet wird.
+  // shouldAllowProposalApplication() unten kann den Editor bereits VOR der
+  // eigentlichen Dateisystemänderung schließen (Leave-Vertrag), wenn die
+  // offene Notiz im betroffenen Unterbaum liegt — zum Zeitpunkt von
+  // onProposalApplied() ist getOpenRelPath() dann schon wieder leer. Der
+  // Zwischenstand wird deshalb hier im selben init()-Gültigkeitsbereich
+  // gemerkt, statt einen zweiten Weg (z. B. eine Proposal-Kopie) einzuführen.
+  let openRelPathBeforeCategoryProposal = null;
+
   const cleanupAiChat = initAiChat({
     onProposalApplied: async (result) => {
       try {
@@ -11812,8 +11822,31 @@ function resolveAccentForActiveDesign(config) {
             void navigateAfterEntryMutation('#home');
           }
         }
+
+        // KI-Block 3: lag die zuvor offene Notiz innerhalb der umbenannten/
+        // verschobenen Kategorie, unter ihrem neuen Pfad wieder öffnen —
+        // dieselbe Präfix-Umschreibung wie migrateConfigPaths() in
+        // main/project.js, nur auf den einen betroffenen Editor-Pfad
+        // angewendet statt auf die Projektkonfiguration.
+        let categoryReopenPath = null;
+        if ((result?.action === 'renamed_category' || result?.action === 'moved_subcategory')
+          && result.oldRelPath && openRelPathBeforeCategoryProposal) {
+          const oldPrefix = result.oldRelPath;
+          const newPrefix = result.relPath;
+          if (openRelPathBeforeCategoryProposal === oldPrefix) {
+            categoryReopenPath = newPrefix;
+          } else if (openRelPathBeforeCategoryProposal.startsWith(oldPrefix + '/')) {
+            categoryReopenPath = newPrefix + openRelPathBeforeCategoryProposal.slice(oldPrefix.length);
+          }
+        }
+        openRelPathBeforeCategoryProposal = null;
+
         await refreshAll();
-        if (result?.relPath && result.action !== 'deleted' && result.action !== 'created_category') {
+
+        if (categoryReopenPath) {
+          await navigateTo('#note/' + encodeURIComponent(categoryReopenPath));
+        } else if (result?.relPath
+          && !['deleted', 'created_category', 'renamed_category', 'moved_subcategory', 'reordered'].includes(result.action)) {
           await navigateTo('#note/' + encodeURIComponent(result.relPath));
         }
       } catch (err) {
@@ -11821,6 +11854,7 @@ function resolveAccentForActiveDesign(config) {
       }
     },
     onBeforeApplyProposal: (proposal) => {
+      openRelPathBeforeCategoryProposal = getOpenRelPath();
       return shouldAllowProposalApplication(proposal, {
         getOpenRelPath,
         isDirty,

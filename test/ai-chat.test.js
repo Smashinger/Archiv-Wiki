@@ -173,6 +173,12 @@ test('KI-Chat UI 6: formatToolLabel formatiert Werkzeug-Aufrufe mit passendem Ic
   assert.equal(formatToolLabel('open_note', { title: 'Mein Kuchen' }), '📂 Öffne Notiz „Mein Kuchen“ …');
   assert.equal(formatToolLabel('open_note', {}), '📂 Öffne Notiz …');
 
+  assert.equal(formatToolLabel('list_categories', {}), '🗂️ Liste Kategorien auf …');
+  assert.equal(formatToolLabel('propose_rename_category', { newName: 'Linux & System' }), '🏷️ Kategorie umbenennen in „Linux & System“ …');
+  assert.equal(formatToolLabel('propose_rename_category', {}), '🏷️ Kategorie umbenennen …');
+  assert.equal(formatToolLabel('propose_move_subcategory', { relPath: 'Software/Ollama' }), '📦 Unterkategorie verschieben „Software/Ollama“ …');
+  assert.equal(formatToolLabel('propose_reorder_entries', {}), '↕️ Neue Reihenfolge vorschlagen …');
+
   assert.equal(formatToolLabel('unknown_tool', {}), '⚙️ unknown_tool …');
 });
 
@@ -924,4 +930,52 @@ test('KI-Chat UI 17: H2 - shouldAllowProposalApplication Lebenszyklus (echte Pro
   canLeaveResult = true;
   const res5 = await shouldAllowProposalApplication(otherProposal, bindings);
   assert.equal(res5, true, 'canLeaveCurrentRoute = true erlaubt Proposal');
+});
+
+test('KI-Chat UI 18: Block 3 - shouldAllowProposalApplication schützt eine Notiz innerhalb einer umbenannten/verschobenen Kategorie', async () => {
+  const { shouldAllowProposalApplication } = await import('../renderer/js/ai-chat.js');
+
+  let dirty = true;
+  let confirmDialogResult = false;
+  let editorClosed = false;
+
+  const bindings = {
+    getOpenRelPath: () => 'Entwicklung/Workflows/Git Leitfaden.md',
+    isDirty: () => dirty,
+    showConfirmDialog: async () => confirmDialogResult,
+    canLeaveCurrentRoute: async () => true,
+    closeEditor: () => { editorClosed = true; },
+    getNoteTitle: () => 'Git Leitfaden'
+  };
+
+  const renameCategoryProposal = {
+    type: 'rename_category',
+    sourceRelPath: 'Entwicklung/Workflows',
+    relPath: 'Entwicklung/Prozesse',
+    title: 'Prozesse'
+  };
+
+  // Offene Notiz liegt IM umbenannten Unterbaum, ist dirty, Nutzer bricht ab.
+  const res1 = await shouldAllowProposalApplication(renameCategoryProposal, bindings);
+  assert.equal(res1, false, 'Abbrechen muss die Umbenennung blockieren');
+  assert.equal(editorClosed, false);
+
+  // Nutzer bestätigt das Verwerfen -> Editor wird geschlossen, Freigabe erteilt.
+  confirmDialogResult = true;
+  const res2 = await shouldAllowProposalApplication(renameCategoryProposal, bindings);
+  assert.equal(res2, true);
+  assert.equal(editorClosed, true, 'Editor muss vor der Kategorie-Umbenennung geschlossen werden');
+
+  // Notiz liegt AUSSERHALB des betroffenen Unterbaums -> keine Sonderbehandlung nötig.
+  editorClosed = false;
+  dirty = false;
+  const moveSubcategoryProposal = {
+    type: 'move_subcategory',
+    sourceRelPath: 'Wissen/Software',
+    relPath: 'Freizeit/Software',
+    title: 'Software'
+  };
+  const res3 = await shouldAllowProposalApplication(moveSubcategoryProposal, bindings);
+  assert.equal(res3, true);
+  assert.equal(editorClosed, false, 'unbeteiligte, nicht dirty Notiz braucht keinen canLeaveCurrentRoute-Umweg');
 });

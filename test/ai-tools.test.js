@@ -83,7 +83,7 @@ Dieser Inhalt ist archiviert.
 
 test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werkzeuge', () => {
   assert.ok(Array.isArray(AI_TOOLS_DEFINITIONS));
-  assert.equal(AI_TOOLS_DEFINITIONS.length, 16);
+  assert.equal(AI_TOOLS_DEFINITIONS.length, 19);
 
   const names = AI_TOOLS_DEFINITIONS.map(d => d.function?.name);
   assert.ok(names.includes('search_notes'), 'search_notes ist definiert');
@@ -92,6 +92,9 @@ test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werk
   assert.ok(names.includes('get_recent_notes'), 'get_recent_notes ist definiert');
   assert.ok(names.includes('open_note'), 'open_note ist definiert');
   assert.ok(names.includes('list_categories'), 'list_categories ist definiert');
+  assert.ok(names.includes('propose_rename_category'), 'propose_rename_category ist definiert');
+  assert.ok(names.includes('propose_move_subcategory'), 'propose_move_subcategory ist definiert');
+  assert.ok(names.includes('propose_reorder_entries'), 'propose_reorder_entries ist definiert');
   assert.ok(names.includes('get_wiki_tags'), 'get_wiki_tags ist definiert');
   assert.ok(names.includes('suggest_wikilinks'), 'suggest_wikilinks ist definiert');
   assert.ok(names.includes('propose_create_note'), 'propose_create_note ist definiert');
@@ -615,6 +618,46 @@ test('KI-Tools 21: executeAiTool gibt eine ambiguous list_notes-Antwort unverän
   assert.equal(res.success, true);
   assert.equal(res.data.ambiguous, true);
   assert.equal(res.data.candidates.length, 2);
+});
+
+test('KI-Tools 22: Block 3 - executeAiTool routet propose_rename_category, propose_move_subcategory und propose_reorder_entries', async t => {
+  const wikiDir = createCategoryListFixture(t);
+
+  const renameRes = await executeAiTool(wikiDir, 'propose_rename_category', {
+    relPath: 'Wissen/Linux',
+    newName: 'Linux & Unix',
+    reason: 'Klarer'
+  });
+  assert.equal(renameRes.success, true);
+  assert.ok(renameRes.data.proposalId);
+  assert.equal(renameRes.data.requiresConfirmation, true);
+  assert.equal(renameRes.data.relPath, 'Wissen/Linux & Unix');
+
+  const moveRes = await executeAiTool(wikiDir, 'propose_move_subcategory', {
+    relPath: 'Wissen/Windows',
+    targetMainCategoryRelPath: 'Freizeit',
+    reason: 'Passt besser'
+  });
+  assert.equal(moveRes.success, true);
+  assert.ok(moveRes.data.proposalId);
+  assert.equal(moveRes.data.relPath, 'Freizeit/Windows');
+
+  const reorderRes = await executeAiTool(wikiDir, 'propose_reorder_entries', {
+    orderedNames: ['Freizeit', 'Wissen']
+  });
+  assert.equal(reorderRes.success, true);
+  assert.ok(reorderRes.data.proposalId);
+});
+
+test('KI-Tools 23: Block 3 - executeAiTool fängt Strukturfehler bei Kategorie-Werkzeugen als reguläres Fehlerergebnis ab', async t => {
+  const wikiDir = createCategoryListFixture(t);
+
+  const res = await executeAiTool(wikiDir, 'propose_move_subcategory', {
+    relPath: 'Wissen', // Hauptkategorie, nicht Unterkategorie
+    targetMainCategoryRelPath: 'Freizeit'
+  });
+  assert.equal(res.success, false);
+  assert.ok(res.error.includes('keine Hauptkategorie'));
 });
 
 

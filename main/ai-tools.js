@@ -350,6 +350,82 @@ const AI_TOOLS_DEFINITIONS = [
         properties: {}
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_rename_category',
+      description: 'Schlägt das Umbenennen einer bestehenden Haupt- ODER Unterkategorie vor (z. B. "Benenne die Hauptkategorie Linux in Linux & System um" oder "Benenne die Unterkategorie Anleitungen in Leitfäden um"). Nutze zuerst list_categories, um den exakten relPath zu ermitteln. Ändert nur den Namen, nicht die Position in der Struktur. Erfordert Bestätigung durch den Nutzer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          relPath: {
+            type: 'string',
+            description: 'Der relative Pfad der umzubenennenden Haupt- oder Unterkategorie (z. B. "Linux" oder "Entwicklung/Anleitungen").'
+          },
+          newName: {
+            type: 'string',
+            description: 'Der neue Name der Kategorie.'
+          },
+          reason: {
+            type: 'string',
+            description: 'Kurze Begründung für die Umbenennung.'
+          }
+        },
+        required: ['relPath', 'newName']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_move_subcategory',
+      description: 'Schlägt das Verschieben einer Unterkategorie in eine andere Hauptkategorie vor (z. B. "Verschiebe die Unterkategorie Ollama von Software nach KI"). NUR für Unterkategorien — eine Hauptkategorie kann nicht verschoben werden. Nutze zuerst list_categories, um die exakten relPaths zu ermitteln. Erfordert Bestätigung durch den Nutzer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          relPath: {
+            type: 'string',
+            description: 'Der relative Pfad der zu verschiebenden Unterkategorie (z. B. "Software/Ollama").'
+          },
+          targetMainCategoryRelPath: {
+            type: 'string',
+            description: 'Der relative Pfad der Ziel-Hauptkategorie (z. B. "KI").'
+          },
+          reason: {
+            type: 'string',
+            description: 'Kurze Begründung für die Verschiebung.'
+          }
+        },
+        required: ['relPath', 'targetMainCategoryRelPath']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_reorder_entries',
+      description: 'Schlägt eine neue sichtbare Reihenfolge vor — entweder für alle Hauptkategorien (parentRelPath weglassen oder leer lassen) oder für die Unterkategorien EINER bestimmten Hauptkategorie (parentRelPath = deren relPath). Ändert NUR die Anzeige-Reihenfolge (wie in der Seitenleiste per Drag&Drop), keine Dateien oder Namen. Nicht erwähnte, tatsächlich vorhandene Einträge werden automatisch ans Ende gehängt, nicht entfernt. Erfordert Bestätigung durch den Nutzer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          parentRelPath: {
+            type: 'string',
+            description: 'Leer/weglassen für die Reihenfolge der Hauptkategorien selbst, sonst der relPath einer Hauptkategorie für ihre Unterkategorien.'
+          },
+          orderedNames: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Die gewünschten Namen (nicht Pfade) in der neuen Reihenfolge, z. B. ["KI", "Entwicklung", "Rezepte"].'
+          },
+          reason: {
+            type: 'string',
+            description: 'Kurze Begründung für die neue Reihenfolge.'
+          }
+        },
+        required: ['orderedNames']
+      }
+    }
   }
 ];
 
@@ -870,6 +946,72 @@ async function executeAiTool(projectPath, name, args = {}) {
             isDanger: true,
             requiresConfirmation: true,
             message: `Vorschlag zum Verschieben von „${proposal.title}“ in den Papierkorb wurde erstellt und wartet auf deine Freigabe.`
+          }
+        };
+      }
+      case 'propose_rename_category': {
+        const proposal = aiProposals.createProposal(projectPath, {
+          type: 'rename_category',
+          relPath: args.relPath,
+          newName: args.newName,
+          reason: args.reason
+        });
+        return {
+          success: true,
+          data: {
+            proposalId: proposal.id,
+            type: proposal.type,
+            title: proposal.title,
+            relPath: proposal.relPath,
+            sourceRelPath: proposal.sourceRelPath,
+            diff: proposal.diff,
+            reason: proposal.reason,
+            requiresConfirmation: true,
+            message: `Vorschlag zum Umbenennen von „${proposal.sourceRelPath}“ in „${proposal.title}“ wurde erstellt und wartet auf deine Freigabe.`
+          }
+        };
+      }
+      case 'propose_move_subcategory': {
+        const proposal = aiProposals.createProposal(projectPath, {
+          type: 'move_subcategory',
+          relPath: args.relPath,
+          targetMainCategoryRelPath: args.targetMainCategoryRelPath,
+          reason: args.reason
+        });
+        return {
+          success: true,
+          data: {
+            proposalId: proposal.id,
+            type: proposal.type,
+            title: proposal.title,
+            relPath: proposal.relPath,
+            sourceRelPath: proposal.sourceRelPath,
+            diff: proposal.diff,
+            reason: proposal.reason,
+            requiresConfirmation: true,
+            message: `Vorschlag zum Verschieben von „${proposal.sourceRelPath}“ nach „${proposal.relPath}“ wurde erstellt und wartet auf deine Freigabe.`
+          }
+        };
+      }
+      case 'propose_reorder_entries': {
+        const proposal = aiProposals.createProposal(projectPath, {
+          type: 'reorder_entries',
+          parentRelPath: args.parentRelPath,
+          orderedNames: args.orderedNames,
+          reason: args.reason
+        });
+        return {
+          success: true,
+          data: {
+            proposalId: proposal.id,
+            type: proposal.type,
+            title: proposal.title,
+            relPath: proposal.relPath,
+            sourceRelPath: proposal.sourceRelPath,
+            diff: proposal.diff,
+            reason: proposal.reason,
+            requiresConfirmation: true,
+            message: `Vorschlag zur neuen Reihenfolge von „${proposal.title}“ wurde erstellt und wartet auf deine Freigabe.`
           }
         };
       }

@@ -8,7 +8,7 @@ Stand: 22.09.2026
 |---|---|
 | 1 – Notizen öffnen und zuletzt bearbeitet | ✅ ABGESCHLOSSEN (23.09.2026) |
 | 2 – Kategorien zuverlässig auflisten | ✅ ABGESCHLOSSEN (23.09.2026) |
-| 3 – Kategorien umbenennen und verschieben | ⬜ offen |
+| 3 – Kategorien umbenennen und verschieben | ✅ ABGESCHLOSSEN (25.09.2026) |
 | 4 – Reine Batch-Analyse | ⬜ offen |
 | 5 – Batch-Proposal für Inhaltsänderungen | ⬜ offen |
 | 6 – Umbenennungen und Wikilinks | ⬜ offen |
@@ -175,6 +175,48 @@ Die KI erhält ein vollständiges, strukturiertes Bild der vorhandenen Haupt- un
 ---
 
 ## Entwicklungsblock 3: Kategorien umbenennen und verschieben
+
+**Status: ✅ ABGESCHLOSSEN (25.09.2026).** Implementiert und getestet
+(gezielte Tests + vollständige Testsuite, 366/366 grün). Umgesetzt:
+`propose_rename_category` (Haupt- ODER Unterkategorie, Typ wird automatisch
+per `classifyEntry()` festgestellt), `propose_move_subcategory` (nur
+Unterkategorien, Hauptkategorien werden strukturell abgewiesen) und
+`propose_reorder_entries` (Hauptkategorien oder die Unterkategorien EINER
+Hauptkategorie, nicht erwähnte Einträge werden ans Ende gehängt statt
+entfernt). Alle drei nutzen die bestehenden `notesFs.renameEntry()`/
+`notesFs.moveEntry()` (dieselbe Struktur-/Tiefenprüfung wie beim manuellen
+Verschieben per Drag&Drop) statt einer zweiten Umsetzung.
+
+Sicherheit: `resolveWikiEntrySafe()`/`classifyEntry()` sperren interne/
+versteckte Pfade und Path-Traversal (wiederverwendet, keine zweite Prüfung).
+Vor der Übernahme werden Quelle/Ziel erneut geprüft (Kollision, Existenz)
+und alle betroffenen Notizen per `notesFs.snapshotNotesForBatch()` auf
+zwischenzeitliche Änderungen verglichen (neue/entfernte Notizen UND
+geänderter Inhalt) - bei reorder_entries wird stattdessen die Menge der
+tatsächlichen Unterordner an dieser Stelle verglichen. Ein Projektwechsel
+macht jedes Proposal automatisch ungültig (bereits bestehender,
+typunabhängiger Mechanismus).
+
+Konfigurationsmigration: `migrateConfigPaths()`/`removeConfigPaths()` wurden
+aus main/filesystem-ipc.js nach main/project.js verschoben und exportiert
+(vorher nur für die manuelle Sidebar-Bedienung erreichbar) - KI-Proposals
+migrieren jetzt Kategorie-Icons, sichtbare Reihenfolge (`childOrder`),
+gemerkte Scrollpositionen und eingeklappte Gruppen genauso wie der manuelle
+Weg. Eine zuvor geöffnete Notiz innerhalb der umbenannten/verschobenen
+Kategorie wird nach Anwendung unter ihrem neuen Pfad automatisch wieder
+geöffnet; lag sie im betroffenen Unterbaum, greift vorher der bestehende
+Dirty-Editor-Schutz (Speichern oder bewusst Verwerfen).
+
+**Nebenbei gefundener und behobener Bug (nicht Teil des ursprünglichen
+Plans, aber direkt die Korrektheit dieses Blocks betreffend):**
+`notesFs.moveEntry()` aktualisierte beim Verschieben einer ganzen
+Unterkategorie bisher NUR beim Verschieben einer einzelnen Notiz deren
+category/mainCategory-Frontmatter - beim Verschieben des gesamten Ordners
+blieben die enthaltenen Notizen auf die alte Hauptkategorie eingetragen
+(betraf auch das manuelle Drag&Drop-Verschieben, nicht nur die KI). Behoben
+in main/notes-fs.js (`updateMovedCategoryNoteFields()`), bewusst ohne
+`modified`-Zeitstempel, damit ein Kategorie-Verschieben nicht "Zuletzt
+bearbeitet" mit vielen Notizen auf einmal flutet.
 
 ### Ziel
 
@@ -444,7 +486,7 @@ Nach Umsetzung aller Einzelblöcke folgt eine gemeinsame Prüfung ausschließlic
 |---:|---|---:|---:|
 | 1 | Notiz öffnen und zuletzt bearbeitet ✅ ABGESCHLOSSEN | klein | gering |
 | 2 | Kategorien vollständig auflisten ✅ ABGESCHLOSSEN | klein | gering |
-| 3 | Kategorien umbenennen/verschieben | mittel | hoch |
+| 3 | Kategorien umbenennen/verschieben ✅ ABGESCHLOSSEN | mittel | hoch |
 | 4 | Batch-Analyse ohne Änderungen | mittel | mittel |
 | 5 | Batch-Inhalts-Proposals | groß | hoch |
 | 6 | Umbenennung und Wikilink-Schutz | mittel | hoch |
@@ -453,11 +495,10 @@ Nach Umsetzung aller Einzelblöcke folgt eine gemeinsame Prüfung ausschließlic
 
 ## Nächster freigegebener Entwicklungsblock
 
-Entwicklungsblock 1 und 2 sind abgeschlossen (siehe Fortschritt-Tabelle und
-Status-Vermerke oben). Entwicklungsblock 3 („Kategorien umbenennen und
-verschieben") ist **noch nicht freigegeben** — nicht eigenständig beginnen,
-ohne dass der Nutzer das ausdrücklich beauftragt. Block 3 hat laut
-Arbeitsreihenfolge-Tabelle ein hohes Risiko (Struktur-/Pfadänderungen) — vor
-Beginn AGENTS.md und den aktuellen Code erneut lesen, insbesondere
-canLeaveCurrentRoute()/performEntryPathMutation() in renderer/js/app.js und
-notesFs.moveEntry()/renameEntry() in main/notes-fs.js.
+Entwicklungsblock 1, 2 und 3 sind abgeschlossen (siehe Fortschritt-Tabelle
+und Status-Vermerke oben). Entwicklungsblock 4 („Reine Batch-Analyse") ist
+**noch nicht freigegeben** — nicht eigenständig beginnen, ohne dass der
+Nutzer das ausdrücklich beauftragt. Block 4 führt laut Plan noch keine
+Schreiboperationen ein (reine Analyse mehrerer Notizen), Block 5 (echte
+Batch-Proposals) baut darauf auf und hat laut Arbeitsreihenfolge-Tabelle das
+höchste Risiko im gesamten Plan.

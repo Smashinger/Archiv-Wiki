@@ -759,3 +759,328 @@ test('AI-Proposals 26: M5 - Hunk-Faltung behält alle verteilten Änderungen üb
   assert.ok(additions.some(entry => entry.line === 'Zeile 320 geändert'), 'Letzte Änderung muss sichtbar bleiben');
   assert.ok(removals.some(entry => entry.line === 'Zeile 320'), 'Letzte entfernte Zeile muss sichtbar bleiben');
 });
+
+function createCategoryFixture(t) {
+  fs.mkdirSync(testHome, { recursive: true });
+  const wikiDir = fs.mkdtempSync(path.join(testHome, 'ai-prop-cats-'));
+
+  fs.mkdirSync(path.join(wikiDir, 'Entwicklung', 'Workflows'), { recursive: true });
+  fs.mkdirSync(path.join(wikiDir, 'Entwicklung', 'DevOps'), { recursive: true });
+  fs.mkdirSync(path.join(wikiDir, 'Wissen', 'Software'), { recursive: true });
+
+  fs.writeFileSync(path.join(wikiDir, 'Entwicklung', 'Workflows', 'Git Leitfaden.md'), `---
+title: "Git Leitfaden"
+category: "Workflows"
+mainCategory: "Entwicklung"
+---
+# Git Leitfaden
+`, 'utf8');
+
+  fs.writeFileSync(path.join(wikiDir, '.wiki-config.json'), JSON.stringify({
+    childOrder: {
+      '': ['Entwicklung', 'Wissen'],
+      'Entwicklung': ['Workflows', 'DevOps']
+    },
+    categoryIcons: {
+      'Entwicklung': '💻',
+      'Entwicklung/Workflows': '🔧'
+    },
+    noteScrollPositions: {
+      'Entwicklung/Workflows/Git Leitfaden.md': { editor: 42, preview: 7 }
+    },
+    savedCollapsedGroups: ['Entwicklung/Workflows']
+  }, null, 2), 'utf8');
+
+  t.after(() => {
+    aiProposals.clearAllProposals();
+    fs.rmSync(wikiDir, { recursive: true, force: true });
+  });
+
+  return wikiDir;
+}
+
+function readConfig(wikiDir) {
+  return JSON.parse(fs.readFileSync(path.join(wikiDir, '.wiki-config.json'), 'utf8'));
+}
+
+test('AI-Proposals 27: Block 3 - rename_category benennt Hauptkategorie um und migriert Icons/Reihenfolge/Scrollpositionen', t => {
+  const wikiDir = createCategoryFixture(t);
+
+  const prop = aiProposals.createProposal(wikiDir, {
+    type: 'rename_category',
+    relPath: 'Entwicklung',
+    newName: 'Entwicklung & IT',
+    reason: 'Klarerer Name'
+  });
+  assert.equal(prop.type, 'rename_category');
+  assert.equal(prop.relPath, 'Entwicklung & IT');
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Entwicklung')), 'vor Freigabe noch am alten Ort');
+
+  const res = aiProposals.applyProposal(prop.id, wikiDir);
+  assert.equal(res.success, true);
+  assert.equal(res.action, 'renamed_category');
+  assert.equal(res.relPath, 'Entwicklung & IT');
+
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Entwicklung')), false);
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Entwicklung & IT', 'Workflows', 'Git Leitfaden.md')), 'enthaltene Notizen bleiben auffindbar');
+
+  const config = readConfig(wikiDir);
+  assert.deepEqual(config.childOrder[''], ['Entwicklung & IT', 'Wissen'], 'Wurzel-Reihenfolge zeigt jetzt auf den neuen Namen');
+  assert.ok(config.childOrder['Entwicklung & IT'], 'Unterkategorie-Reihenfolge unter dem neuen Pfad vorhanden');
+  assert.equal(config.childOrder['Entwicklung'], undefined, 'alter Pfad verschwindet aus childOrder');
+  assert.equal(config.categoryIcons['Entwicklung & IT'], '💻');
+  assert.equal(config.categoryIcons['Entwicklung & IT/Workflows'], '🔧');
+  assert.equal(config.categoryIcons['Entwicklung'], undefined);
+  assert.ok(config.noteScrollPositions['Entwicklung & IT/Workflows/Git Leitfaden.md'], 'Scrollposition migriert');
+  assert.deepEqual(config.savedCollapsedGroups, ['Entwicklung & IT/Workflows']);
+});
+
+test('AI-Proposals 28: Block 3 - rename_category benennt Unterkategorie um (Icons bleiben unter dem richtigen Pfad)', t => {
+  const wikiDir = createCategoryFixture(t);
+
+  const prop = aiProposals.createProposal(wikiDir, {
+    type: 'rename_category',
+    relPath: 'Entwicklung/Workflows',
+    newName: 'Prozesse'
+  });
+  assert.equal(prop.relPath, 'Entwicklung/Prozesse');
+
+  const res = aiProposals.applyProposal(prop.id, wikiDir);
+  assert.equal(res.success, true);
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Entwicklung', 'Prozesse', 'Git Leitfaden.md')));
+
+  const config = readConfig(wikiDir);
+  assert.equal(config.categoryIcons['Entwicklung/Prozesse'], '🔧');
+  assert.equal(config.categoryIcons['Entwicklung'], '💻', 'Hauptkategorie-Icon bleibt unberührt');
+  assert.deepEqual(config.childOrder['Entwicklung'], ['Prozesse', 'DevOps']);
+});
+
+test('AI-Proposals 29: Block 3 - move_subcategory verschiebt Unterkategorie in andere Hauptkategorie', t => {
+  const wikiDir = createCategoryFixture(t);
+
+  const prop = aiProposals.createProposal(wikiDir, {
+    type: 'move_subcategory',
+    relPath: 'Entwicklung/Workflows',
+    targetMainCategoryRelPath: 'Wissen',
+    reason: 'Passt besser zu Wissen'
+  });
+  assert.equal(prop.type, 'move_subcategory');
+  assert.equal(prop.relPath, 'Wissen/Workflows');
+
+  const res = aiProposals.applyProposal(prop.id, wikiDir);
+  assert.equal(res.success, true);
+  assert.equal(res.action, 'moved_subcategory');
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Entwicklung', 'Workflows')), false);
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Wissen', 'Workflows', 'Git Leitfaden.md')));
+
+  const movedNote = notesFs.readNote(wikiDir, 'Wissen/Workflows/Git Leitfaden.md');
+  assert.equal(movedNote.frontmatter.category, 'Workflows');
+  assert.equal(movedNote.frontmatter.mainCategory, 'Wissen');
+
+  const config = readConfig(wikiDir);
+  assert.equal(config.categoryIcons['Wissen/Workflows'], '🔧', 'Icon der verschobenen Unterkategorie migriert');
+  assert.ok(config.noteScrollPositions['Wissen/Workflows/Git Leitfaden.md']);
+});
+
+test('AI-Proposals 30: Block 3 - Strukturregeln: Hauptkategorie kann nicht per move_subcategory verschoben werden', t => {
+  const wikiDir = createCategoryFixture(t);
+
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, {
+      type: 'move_subcategory',
+      relPath: 'Entwicklung',
+      targetMainCategoryRelPath: 'Wissen'
+    });
+  }, /keine Hauptkategorie/);
+});
+
+test('AI-Proposals 31: Block 3 - rename_category weist Notizen als Ziel ab (nur Kategorien)', t => {
+  const wikiDir = createCategoryFixture(t);
+
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, {
+      type: 'rename_category',
+      relPath: 'Entwicklung/Workflows/Git Leitfaden.md',
+      newName: 'Anderer Name'
+    });
+  }, /Haupt- oder Unterkategorie/);
+});
+
+test('AI-Proposals 32: Block 3 - interne/versteckte Pfade werden bei Kategorie-Proposals abgewiesen', t => {
+  const wikiDir = createCategoryFixture(t);
+
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, {
+      type: 'rename_category',
+      relPath: '.wiki-trash',
+      newName: 'Geheim'
+    });
+  }, /Interne oder ungültige Wiki-Pfade sind nicht zulässig/);
+
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, {
+      type: 'move_subcategory',
+      relPath: 'Entwicklung/Workflows',
+      targetMainCategoryRelPath: '.wiki-trash'
+    });
+  }, /Interne oder ungültige Wiki-Pfade sind nicht zulässig/);
+});
+
+test('AI-Proposals 33: Block 3 - Kollision am Zielort wird sowohl bei Erstellung als auch bei verspäteter Freigabe abgewiesen', t => {
+  const wikiDir = createCategoryFixture(t);
+
+  // Ziel existiert schon zum Zeitpunkt der Vorschlagserstellung.
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, {
+      type: 'rename_category',
+      relPath: 'Entwicklung/Workflows',
+      newName: 'DevOps'
+    });
+  }, /existiert bereits/);
+
+  // Ziel entsteht ERST NACH der Vorschlagserstellung (Freigabe muss trotzdem ablehnen).
+  const prop = aiProposals.createProposal(wikiDir, {
+    type: 'rename_category',
+    relPath: 'Entwicklung/Workflows',
+    newName: 'Prozesse'
+  });
+  fs.mkdirSync(path.join(wikiDir, 'Entwicklung', 'Prozesse'), { recursive: true });
+
+  assert.throws(() => {
+    aiProposals.applyProposal(prop.id, wikiDir);
+  }, { code: 'AI_PROPOSAL_STALE' });
+  // Die ursprüngliche Unterkategorie bleibt unangetastet.
+  assert.ok(fs.existsSync(path.join(wikiDir, 'Entwicklung', 'Workflows', 'Git Leitfaden.md')));
+});
+
+test('AI-Proposals 34: Block 3 - veraltetes rename_category/move_subcategory Proposal wird bei geänderter Notiz abgewiesen', t => {
+  const wikiDir = createCategoryFixture(t);
+
+  const prop = aiProposals.createProposal(wikiDir, {
+    type: 'rename_category',
+    relPath: 'Entwicklung/Workflows',
+    newName: 'Prozesse'
+  });
+
+  // Notiz innerhalb der Kategorie wird zwischenzeitlich verändert.
+  fs.writeFileSync(path.join(wikiDir, 'Entwicklung', 'Workflows', 'Git Leitfaden.md'), `---
+title: "Git Leitfaden"
+category: "Workflows"
+mainCategory: "Entwicklung"
+---
+# Git Leitfaden
+
+Zwischenzeitlich geändert.
+`, 'utf8');
+
+  assert.throws(() => {
+    aiProposals.applyProposal(prop.id, wikiDir);
+  }, { code: 'AI_PROPOSAL_STALE' });
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Entwicklung', 'Workflows')), true, 'keine Änderung bei veraltetem Vorschlag');
+});
+
+test('AI-Proposals 35: Block 3 - veraltetes Proposal wird abgewiesen wenn eine neue Notiz in der Kategorie erscheint', t => {
+  const wikiDir = createCategoryFixture(t);
+
+  const prop = aiProposals.createProposal(wikiDir, {
+    type: 'move_subcategory',
+    relPath: 'Entwicklung/Workflows',
+    targetMainCategoryRelPath: 'Wissen'
+  });
+
+  fs.writeFileSync(path.join(wikiDir, 'Entwicklung', 'Workflows', 'Neu.md'), '# Neu', 'utf8');
+
+  assert.throws(() => {
+    aiProposals.applyProposal(prop.id, wikiDir);
+  }, { code: 'AI_PROPOSAL_STALE' });
+});
+
+test('AI-Proposals 36: Block 3 - Projektwechsel macht Kategorie-Proposal ungültig', t => {
+  const wikiDir = createCategoryFixture(t);
+  const otherWikiDir = createCategoryFixture(t);
+
+  const prop = aiProposals.createProposal(wikiDir, {
+    type: 'rename_category',
+    relPath: 'Entwicklung/Workflows',
+    newName: 'Prozesse'
+  });
+
+  assert.throws(() => {
+    aiProposals.applyProposal(prop.id, otherWikiDir);
+  }, /gehört nicht zum aktuell geöffneten Wiki/);
+});
+
+test('AI-Proposals 37: Block 3 - reorder_entries ordnet Hauptkategorien neu (Wurzel) und ergänzt nicht erwähnte am Ende', t => {
+  const wikiDir = createCategoryFixture(t);
+  fs.mkdirSync(path.join(wikiDir, 'Freizeit'), { recursive: true });
+
+  const prop = aiProposals.createProposal(wikiDir, {
+    type: 'reorder_entries',
+    parentRelPath: '',
+    orderedNames: ['Wissen', 'Entwicklung']
+  });
+  assert.equal(prop.type, 'reorder_entries');
+
+  const res = aiProposals.applyProposal(prop.id, wikiDir);
+  assert.equal(res.success, true);
+  assert.equal(res.action, 'reordered');
+
+  const config = readConfig(wikiDir);
+  assert.deepEqual(config.childOrder[''], ['Wissen', 'Entwicklung', 'Freizeit'], 'nicht erwähnte Hauptkategorie bleibt erhalten, ans Ende gehängt');
+});
+
+test('AI-Proposals 38: Block 3 - reorder_entries ordnet Unterkategorien EINER Hauptkategorie neu', t => {
+  const wikiDir = createCategoryFixture(t);
+
+  const prop = aiProposals.createProposal(wikiDir, {
+    type: 'reorder_entries',
+    parentRelPath: 'Entwicklung',
+    orderedNames: ['DevOps', 'Workflows']
+  });
+
+  const res = aiProposals.applyProposal(prop.id, wikiDir);
+  assert.equal(res.success, true);
+
+  const config = readConfig(wikiDir);
+  assert.deepEqual(config.childOrder['Entwicklung'], ['DevOps', 'Workflows']);
+});
+
+test('AI-Proposals 39: Block 3 - reorder_entries weist unbekannte Namen ab, statt sie stillschweigend zu ignorieren', t => {
+  const wikiDir = createCategoryFixture(t);
+
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, {
+      type: 'reorder_entries',
+      parentRelPath: 'Entwicklung',
+      orderedNames: ['Workflows', 'GibtEsNicht']
+    });
+  }, /existieren hier nicht/);
+});
+
+test('AI-Proposals 40: Block 3 - reorder_entries weist Notizen/tiefere Pfade als parentRelPath ab', t => {
+  const wikiDir = createCategoryFixture(t);
+
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, {
+      type: 'reorder_entries',
+      parentRelPath: 'Entwicklung/Workflows',
+      orderedNames: ['irgendwas']
+    });
+  }, /nur für die Hauptkategorien selbst/);
+});
+
+test('AI-Proposals 41: Block 3 - veraltetes reorder_entries Proposal wird abgewiesen wenn sich die Kategorien seitdem geändert haben', t => {
+  const wikiDir = createCategoryFixture(t);
+
+  const prop = aiProposals.createProposal(wikiDir, {
+    type: 'reorder_entries',
+    parentRelPath: '',
+    orderedNames: ['Wissen', 'Entwicklung']
+  });
+
+  fs.mkdirSync(path.join(wikiDir, 'Freizeit'), { recursive: true }); // neue Hauptkategorie seitdem
+
+  assert.throws(() => {
+    aiProposals.applyProposal(prop.id, wikiDir);
+  }, { code: 'AI_PROPOSAL_STALE' });
+});
