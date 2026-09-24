@@ -540,5 +540,82 @@ test('KI-Tools 18: executeAiTool routet list_categories', async t => {
   assert.equal(res.data.totalMainCategories, 2);
 });
 
+function createCaseCollisionFixture(t) {
+  fs.mkdirSync(testHome, { recursive: true });
+  const wikiDir = fs.mkdtempSync(path.join(testHome, 'ai-tools-collision-'));
+
+  // Reproduziert den echten Nutzerfund: zwei unterschiedliche Unterkategorien
+  // im selben Hauptordner, die sich nur in Groß-/Kleinschreibung unterscheiden.
+  fs.mkdirSync(path.join(wikiDir, 'Alle', 'Notizen'), { recursive: true });
+  fs.mkdirSync(path.join(wikiDir, 'Alle', 'NOTIZEN'), { recursive: true });
+  fs.writeFileSync(path.join(wikiDir, 'Alle', 'Notizen', 'A.md'), '# A', 'utf8');
+  fs.writeFileSync(path.join(wikiDir, 'Alle', 'Notizen', 'B.md'), '# B', 'utf8');
+  fs.writeFileSync(path.join(wikiDir, 'Alle', 'NOTIZEN', 'C.md'), '# C', 'utf8');
+
+  t.after(() => {
+    fs.rmSync(wikiDir, { recursive: true, force: true });
+  });
+
+  return wikiDir;
+}
+
+test('KI-Tools 19: Bugfix - listNotes vermischt keine unterschiedlichen, nur groß-/kleingeschriebenen Unterkategorien mehr', t => {
+  const wikiDir = createCaseCollisionFixture(t);
+
+  // Exakte Schreibweise trifft eindeutig die jeweils richtige Kategorie,
+  // ohne die andere versehentlich mit hineinzuziehen (der eigentliche Bug).
+  const exactLower = listNotes(wikiDir, { category: 'Notizen' });
+  assert.equal(exactLower.totalCount, 2);
+  assert.deepEqual(exactLower.notes.map(n => n.title).sort(), ['A', 'B']);
+
+  const exactUpper = listNotes(wikiDir, { category: 'NOTIZEN' });
+  assert.equal(exactUpper.totalCount, 1);
+  assert.equal(exactUpper.notes[0].title, 'C');
+
+  // Case-insensitive Anfrage ohne exakten Treffer: darf NICHT still zu einer
+  // 3er-Liste vermischt werden, sondern muss die Mehrdeutigkeit melden.
+  const ambiguous = listNotes(wikiDir, { category: 'notizen' });
+  assert.equal(ambiguous.ambiguous, true);
+  assert.equal(ambiguous.totalCount, 0);
+  assert.deepEqual(ambiguous.notes, []);
+  assert.deepEqual(ambiguous.candidates.map(c => c.path), ['Alle/NOTIZEN', 'Alle/Notizen']);
+
+  // Voller Pfad ist immer eindeutig, unabhängig von der Groß-/Kleinschreibung
+  // der bloßen Namen.
+  const byPath = listNotes(wikiDir, { category: 'Alle/NOTIZEN' });
+  assert.equal(byPath.totalCount, 1);
+  assert.equal(byPath.notes[0].title, 'C');
+
+  // Ein Hauptkategorie-Name bleibt weiterhin ein gewollter Sammel-Filter
+  // (kein falscher "ambiguous"), er fasst alle Unterkategorien zusammen.
+  const byMain = listNotes(wikiDir, { category: 'Alle' });
+  assert.equal(byMain.ambiguous, undefined);
+  assert.equal(byMain.totalCount, 3);
+});
+
+test('KI-Tools 20: Bugfix - listNotes matcht keine unrelated Kategorien mehr per Teilstring', t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  // Vorher matchte ein Teilstring wie "chiv" jede Kategorie, die diese Buch-
+  // stabenfolge irgendwo enthielt (z. B. "Archiv-Wiki" als Unterkategorie).
+  // Jetzt: kein exakter Name/Pfad -> keine Treffer statt Zufallstreffer.
+  const partial = listNotes(wikiDir, { category: 'chiv' });
+  assert.equal(partial.totalCount, 0);
+  assert.equal(partial.ambiguous, undefined);
+
+  const exactSub = listNotes(wikiDir, { category: 'Archiv-Wiki' });
+  assert.equal(exactSub.totalCount, 1);
+  assert.equal(exactSub.notes[0].title, 'Architektur und Schnittstellen');
+});
+
+test('KI-Tools 21: executeAiTool gibt eine ambiguous list_notes-Antwort unverändert weiter', async t => {
+  const wikiDir = createCaseCollisionFixture(t);
+
+  const res = await executeAiTool(wikiDir, 'list_notes', { category: 'notizen' });
+  assert.equal(res.success, true);
+  assert.equal(res.data.ambiguous, true);
+  assert.equal(res.data.candidates.length, 2);
+});
+
 
 

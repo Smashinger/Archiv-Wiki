@@ -57,13 +57,13 @@ const AI_TOOLS_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'list_notes',
-      description: 'Listet vorhandene Notizen im Wiki auf, optional gefiltert nach einer Kategorie.',
+      description: 'Listet vorhandene Notizen im Wiki auf, optional gefiltert nach einer Kategorie. Der Filter erwartet einen EXAKTEN Namen oder Pfad (case-insensitiv), keinen Teilstring — nutze bevorzugt den relPath einer Unterkategorie aus list_categories für eindeutige Ergebnisse. WICHTIG: Existieren zwei unterschiedliche Unterkategorien mit demselben Namen in unterschiedlicher Groß-/Kleinschreibung, liefert das Ergebnis "ambiguous": true mit einer Liste konkreter Pfade (candidates) statt beide stillschweigend zu vermischen — zeige diese dem Nutzer zur Auswahl an und rufe list_notes danach erneut mit dem exakten Pfad auf.',
       parameters: {
         type: 'object',
         properties: {
           category: {
             type: 'string',
-            description: 'Optionaler Filter nach einer Haupt- oder Unterkategorie.'
+            description: 'Exakter Name einer Haupt- oder Unterkategorie, oder ihr voller relativer Pfad (z. B. "Alle/Notizen") für eindeutige Treffer.'
           },
           limit: {
             type: 'integer',
@@ -462,31 +462,91 @@ function readNote(projectPath, { relPath, title } = {}) {
   }
 }
 
-function listNotes(projectPath, { category = '', limit = 15 } = {}) {
-  const maxResults = Math.min(50, Math.max(1, Number(limit) || 15));
-  const docs = notesFs.getSearchDocuments(projectPath);
-  const catFilter = String(category || '').trim().toLowerCase();
+function noteSummary(doc) {
+  return {
+    title: doc.title,
+    relPath: doc.relPath,
+    categoryPath: doc.categoryPath,
+    tags: doc.tags || []
+  };
+}
 
-  const filtered = docs.filter(doc => {
-    if (doc.archived) return false;
-    if (!catFilter) return true;
-    const cat = (doc.category || '').toLowerCase();
-    const mainCat = (doc.mainCategory || '').toLowerCase();
-    const catPath = (doc.categoryPath || '').toLowerCase();
-    return cat.includes(catFilter) || mainCat.includes(catFilter) || catPath.includes(catFilter);
+// Bugfix (Nutzerfund 25.09.2026): listNotes() filterte bisher per
+// ungeankertem, kleingeschriebenem Teilstring über category/mainCategory/
+// categoryPath gleichzeitig. Dadurch matchte z. B. ein Filter "Notizen"
+// jede Kategorie, die diese Zeichenfolge irgendwo enthielt (auch "Wichtige
+// Notizen" oder eine völlig andere Hauptkategorie mit "notizen" im Namen)
+// UND vermischte im echten Testwiki zwei tatsächlich unterschiedliche
+// Unterkategorien ("Alle/Notizen" und "Alle/NOTIZEN") unbemerkt zu einem
+// einzigen Ergebnis. Löst jetzt exakt auf, in derselben Reihenfolge wie
+// resolveNoteForOpen() für Notiztitel: voller Pfad vor bloßem Namen, jeweils
+// case-sensitiv vor case-insensitiv. Ein Hauptkategorie-Name darf bewusst
+// mehrere Unterkategorien zusammenfassen (das ist der gewollte Sammel-Fall);
+// trifft ein Unterkategorie-Name dagegen auf mehr als einen eigenständigen
+// Ordnerpfad, wird NICHT stillschweigend vermischt, sondern eine
+// Kandidatenliste zurückgegeben — dasselbe Prinzip wie bei mehreren
+// gleichnamigen Notiztiteln.
+function resolveCategoryScope(docs, rawFilter) {
+  const folderPathOf = (doc) => path.dirname(doc.relPath).replace(/\\/g, '/');
+  const lowerFilter = rawFilter.toLowerCase();
+
+  const byExactFolderPath = (caseSensitive) => docs.filter(doc => {
+    const folderPath = folderPathOf(doc);
+    return (caseSensitive ? folderPath : folderPath.toLowerCase()) === (caseSensitive ? rawFilter : lowerFilter);
+  });
+  const byExactMainCategory = (caseSensitive) => docs.filter(doc => {
+    const mainCat = doc.mainCategory || '';
+    return (caseSensitive ? mainCat : mainCat.toLowerCase()) === (caseSensitive ? rawFilter : lowerFilter);
+  });
+  const byExactSubCategory = (caseSensitive) => docs.filter(doc => {
+    const cat = doc.category || '';
+    return (caseSensitive ? cat : cat.toLowerCase()) === (caseSensitive ? rawFilter : lowerFilter);
   });
 
-  filtered.sort((a, b) => (a.title || '').localeCompare(b.title || '', 'de'));
+  for (const matched of [byExactFolderPath(true), byExactFolderPath(false), byExactMainCategory(true)]) {
+    if (matched.length > 0) return { matched };
+  }
 
+  for (const matched of [byExactSubCategory(true), byExactMainCategory(false), byExactSubCategory(false)]) {
+    if (matched.length === 0) continue;
+    const distinctFolderPaths = [...new Set(matched.map(folderPathOf))];
+    if (distinctFolderPaths.length > 1) return { ambiguous: true, candidatePaths: distinctFolderPaths.sort() };
+    return { matched };
+  }
+
+  return { matched: [] };
+}
+
+function listNotes(projectPath, { category = '', limit = 15 } = {}) {
+  const maxResults = Math.min(50, Math.max(1, Number(limit) || 15));
+  const docs = notesFs.getSearchDocuments(projectPath).filter(doc => !doc.archived);
+  const rawFilter = String(category || '').trim();
+
+  if (!rawFilter) {
+    const sorted = [...docs].sort((a, b) => (a.title || '').localeCompare(b.title || '', 'de'));
+    return {
+      category: null,
+      totalCount: sorted.length,
+      notes: sorted.slice(0, maxResults).map(noteSummary)
+    };
+  }
+
+  const scope = resolveCategoryScope(docs, rawFilter);
+  if (scope.ambiguous) {
+    return {
+      category: rawFilter,
+      ambiguous: true,
+      candidates: scope.candidatePaths.map(candidatePath => ({ path: candidatePath })),
+      totalCount: 0,
+      notes: []
+    };
+  }
+
+  const sorted = [...scope.matched].sort((a, b) => (a.title || '').localeCompare(b.title || '', 'de'));
   return {
-    category: category || null,
-    totalCount: filtered.length,
-    notes: filtered.slice(0, maxResults).map(doc => ({
-      title: doc.title,
-      relPath: doc.relPath,
-      categoryPath: doc.categoryPath,
-      tags: doc.tags || []
-    }))
+    category: rawFilter,
+    totalCount: sorted.length,
+    notes: sorted.slice(0, maxResults).map(noteSummary)
   };
 }
 
