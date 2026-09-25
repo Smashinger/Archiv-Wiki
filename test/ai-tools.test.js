@@ -15,6 +15,7 @@ const {
   getRecentNotes,
   resolveNoteForOpen,
   listCategories,
+  analyzeCategoryNotes,
   executeAiTool
 } = require('../main/ai-tools');
 
@@ -83,7 +84,7 @@ Dieser Inhalt ist archiviert.
 
 test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werkzeuge', () => {
   assert.ok(Array.isArray(AI_TOOLS_DEFINITIONS));
-  assert.equal(AI_TOOLS_DEFINITIONS.length, 19);
+  assert.equal(AI_TOOLS_DEFINITIONS.length, 20);
 
   const names = AI_TOOLS_DEFINITIONS.map(d => d.function?.name);
   assert.ok(names.includes('search_notes'), 'search_notes ist definiert');
@@ -95,6 +96,7 @@ test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werk
   assert.ok(names.includes('propose_rename_category'), 'propose_rename_category ist definiert');
   assert.ok(names.includes('propose_move_subcategory'), 'propose_move_subcategory ist definiert');
   assert.ok(names.includes('propose_reorder_entries'), 'propose_reorder_entries ist definiert');
+  assert.ok(names.includes('analyze_category_notes'), 'analyze_category_notes ist definiert');
   assert.ok(names.includes('get_wiki_tags'), 'get_wiki_tags ist definiert');
   assert.ok(names.includes('suggest_wikilinks'), 'suggest_wikilinks ist definiert');
   assert.ok(names.includes('propose_create_note'), 'propose_create_note ist definiert');
@@ -662,3 +664,143 @@ test('KI-Tools 23: Block 3 - executeAiTool fängt Strukturfehler bei Kategorie-W
 
 
 
+
+
+function createAnalyzeFixture(t) {
+  fs.mkdirSync(testHome, { recursive: true });
+  const wikiDir = fs.mkdtempSync(path.join(testHome, 'ai-tools-analyze-'));
+
+  fs.mkdirSync(path.join(wikiDir, 'Wissen', 'Linux'), { recursive: true });
+  fs.writeFileSync(
+    path.join(wikiDir, 'Wissen', 'Linux', 'Debian.md'),
+    '---\ntitle: "Debian"\n---\nDebian ist stabil und schlicht.',
+    'utf8'
+  );
+  fs.writeFileSync(
+    path.join(wikiDir, 'Wissen', 'Linux', 'Fedora.md'),
+    '---\ntitle: "Fedora"\n---\nFedora hängt mit [[Debian]] und [[RedHat|Red Hat]] zusammen.',
+    'utf8'
+  );
+  fs.writeFileSync(
+    path.join(wikiDir, 'Wissen', 'Linux', 'Alt.md'),
+    '---\ntitle: "Alt"\narchived: true\n---\nArchiviert, darf nicht auftauchen.',
+    'utf8'
+  );
+
+  t.after(() => {
+    fs.rmSync(wikiDir, { recursive: true, force: true });
+  });
+
+  return wikiDir;
+}
+
+test('KI-Tools 24: Block 4 - analyzeCategoryNotes liefert Inhalt, Wikilinks und schließt archivierte Notizen aus', t => {
+  const wikiDir = createAnalyzeFixture(t);
+
+  const res = analyzeCategoryNotes(wikiDir, { categoryRelPath: 'Wissen/Linux' });
+  assert.equal(res.categoryRelPath, 'Wissen/Linux');
+  assert.equal(res.totalNotesInCategory, 2);
+  assert.equal(res.includedCount, 2);
+  assert.equal(res.omittedByLimitCount, 0);
+
+  const titles = res.notes.map(n => n.title);
+  assert.deepEqual(titles, ['Debian', 'Fedora']);
+
+  const fedora = res.notes.find(n => n.title === 'Fedora');
+  assert.equal(fedora.status, 'lesbar');
+  assert.equal(fedora.truncated, false);
+  assert.ok(fedora.content.includes('Fedora hängt mit'));
+  assert.deepEqual(fedora.wikilinks.sort(), ['Debian', 'RedHat']);
+
+  const debian = res.notes.find(n => n.title === 'Debian');
+  assert.deepEqual(debian.wikilinks, []);
+
+  assert.ok(!JSON.stringify(res).includes('Archiviert, darf nicht auftauchen'));
+});
+
+test('KI-Tools 25: Block 4 - analyzeCategoryNotes markiert zu große Einzelnotizen statt sie zu lesen', t => {
+  const wikiDir = createAnalyzeFixture(t);
+  const grossDir = path.join(wikiDir, 'Wissen', 'Linux');
+  const grossBody = 'X'.repeat(9000);
+  fs.writeFileSync(path.join(grossDir, 'Riesig.md'), `---\ntitle: "Riesig"\n---\n${grossBody}`, 'utf8');
+
+  const res = analyzeCategoryNotes(wikiDir, { categoryRelPath: 'Wissen/Linux' });
+  const riesig = res.notes.find(n => n.title === 'Riesig');
+  assert.ok(riesig, 'Riesig-Notiz muss enthalten sein');
+  assert.equal(riesig.status, 'zu_gross');
+  assert.equal(riesig.content, null);
+  assert.deepEqual(riesig.wikilinks, []);
+  assert.ok(riesig.sizeChars > 8000);
+});
+
+test('KI-Tools 26: Block 4 - analyzeCategoryNotes respektiert Standard-Limit und harte Obergrenze', t => {
+  fs.mkdirSync(testHome, { recursive: true });
+  const wikiDir = fs.mkdtempSync(path.join(testHome, 'ai-tools-analyze-limit-'));
+  const catDir = path.join(wikiDir, 'Wissen', 'Viele');
+  fs.mkdirSync(catDir, { recursive: true });
+  for (let i = 1; i <= 30; i++) {
+    const name = `Note${String(i).padStart(2, '0')}`;
+    fs.writeFileSync(path.join(catDir, `${name}.md`), `---\ntitle: "${name}"\n---\nKurzer Inhalt.`, 'utf8');
+  }
+  t.after(() => fs.rmSync(wikiDir, { recursive: true, force: true }));
+
+  const defaultRes = analyzeCategoryNotes(wikiDir, { categoryRelPath: 'Wissen/Viele' });
+  assert.equal(defaultRes.totalNotesInCategory, 30);
+  assert.equal(defaultRes.includedCount, 20);
+  assert.equal(defaultRes.omittedByLimitCount, 10);
+
+  const cappedRes = analyzeCategoryNotes(wikiDir, { categoryRelPath: 'Wissen/Viele', limit: 100 });
+  assert.equal(cappedRes.includedCount, 25);
+  assert.equal(cappedRes.omittedByLimitCount, 5);
+});
+
+test('KI-Tools 27: Block 4 - analyzeCategoryNotes bricht das Gesamtbudget kontrolliert ab (Kürzung und Überspringen)', t => {
+  fs.mkdirSync(testHome, { recursive: true });
+  const wikiDir = fs.mkdtempSync(path.join(testHome, 'ai-tools-analyze-budget-'));
+  const catDir = path.join(wikiDir, 'Wissen', 'Budget');
+  fs.mkdirSync(catDir, { recursive: true });
+  // 8 Notizen à 7500 Zeichen erschöpfen exakt das Gesamtbudget von 60000 Zeichen.
+  const chunk = 'A'.repeat(7500);
+  for (let i = 1; i <= 9; i++) {
+    const name = `Note${String(i).padStart(2, '0')}`;
+    fs.writeFileSync(path.join(catDir, `${name}.md`), `---\ntitle: "${name}"\n---\n${chunk}`, 'utf8');
+  }
+  t.after(() => fs.rmSync(wikiDir, { recursive: true, force: true }));
+
+  const res = analyzeCategoryNotes(wikiDir, { categoryRelPath: 'Wissen/Budget' });
+  assert.equal(res.totalNotesInCategory, 9);
+  assert.equal(res.includedCount, 9);
+  assert.equal(res.omittedByLimitCount, 0);
+
+  const lesbar = res.notes.filter(n => n.status === 'lesbar');
+  const uebersprungen = res.notes.filter(n => n.status === 'uebersprungen_budget');
+  assert.equal(lesbar.length, 8);
+  assert.equal(uebersprungen.length, 1);
+  assert.equal(uebersprungen[0].title, 'Note09');
+  assert.equal(uebersprungen[0].content, null);
+  assert.equal(res.totalCharsRead, 60000);
+});
+
+test('KI-Tools 28: Block 4 - analyzeCategoryNotes lehnt Notiz-Pfade und ungültige Kategorien strukturell ab', t => {
+  const wikiDir = createAnalyzeFixture(t);
+
+  assert.throws(
+    () => analyzeCategoryNotes(wikiDir, { categoryRelPath: 'Wissen/Linux/Debian.md' }),
+    /Haupt- oder Unterkategorie/
+  );
+  assert.throws(() => analyzeCategoryNotes(wikiDir, { categoryRelPath: 'Nicht/Vorhanden' }));
+  assert.throws(() => analyzeCategoryNotes(wikiDir, { categoryRelPath: '../etc' }));
+  assert.throws(() => analyzeCategoryNotes(wikiDir, { categoryRelPath: '' }), /categoryRelPath muss angegeben/);
+});
+
+test('KI-Tools 29: executeAiTool routet analyze_category_notes und fängt dessen Strukturfehler ab', async t => {
+  const wikiDir = createAnalyzeFixture(t);
+
+  const ok = await executeAiTool(wikiDir, 'analyze_category_notes', { categoryRelPath: 'Wissen/Linux' });
+  assert.equal(ok.success, true);
+  assert.equal(ok.data.includedCount, 2);
+
+  const bad = await executeAiTool(wikiDir, 'analyze_category_notes', { categoryRelPath: 'Wissen/Linux/Debian.md' });
+  assert.equal(bad.success, false);
+  assert.ok(bad.error.includes('Haupt- oder Unterkategorie'));
+});

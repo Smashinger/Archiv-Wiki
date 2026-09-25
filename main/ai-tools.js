@@ -426,6 +426,27 @@ const AI_TOOLS_DEFINITIONS = [
         required: ['orderedNames']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'analyze_category_notes',
+      description: 'Liest mehrere Notizen EINER Haupt- oder Unterkategorie in einem einzigen Aufruf (kein eigener Aufruf pro Notiz nötig) — für Aufträge wie "Analysiere alle Notizen in X und plane, wie sie umgeschrieben/sortiert werden sollten". Liefert nur Rohdaten (Titel, Pfad, Tags, Inhalt, gefundene [[Wikilinks]]); die eigentliche Analyse (Textvorschlag, neuer Titel, Position, Zielkategorie, Wikilink-Risiken) formulierst DU selbst daraus. Begrenzt auf standardmäßig 20, maximal 25 Notizen sowie ein Gesamt-Zeichenbudget — sehr große Notizen bekommen status "zu_gross" ohne Inhalt, bei Erreichen des Budgets status "uebersprungen_budget". WICHTIG: Dieses Werkzeug schreibt NICHTS und erzeugt KEINE Proposals — erst nach Rückmeldung des Nutzers zum Gesamtplan folgen ggf. einzelne propose_update_note-Vorschläge (separater Schritt).',
+      parameters: {
+        type: 'object',
+        properties: {
+          categoryRelPath: {
+            type: 'string',
+            description: 'Der relative Pfad der zu analysierenden Haupt- oder Unterkategorie (z. B. "Wissen/Software").'
+          },
+          limit: {
+            type: 'integer',
+            description: 'Maximale Anzahl analysierter Notizen (Standard: 20, absolute Obergrenze: 25).'
+          }
+        },
+        required: ['categoryRelPath']
+      }
+    }
   }
 ];
 
@@ -794,6 +815,112 @@ function listCategories(projectPath) {
   };
 }
 
+// KI-Block 4: reine Batch-Analyse. Liest mehrere Notizen EINER Kategorie in
+// einem einzigen Werkzeugaufruf (kein eigener Modell-Aufruf pro Notiz nötig)
+// und liefert dem Modell die Rohdaten, mit denen es selbst einen Plan
+// formuliert — dieses Werkzeug bewertet oder verändert nichts inhaltlich,
+// es begrenzt nur Menge und Umfang der gelesenen Daten. Schreibt nichts.
+const ANALYZE_DEFAULT_LIMIT = 20;
+const ANALYZE_HARD_LIMIT = 25;
+// Gesamtbudget über den ganzen Auftrag hinweg (Schutz vor Kontext-Überlauf
+// bei vielen mittelgroßen Notizen zusammen), zusätzlich zum Einzel-Limit
+// unten für eine einzelne sehr große Notiz.
+const ANALYZE_MAX_TOTAL_CHARS = 60000;
+const ANALYZE_MAX_PER_NOTE_CHARS = 8000;
+
+// Grobe, rein lexikalische Erkennung von [[Wikilink]]- bzw. [[Ziel|Anzeige]]-
+// Syntax — dieselbe Zwecksetzung wie die vorhandene Wikilink-Erkennung in
+// ai-knowledge.js, hier aber bewusst nur als Rohdaten-Liste ohne eigene
+// Bewertung ("Risiko" bleibt die Einschätzung des Modells anhand des bereits
+// mitgelieferten Inhalts, keine zweite Audit-Logik).
+function extractWikilinkTargets(body) {
+  const targets = new Set();
+  const pattern = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+  let match;
+  while ((match = pattern.exec(body)) !== null) {
+    const target = match[1].trim();
+    if (target) targets.add(target);
+  }
+  return [...targets];
+}
+
+function analyzeCategoryNotes(projectPath, { categoryRelPath, limit } = {}) {
+  const cleanCategory = String(categoryRelPath || '').trim();
+  if (!cleanCategory) {
+    throw new Error('categoryRelPath muss angegeben werden.');
+  }
+  const kind = notesFs.classifyEntry(projectPath, cleanCategory);
+  if (kind !== 'mainCategory' && kind !== 'subCategory') {
+    throw new Error('categoryRelPath muss eine Haupt- oder Unterkategorie sein.');
+  }
+
+  const prefix = `${cleanCategory}/`;
+  const allInCategory = notesFs.getSearchDocuments(projectPath)
+    .filter(doc => !doc.archived && doc.relPath.startsWith(prefix))
+    .sort((a, b) => a.relPath.localeCompare(b.relPath, 'de'));
+
+  const maxResults = Math.min(ANALYZE_HARD_LIMIT, Math.max(1, Number(limit) || ANALYZE_DEFAULT_LIMIT));
+  const selected = allInCategory.slice(0, maxResults);
+  const omittedByLimit = allInCategory.length - selected.length;
+
+  let remainingBudget = ANALYZE_MAX_TOTAL_CHARS;
+  let totalCharsRead = 0;
+  const notes = selected.map(doc => {
+    const sizeChars = (doc.body || '').length;
+    if (sizeChars > ANALYZE_MAX_PER_NOTE_CHARS) {
+      return {
+        title: doc.title,
+        relPath: doc.relPath,
+        categoryPath: doc.categoryPath,
+        tags: doc.tags || [],
+        sizeChars,
+        status: 'zu_gross',
+        truncated: false,
+        content: null,
+        wikilinks: []
+      };
+    }
+    if (remainingBudget <= 0) {
+      return {
+        title: doc.title,
+        relPath: doc.relPath,
+        categoryPath: doc.categoryPath,
+        tags: doc.tags || [],
+        sizeChars,
+        status: 'uebersprungen_budget',
+        truncated: false,
+        content: null,
+        wikilinks: []
+      };
+    }
+    const takeChars = Math.min(sizeChars, remainingBudget);
+    const truncated = takeChars < sizeChars;
+    const content = (doc.body || '').slice(0, takeChars);
+    remainingBudget -= takeChars;
+    totalCharsRead += takeChars;
+    return {
+      title: doc.title,
+      relPath: doc.relPath,
+      categoryPath: doc.categoryPath,
+      tags: doc.tags || [],
+      sizeChars,
+      status: 'lesbar',
+      truncated,
+      content,
+      wikilinks: extractWikilinkTargets(content)
+    };
+  });
+
+  return {
+    categoryRelPath: cleanCategory,
+    totalNotesInCategory: allInCategory.length,
+    includedCount: notes.length,
+    omittedByLimitCount: omittedByLimit,
+    totalCharsRead,
+    notes
+  };
+}
+
 async function executeAiTool(projectPath, name, args = {}) {
   if (!projectPath) {
     return { success: false, error: 'Kein Wiki-Projektpfad angegeben.' };
@@ -1015,6 +1142,8 @@ async function executeAiTool(projectPath, name, args = {}) {
           }
         };
       }
+      case 'analyze_category_notes':
+        return { success: true, data: analyzeCategoryNotes(projectPath, args) };
       case 'audit_knowledge_base': {
         const report = aiKnowledge.auditKnowledgeBase(projectPath);
         const proposals = [];
@@ -1107,6 +1236,7 @@ module.exports = {
   getRecentNotes,
   resolveNoteForOpen,
   listCategories,
+  analyzeCategoryNotes,
   executeAiTool,
   auditKnowledgeBase: aiKnowledge.auditKnowledgeBase,
   findDuplicateNotes: aiKnowledge.findDuplicateNotes,

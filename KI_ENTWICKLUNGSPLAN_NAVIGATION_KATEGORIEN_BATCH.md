@@ -9,7 +9,7 @@ Stand: 22.09.2026
 | 1 – Notizen öffnen und zuletzt bearbeitet | ✅ ABGESCHLOSSEN (23.09.2026) |
 | 2 – Kategorien zuverlässig auflisten | ✅ ABGESCHLOSSEN (23.09.2026) |
 | 3 – Kategorien umbenennen und verschieben | ✅ ABGESCHLOSSEN (25.09.2026) |
-| 4 – Reine Batch-Analyse | ⬜ offen |
+| 4 – Reine Batch-Analyse | ✅ ABGESCHLOSSEN (25.09.2026) |
 | 5 – Batch-Proposal für Inhaltsänderungen | ⬜ offen |
 | 6 – Umbenennungen und Wikilinks | ⬜ offen |
 | 7 – Logische Reihenfolge | ⬜ offen |
@@ -290,6 +290,30 @@ Nach diesem Block wird noch keine automatische Bearbeitung vieler Notizen begonn
 
 ## Entwicklungsblock 4: Reine Batch-Analyse
 
+**Status: ✅ ABGESCHLOSSEN (25.09.2026).** Implementiert und getestet
+(gezielte Tests + vollständige Testsuite, 372/372 grün). Umgesetzt:
+`analyze_category_notes` (Haupt- ODER Unterkategorie, Typ wird wie in Block 3
+per `classifyEntry()` festgestellt) liefert für alle enthaltenen, nicht
+archivierten Notizen Titel, Pfad, Kategoriepfad, Tags, Größe, Inhalt und
+lexikalisch erkannte Wikilink-Ziele in einem einzigen Werkzeugaufruf zurück -
+kein zusätzlicher Modell-Aufruf pro Notiz nötig.
+
+Begrenzungen: Standardlimit 20, harte Obergrenze 25 Notizen pro Aufruf
+(`ANALYZE_DEFAULT_LIMIT`/`ANALYZE_HARD_LIMIT`), Gesamtbudget 60.000 gelesene
+Zeichen (`ANALYZE_MAX_TOTAL_CHARS`) sowie 8.000 Zeichen je Einzelnotiz
+(`ANALYZE_MAX_PER_NOTE_CHARS`). Eine einzelne zu große Notiz erhält den
+Status `zu_gross` (kein Inhalt), eine Notiz, die erst nach Erschöpfung des
+Gesamtbudgets an der Reihe wäre, den Status `uebersprungen_budget`; sonst
+`lesbar`, ggf. mit `truncated: true` bei Budget-bedingter Kürzung. Über dem
+Limit liegende Notizen werden gezählt (`omittedByLimitCount`), aber nicht
+geladen. Bewertung, Umformulierung oder Sortiervorschläge bleiben bewusst
+Sache des Sprachmodells anhand der gelieferten Rohdaten - das Werkzeug selbst
+verändert und beurteilt inhaltlich nichts und schreibt nichts.
+
+Sicherheit: dieselbe `resolveWikiEntrySafe()`/`classifyEntry()`-Prüfung wie in
+Block 1-3 (keine zweite Implementierung), Notiz-Pfade statt Kategorie-Pfade
+werden strukturell abgewiesen.
+
 ### Ziel
 
 Die KI kann alle Notizen einer ausgewählten Unterkategorie analysieren, ohne bereits Änderungen vorzuschlagen.
@@ -487,7 +511,7 @@ Nach Umsetzung aller Einzelblöcke folgt eine gemeinsame Prüfung ausschließlic
 | 1 | Notiz öffnen und zuletzt bearbeitet ✅ ABGESCHLOSSEN | klein | gering |
 | 2 | Kategorien vollständig auflisten ✅ ABGESCHLOSSEN | klein | gering |
 | 3 | Kategorien umbenennen/verschieben ✅ ABGESCHLOSSEN | mittel | hoch |
-| 4 | Batch-Analyse ohne Änderungen | mittel | mittel |
+| 4 | Batch-Analyse ohne Änderungen ✅ ABGESCHLOSSEN | mittel | mittel |
 | 5 | Batch-Inhalts-Proposals | groß | hoch |
 | 6 | Umbenennung und Wikilink-Schutz | mittel | hoch |
 | 7 | Logische Reihenfolge | klein bis mittel | gering |
@@ -495,10 +519,10 @@ Nach Umsetzung aller Einzelblöcke folgt eine gemeinsame Prüfung ausschließlic
 
 ## Nächster freigegebener Entwicklungsblock
 
-Entwicklungsblock 1, 2 und 3 sind abgeschlossen (siehe Fortschritt-Tabelle
-und Status-Vermerke oben). Entwicklungsblock 4 („Reine Batch-Analyse") ist
-**noch nicht freigegeben** — nicht eigenständig beginnen, ohne dass der
-Nutzer das ausdrücklich beauftragt. Block 4 führt laut Plan noch keine
-Schreiboperationen ein (reine Analyse mehrerer Notizen), Block 5 (echte
-Batch-Proposals) baut darauf auf und hat laut Arbeitsreihenfolge-Tabelle das
-höchste Risiko im gesamten Plan.
+Entwicklungsblock 1, 2, 3 und 4 sind abgeschlossen (siehe Fortschritt-Tabelle
+und Status-Vermerke oben). Entwicklungsblock 5 („Batch-Proposal für
+Inhaltsänderungen") ist **noch nicht freigegeben** — nicht eigenständig
+beginnen, ohne dass der Nutzer das ausdrücklich beauftragt. Block 4 hat
+bewusst keine Schreiboperation eingeführt (reine Analyse mehrerer Notizen);
+Block 5 baut darauf auf und hat laut Arbeitsreihenfolge-Tabelle das höchste
+Risiko im gesamten Plan.

@@ -89,6 +89,10 @@ export function formatToolLabel(tool, args) {
   if (tool === 'propose_reorder_entries') {
     return '↕️ Neue Reihenfolge vorschlagen …';
   }
+  if (tool === 'analyze_category_notes') {
+    const target = args?.categoryRelPath ? ` „${args.categoryRelPath}“` : '';
+    return `🔬 Analysiere Kategorie${target} …`;
+  }
   return `⚙️ ${tool || 'Werkzeug'} …`;
 }
 
