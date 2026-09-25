@@ -288,7 +288,7 @@ function migrateProjectConfigPaths(projectPath, oldRelPath, newRelPath) {
 }
 
 function createProposal(projectPath, {
-  type = 'create', // 'create' | 'update' | 'create_category' | 'move' | 'rename' | 'delete' | 'rename_category' | 'move_subcategory' | 'reorder_entries'
+  type = 'create', // 'create' | 'update' | 'create_category' | 'move' | 'rename' | 'delete' | 'rename_category' | 'move_subcategory' | 'reorder_entries' | 'batch_update'
   subCategoryRelPath,
   relPath,
   title,
@@ -302,7 +302,8 @@ function createProposal(projectPath, {
   newName,
   targetMainCategoryRelPath,
   parentRelPath,
-  orderedNames
+  orderedNames,
+  items
 } = {}) {
   if (!projectPath) {
     throw new Error('Kein Projektordner angegeben.');
@@ -531,6 +532,98 @@ function createProposal(projectPath, {
       reorderOrderedNames: finalOrder,
       reorderKnownChildren: actualChildren.slice().sort()
     };
+  } else if (type === 'batch_update') {
+    // KI-Block 5 (Batch-Proposal für Inhaltsänderungen): EIN gemeinsamer
+    // Vorschlag statt vieler einzelner propose_update_note-Aufrufe. Jede
+    // Notiz bleibt beim Anwenden unabhängig (siehe applyProposal unten) —
+    // hier nur Erstellung, Validierung pro Eintrag und Diff-Berechnung.
+    // Bewusst NICHT unterstützt (Umfang von Block 5): Tag-Änderungen (dafür
+    // weiterhin propose_update_note nutzen) und eine gebündelte
+    // Reihenfolgeänderung (dafür weiterhin das eigenständige, bereits
+    // getestete propose_reorder_entries aus Block 3 nutzen) — eine
+    // Reihenfolge ist ein einzelner Config-Schreibvorgang, kein pro-Notiz
+    // atomarer Vorgang, und passt daher nicht in dieselbe Anwenden-Schleife.
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error('Für einen Batch-Vorschlag muss items eine nicht-leere Liste sein.');
+    }
+    const seenRelPaths = new Set();
+    const validItems = [];
+    const warnings = [];
+    for (const raw of items) {
+      const itemRelPath = String(raw?.relPath || '').trim();
+      try {
+        if (!itemRelPath) throw new Error('relPath fehlt.');
+        if (seenRelPaths.has(itemRelPath)) throw new Error('Doppelter Eintrag für dieselbe Notiz im selben Batch.');
+        const hasContent = raw.newContent !== undefined && raw.newContent !== null;
+        const hasTitle = typeof raw.newTitle === 'string' && raw.newTitle.trim().length > 0;
+        const hasMove = typeof raw.targetSubCategoryRelPath === 'string' && raw.targetSubCategoryRelPath.trim().length > 0;
+        if (!hasContent && !hasTitle && !hasMove) {
+          throw new Error('Mindestens eine Änderung (Inhalt, Titel oder Zielkategorie) muss angegeben werden.');
+        }
+        if (hasContent) {
+          if (String(raw.newContent).includes(' ')) throw new Error('Binäre Inhalte werden nicht unterstützt.');
+          if (String(raw.newContent).length > MAX_CONTENT_LENGTH) {
+            throw new Error(`Inhalt überschreitet die maximale Größe von ${Math.round(MAX_CONTENT_LENGTH / 1024)} KB.`);
+          }
+        }
+        const kind = notesFs.classifyEntry(projectPath, itemRelPath);
+        if (kind !== 'note') throw new Error('Nur einzelne Notizen können Teil eines Batch-Vorschlags sein.');
+
+        const existing = notesFs.readNote(projectPath, itemRelPath);
+        const oldContent = existing.body || '';
+        const oldTitle = existing.frontmatter?.title || path.basename(itemRelPath, '.md');
+        const cleanNewTitle = hasTitle ? raw.newTitle.trim() : null;
+        const cleanTargetSub = hasMove ? raw.targetSubCategoryRelPath.trim() : null;
+
+        let itemTargetRelPath = itemRelPath;
+        if (hasMove) {
+          notesFs.resolveWikiEntrySafe(projectPath, cleanTargetSub);
+          if (notesFs.getDepth(cleanTargetSub) !== 2) throw new Error('Zielkategorie muss eine Unterkategorie sein.');
+          itemTargetRelPath = path.join(cleanTargetSub, cleanNewTitle ? `${notesFs.sanitizeName(cleanNewTitle)}.md` : path.basename(itemRelPath));
+        } else if (hasTitle) {
+          itemTargetRelPath = path.join(path.dirname(itemRelPath), `${notesFs.sanitizeName(cleanNewTitle)}.md`);
+        }
+        if (itemTargetRelPath !== itemRelPath) {
+          const itemTargetFullPath = notesFs.resolveWikiEntrySafe(projectPath, itemTargetRelPath);
+          if (fs.existsSync(itemTargetFullPath)) throw new Error('Am Zielort existiert bereits eine Notiz mit diesem Namen.');
+        }
+
+        const finalItemContent = hasContent ? String(raw.newContent) : oldContent;
+        const itemDiff = computeLineDiff(oldContent, finalItemContent);
+        if (cleanNewTitle) itemDiff.push({ type: 'add', line: `Titel: „${oldTitle}“ → „${cleanNewTitle}“` });
+        if (cleanTargetSub) itemDiff.push({ type: 'add', line: `Kategorie: „${itemRelPath}“ → „${itemTargetRelPath}“` });
+
+        seenRelPaths.add(itemRelPath);
+        validItems.push({
+          relPath: itemRelPath,
+          targetRelPath: itemTargetRelPath,
+          title: oldTitle,
+          newContent: hasContent ? finalItemContent : null,
+          newTitle: cleanNewTitle,
+          targetSubCategoryRelPath: cleanTargetSub,
+          diff: itemDiff,
+          baseVersion: existing.version,
+          baseFrontmatterFingerprint: computeFrontmatterFingerprint(existing.frontmatter)
+        });
+      } catch (err) {
+        warnings.push({ relPath: itemRelPath || '(unbekannt)', message: err.message });
+      }
+    }
+    if (validItems.length === 0) {
+      throw new Error('Keine der angegebenen Notizen konnte für den Batch-Vorschlag übernommen werden.');
+    }
+    title = `Batch-Änderung (${validItems.length} ${validItems.length === 1 ? 'Notiz' : 'Notizen'})`;
+    proposalExtra = {
+      items: validItems,
+      warnings,
+      counts: {
+        total: validItems.length,
+        contentChanges: validItems.filter(i => i.newContent !== null).length,
+        renames: validItems.filter(i => i.newTitle !== null).length,
+        moves: validItems.filter(i => i.targetSubCategoryRelPath !== null).length
+      }
+    };
+    computedDiff = [];
   } else {
     throw new Error(`Unbekannter Proposal-Typ: ${type}`);
   }
@@ -564,6 +657,10 @@ function createProposal(projectPath, {
     reorderParentRelPath: proposalExtra?.reorderParentRelPath ?? null,
     reorderOrderedNames: proposalExtra?.reorderOrderedNames || null,
     reorderKnownChildren: proposalExtra?.reorderKnownChildren || null,
+    // KI-Block 5 (Batch-Proposal): nur bei batch_update gesetzt.
+    items: proposalExtra?.items || null,
+    warnings: proposalExtra?.warnings || null,
+    counts: proposalExtra?.counts || null,
     createdAt: new Date(nowMs).toISOString(),
     createdAtTimestamp: nowMs
   };
@@ -582,7 +679,7 @@ function getProposal(proposalId) {
   return proposal;
 }
 
-function applyProposal(proposalId, currentProjectPath) {
+function applyProposal(proposalId, currentProjectPath, options = {}) {
   const proposal = activeProposals.get(proposalId);
   if (!proposal) {
     throw createStaleProposalError('Der Änderungsvorschlag existiert nicht oder wurde bereits verarbeitet.');
@@ -777,6 +874,78 @@ function applyProposal(proposalId, currentProjectPath) {
       action: 'reordered',
       relPath: parentRelPath,
       title: proposal.title
+    };
+  } else if (proposal.type === 'batch_update') {
+    // KI-Block 5: jede Notiz wird unabhängig angewendet — ein Fehler oder ein
+    // zwischenzeitlich veränderter Eintrag bei EINER Notiz darf die anderen
+    // nicht verhindern (siehe Abschnitt "Anwendung" im Entwicklungsplan).
+    // deselectedRelPaths kommt vom Renderer (Nutzer hat Notizen in der
+    // Vorschau abgewählt) — dieselbe proposal.items-Liste, aber ohne erneute
+    // Struktur-/Sicherheitsprüfung (die geschah bereits bei createProposal;
+    // resolveWikiEntrySafe/notesFs.* prüfen bei der eigentlichen Anwendung
+    // trotzdem erneut, siehe unten).
+    const deselected = new Set(Array.isArray(options?.deselectedRelPaths) ? options.deselectedRelPaths : []);
+    const results = [];
+    const summary = { updated: 0, skippedStale: 0, failed: 0, deselected: 0 };
+    for (const item of (proposal.items || [])) {
+      if (deselected.has(item.relPath)) {
+        results.push({ relPath: item.relPath, outcome: 'skipped_deselected' });
+        summary.deselected++;
+        continue;
+      }
+      try {
+        // Wiederverwendet dieselbe Frischeprüfung wie bei Einzel-Proposals
+        // (verifyProposalFreshness oben), nur pro Batch-Eintrag aufgerufen.
+        verifyProposalFreshness({
+          projectPath: proposal.projectPath,
+          sourceRelPath: item.relPath,
+          baseVersion: item.baseVersion,
+          baseFrontmatterFingerprint: item.baseFrontmatterFingerprint
+        });
+        let currentRelPath = item.relPath;
+        if (item.newContent !== null && item.newContent !== undefined) {
+          notesFs.writeNote(proposal.projectPath, currentRelPath, item.newContent, null, item.baseVersion);
+        }
+        if (item.newTitle) {
+          const renameTargetFullPath = notesFs.resolveWikiEntrySafe(
+            proposal.projectPath,
+            path.join(path.dirname(currentRelPath), `${notesFs.sanitizeName(item.newTitle)}.md`)
+          );
+          if (fs.existsSync(renameTargetFullPath)) {
+            throw createStaleProposalError('Eine Notiz mit dem neuen Namen existiert bereits. Dieser Eintrag ist veraltet.');
+          }
+          const renameRes = notesFs.renameEntry(proposal.projectPath, currentRelPath, item.newTitle);
+          currentRelPath = renameRes.relPath;
+        }
+        if (item.targetSubCategoryRelPath) {
+          const targetDir = notesFs.resolveWikiEntrySafe(proposal.projectPath, item.targetSubCategoryRelPath);
+          const moveTargetFullPath = path.join(targetDir, path.basename(currentRelPath));
+          if (fs.existsSync(moveTargetFullPath)) {
+            throw createStaleProposalError('Am Zielort existiert bereits eine Notiz mit diesem Namen. Dieser Eintrag ist veraltet.');
+          }
+          if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+          const moveRes = notesFs.moveEntry(proposal.projectPath, currentRelPath, item.targetSubCategoryRelPath);
+          currentRelPath = moveRes.relPath;
+        }
+        results.push({ relPath: item.relPath, newRelPath: currentRelPath, outcome: 'updated' });
+        summary.updated++;
+      } catch (err) {
+        if (err.code === 'AI_PROPOSAL_STALE') {
+          results.push({ relPath: item.relPath, outcome: 'skipped_stale', error: err.message });
+          summary.skippedStale++;
+        } else {
+          results.push({ relPath: item.relPath, outcome: 'failed', error: err.message });
+          summary.failed++;
+        }
+      }
+    }
+    activeProposals.delete(proposalId);
+    return {
+      success: true,
+      action: 'batch_update',
+      title: proposal.title,
+      results,
+      summary
     };
   }
 }

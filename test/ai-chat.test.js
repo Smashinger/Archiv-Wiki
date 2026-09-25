@@ -979,3 +979,154 @@ test('KI-Chat UI 18: Block 3 - shouldAllowProposalApplication schützt eine Noti
   assert.equal(res3, true);
   assert.equal(editorClosed, false, 'unbeteiligte, nicht dirty Notiz braucht keinen canLeaveCurrentRoute-Umweg');
 });
+test('KI-Chat UI 19: formatToolLabel formatiert propose_batch_content_update mit Notizanzahl', async () => {
+  const { formatToolLabel } = await import('../renderer/js/ai-chat.js');
+
+  assert.equal(
+    formatToolLabel('propose_batch_content_update', { items: [{ relPath: 'A.md' }, { relPath: 'B.md' }] }),
+    '📚 Batch-Änderungsvorschlag (2 Notizen) …'
+  );
+  assert.equal(formatToolLabel('propose_batch_content_update', {}), '📚 Batch-Änderungsvorschlag …');
+});
+
+test('KI-Chat UI 20: Block 5 - shouldAllowProposalApplication schützt eine offene Notiz, die Teil eines Batch-Vorschlags ist', async () => {
+  const { shouldAllowProposalApplication } = await import('../renderer/js/ai-chat.js');
+
+  let dirty = true;
+  let confirmDialogResult = false;
+  let editorClosed = false;
+
+  const bindings = {
+    getOpenRelPath: () => 'Entwicklung/Workflows/NoteB.md',
+    isDirty: () => dirty,
+    showConfirmDialog: async () => confirmDialogResult,
+    canLeaveCurrentRoute: async () => true,
+    closeEditor: () => { editorClosed = true; },
+    getNoteTitle: () => 'Notiz B'
+  };
+
+  const batchProposal = {
+    type: 'batch_update',
+    items: [
+      { relPath: 'Entwicklung/Workflows/NoteA.md', targetRelPath: 'Entwicklung/Workflows/NoteA.md' },
+      { relPath: 'Entwicklung/Workflows/NoteB.md', targetRelPath: 'Entwicklung/Projekte/Notiz B Neu.md' }
+    ]
+  };
+
+  const res1 = await shouldAllowProposalApplication(batchProposal, bindings);
+  assert.equal(res1, false, 'Dirty offene Notiz im Batch muss beim Abbrechen blockieren');
+  assert.equal(editorClosed, false);
+
+  confirmDialogResult = true;
+  const res2 = await shouldAllowProposalApplication(batchProposal, bindings);
+  assert.equal(res2, true);
+  assert.equal(editorClosed, true, 'Editor muss vor Anwenden des Batches geschlossen werden');
+
+  // Offene Notiz ist an KEINEM Batch-Eintrag beteiligt (weder alter noch neuer Pfad).
+  editorClosed = false;
+  dirty = false;
+  const bindingsUnrelated = { ...bindings, getOpenRelPath: () => 'Andere/Kategorie/Unbeteiligt.md' };
+  const res3 = await shouldAllowProposalApplication(batchProposal, bindingsUnrelated);
+  assert.equal(res3, true);
+  assert.equal(editorClosed, false, 'Unbeteiligte Notiz braucht keine Sonderbehandlung');
+});
+
+test('KI-Chat UI 21: Block 5 - renderProposalCard rendert Batch-Karte mit Checkbox-Abwahl und Ergebnis pro Notiz', async () => {
+  const { renderProposalCard } = await import('../renderer/js/ai-chat.js');
+
+  function createMockElement(tag) {
+    const el = {
+      tagName: tag.toUpperCase(),
+      className: '',
+      innerHTML: '',
+      textContent: '',
+      dataset: {},
+      style: {},
+      hidden: false,
+      checked: false,
+      disabled: false,
+      children: [],
+      classList: {
+        _classes: new Set(),
+        add(c) { this._classes.add(c); },
+        remove(c) { this._classes.delete(c); },
+        contains(c) { return this._classes.has(c); }
+      },
+      appendChild(child) { el.children.push(child); return child; },
+      insertBefore(child) { el.children.unshift(child); return child; },
+      listeners: {},
+      addEventListener(type, handler) { el.listeners[type] = handler; },
+      click() { if (el.listeners.click) return el.listeners.click({ preventDefault: () => {} }); }
+    };
+    return el;
+  }
+
+  const prevDoc = global.document;
+  global.document = { createElement: createMockElement };
+
+  let capturedOptions = null;
+  const prevWindow = global.window;
+  global.window = {
+    archivAPI: {
+      ai: {
+        applyProposal: async (id, options) => {
+          assert.equal(id, 'prop_batch_1');
+          capturedOptions = options;
+          return {
+            success: true,
+            results: [
+              { relPath: 'Entwicklung/Workflows/NoteA.md', outcome: 'updated' },
+              { relPath: 'Entwicklung/Workflows/NoteB.md', outcome: 'skipped_deselected' }
+            ],
+            summary: { updated: 1, skippedStale: 0, failed: 0, deselected: 1 }
+          };
+        },
+        rejectProposal: async () => ({ success: true })
+      }
+    }
+  };
+
+  try {
+    const proposal = {
+      proposalId: 'prop_batch_1',
+      type: 'batch_update',
+      title: 'Batch-Änderung (2 Notizen)',
+      counts: { total: 2, contentChanges: 2, renames: 0, moves: 0 },
+      warnings: [{ relPath: 'Entwicklung/Workflows/Uebersprungen.md', message: 'existiert nicht' }],
+      items: [
+        { relPath: 'Entwicklung/Workflows/NoteA.md', title: 'Notiz A', diff: [{ type: 'add', line: 'Neu A' }] },
+        { relPath: 'Entwicklung/Workflows/NoteB.md', title: 'Notiz B', diff: [{ type: 'add', line: 'Neu B' }] }
+      ]
+    };
+
+    const card = renderProposalCard(proposal, {});
+    assert.ok(card.className.includes('ai-proposal-card-batch'));
+
+    const warnEl = card.children.find(c => c.className === 'ai-proposal-batch-warnings');
+    assert.ok(warnEl, 'Warnungen werden angezeigt');
+    assert.ok(warnEl.textContent.includes('Uebersprungen.md'));
+
+    const listEl = card.children.find(c => c.className === 'ai-proposal-batch-list');
+    assert.equal(listEl.children.length, 2, 'Eine Zeile pro Notiz');
+
+    const rowB = listEl.children[1];
+    const checkboxB = rowB.children.find(c => c.className === 'ai-proposal-batch-checkbox');
+    assert.equal(checkboxB.checked, true, 'Standardmäßig sind alle Notizen ausgewählt');
+    checkboxB.checked = false; // Nutzer wählt Notiz B ab
+
+    const actions = card.children.find(c => c.className === 'ai-proposal-actions');
+    const applyBtn = actions.children.find(c => c.className.includes('ai-proposal-apply-btn'));
+    assert.ok(applyBtn.textContent.includes('(2)'));
+
+    await applyBtn.click();
+
+    assert.deepEqual(capturedOptions, { deselectedRelPaths: ['Entwicklung/Workflows/NoteB.md'] });
+    assert.ok(card.classList.contains('is-applied'));
+
+    const outcomeA = rowB.children.find(c => c.className === 'ai-proposal-batch-item-outcome');
+    assert.ok(outcomeA, 'Ergebnis-Badge wird pro Zeile ergänzt');
+  } finally {
+    global.document = prevDoc;
+    global.window = prevWindow;
+  }
+});

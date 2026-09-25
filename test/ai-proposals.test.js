@@ -1084,3 +1084,160 @@ test('AI-Proposals 41: Block 3 - veraltetes reorder_entries Proposal wird abgewi
     aiProposals.applyProposal(prop.id, wikiDir);
   }, { code: 'AI_PROPOSAL_STALE' });
 });
+function createBatchFixture(t) {
+  fs.mkdirSync(testHome, { recursive: true });
+  const wikiDir = fs.mkdtempSync(path.join(testHome, 'ai-prop-batch-'));
+
+  const workflowsDir = path.join(wikiDir, 'Entwicklung', 'Workflows');
+  fs.mkdirSync(workflowsDir, { recursive: true });
+  fs.mkdirSync(path.join(wikiDir, 'Entwicklung', 'Projekte'), { recursive: true });
+
+  fs.writeFileSync(path.join(workflowsDir, 'NoteA.md'), '---\ntitle: "Notiz A"\n---\nAlter Inhalt A', 'utf8');
+  fs.writeFileSync(path.join(workflowsDir, 'NoteB.md'), '---\ntitle: "Notiz B"\n---\nAlter Inhalt B', 'utf8');
+  fs.writeFileSync(path.join(workflowsDir, 'NoteC.md'), '---\ntitle: "Notiz C"\n---\nAlter Inhalt C', 'utf8');
+  fs.writeFileSync(path.join(workflowsDir, 'Kollision.md'), '---\ntitle: "Kollision"\n---\nBereits vorhanden', 'utf8');
+
+  t.after(() => {
+    aiProposals.clearAllProposals();
+    fs.rmSync(wikiDir, { recursive: true, force: true });
+  });
+
+  return wikiDir;
+}
+
+test('AI-Proposals 42: Block 5 - batch_update erzeugt EINEN Vorschlag mit Diff und Zählung pro Notiz, ohne Dateien zu schreiben', t => {
+  const wikiDir = createBatchFixture(t);
+
+  const proposal = aiProposals.createProposal(wikiDir, {
+    type: 'batch_update',
+    items: [
+      { relPath: 'Entwicklung/Workflows/NoteA.md', newContent: 'Neuer Inhalt A' },
+      { relPath: 'Entwicklung/Workflows/NoteB.md', newContent: 'Neuer Inhalt B', newTitle: 'Notiz B umbenannt' }
+    ],
+    reason: 'Vereinfachte Sprache'
+  });
+
+  assert.equal(proposal.type, 'batch_update');
+  assert.equal(proposal.items.length, 2);
+  assert.equal(proposal.counts.total, 2);
+  assert.equal(proposal.counts.contentChanges, 2);
+  assert.equal(proposal.counts.renames, 1);
+  assert.equal(proposal.counts.moves, 0);
+  assert.deepEqual(proposal.warnings, []);
+
+  const itemB = proposal.items.find(i => i.relPath === 'Entwicklung/Workflows/NoteB.md');
+  assert.equal(itemB.targetRelPath, 'Entwicklung/Workflows/Notiz B umbenannt.md');
+  assert.ok(itemB.diff.length > 0);
+
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Entwicklung/Workflows/NoteA.md')), true, 'Ursprungsdatei bleibt vor Freigabe unverändert erreichbar');
+  const stillOldContent = fs.readFileSync(path.join(wikiDir, 'Entwicklung/Workflows/NoteA.md'), 'utf8');
+  assert.ok(stillOldContent.includes('Alter Inhalt A'), 'Vor der Freigabe darf der Inhalt nicht überschrieben sein');
+});
+
+test('AI-Proposals 43: Block 5 - batch_update überspringt ungültige Einzeleinträge als Warnung statt den ganzen Vorschlag abzulehnen', t => {
+  const wikiDir = createBatchFixture(t);
+
+  const proposal = aiProposals.createProposal(wikiDir, {
+    type: 'batch_update',
+    items: [
+      { relPath: 'Entwicklung/Workflows/NoteA.md', newContent: 'Gültige Änderung' },
+      { relPath: 'Entwicklung/Workflows/NichtVorhanden.md', newContent: 'Egal' },
+      { relPath: 'Entwicklung/Workflows/NoteB.md' }, // weder newContent noch newTitle noch Move
+      { relPath: 'Entwicklung/Workflows/NoteC.md', newTitle: 'Kollision' } // Zielname existiert bereits
+    ]
+  });
+
+  assert.equal(proposal.items.length, 1, 'Nur der gültige Eintrag wird übernommen');
+  assert.equal(proposal.items[0].relPath, 'Entwicklung/Workflows/NoteA.md');
+  assert.equal(proposal.warnings.length, 3);
+  const warnedPaths = proposal.warnings.map(w => w.relPath).sort();
+  assert.deepEqual(warnedPaths, [
+    'Entwicklung/Workflows/NichtVorhanden.md',
+    'Entwicklung/Workflows/NoteB.md',
+    'Entwicklung/Workflows/NoteC.md'
+  ]);
+});
+
+test('AI-Proposals 44: Block 5 - batch_update lehnt komplett leere oder vollständig ungültige items-Listen ab', t => {
+  const wikiDir = createBatchFixture(t);
+
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, { type: 'batch_update', items: [] });
+  }, /nicht-leere Liste/);
+
+  assert.throws(() => {
+    aiProposals.createProposal(wikiDir, {
+      type: 'batch_update',
+      items: [{ relPath: 'Entwicklung/Workflows/NichtVorhanden.md', newContent: 'X' }]
+    });
+  }, /Keine der angegebenen Notizen/);
+});
+
+test('AI-Proposals 45: Block 5 - applyProposal wendet jede Notiz unabhängig an (Erfolg, Abwahl, veraltet) ohne dass ein Fehler die anderen verhindert', t => {
+  const wikiDir = createBatchFixture(t);
+
+  const proposal = aiProposals.createProposal(wikiDir, {
+    type: 'batch_update',
+    items: [
+      { relPath: 'Entwicklung/Workflows/NoteA.md', newContent: 'Frisch geschrieben A' },
+      { relPath: 'Entwicklung/Workflows/NoteB.md', newContent: 'Frisch geschrieben B' },
+      { relPath: 'Entwicklung/Workflows/NoteC.md', newContent: 'Frisch geschrieben C' }
+    ]
+  });
+
+  // NoteB wird NACH Vorschlagserstellung, aber VOR Übernahme extern geändert
+  // (z. B. manuell im Editor gespeichert) -> muss beim Anwenden übersprungen
+  // werden, statt die veraltete Version zu überschreiben.
+  fs.writeFileSync(
+    path.join(wikiDir, 'Entwicklung/Workflows/NoteB.md'),
+    '---\ntitle: "Notiz B"\n---\nZwischenzeitlich von Hand geändert',
+    'utf8'
+  );
+
+  const result = aiProposals.applyProposal(proposal.id, wikiDir, {
+    deselectedRelPaths: ['Entwicklung/Workflows/NoteC.md']
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.summary.updated, 1);
+  assert.equal(result.summary.skippedStale, 1);
+  assert.equal(result.summary.deselected, 1);
+  assert.equal(result.summary.failed, 0);
+
+  const byPath = new Map(result.results.map(r => [r.relPath, r]));
+  assert.equal(byPath.get('Entwicklung/Workflows/NoteA.md').outcome, 'updated');
+  assert.equal(byPath.get('Entwicklung/Workflows/NoteB.md').outcome, 'skipped_stale');
+  assert.equal(byPath.get('Entwicklung/Workflows/NoteC.md').outcome, 'skipped_deselected');
+
+  assert.ok(fs.readFileSync(path.join(wikiDir, 'Entwicklung/Workflows/NoteA.md'), 'utf8').includes('Frisch geschrieben A'));
+  assert.ok(fs.readFileSync(path.join(wikiDir, 'Entwicklung/Workflows/NoteB.md'), 'utf8').includes('Zwischenzeitlich von Hand geändert'), 'Die manuelle Änderung darf nicht überschrieben werden');
+  assert.ok(fs.readFileSync(path.join(wikiDir, 'Entwicklung/Workflows/NoteC.md'), 'utf8').includes('Alter Inhalt C'), 'Abgewählte Notiz bleibt unverändert');
+
+  assert.equal(aiProposals.getProposal(proposal.id), null, 'Proposal wird nach Anwenden aus dem Speicher entfernt');
+});
+
+test('AI-Proposals 46: Block 5 - applyProposal kann Inhalt, Umbenennung und Verschiebung in einem Batch-Eintrag kombinieren', t => {
+  const wikiDir = createBatchFixture(t);
+
+  const proposal = aiProposals.createProposal(wikiDir, {
+    type: 'batch_update',
+    items: [{
+      relPath: 'Entwicklung/Workflows/NoteA.md',
+      newContent: 'Kombinierter neuer Inhalt',
+      newTitle: 'Notiz A Neu',
+      targetSubCategoryRelPath: 'Entwicklung/Projekte'
+    }]
+  });
+
+  const result = aiProposals.applyProposal(proposal.id, wikiDir);
+  assert.equal(result.summary.updated, 1);
+  const outcome = result.results[0];
+  assert.equal(outcome.newRelPath, 'Entwicklung/Projekte/Notiz A Neu.md');
+
+  const finalFullPath = path.join(wikiDir, outcome.newRelPath);
+  assert.equal(fs.existsSync(finalFullPath), true);
+  const finalNote = notesFs.readNote(wikiDir, outcome.newRelPath);
+  assert.equal(finalNote.body.trim(), 'Kombinierter neuer Inhalt');
+  assert.equal(finalNote.frontmatter.title, 'Notiz A Neu');
+  assert.equal(fs.existsSync(path.join(wikiDir, 'Entwicklung/Workflows/NoteA.md')), false, 'Alte Datei existiert nach Verschieben nicht mehr');
+});

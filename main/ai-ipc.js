@@ -188,6 +188,24 @@ function validateProposalIdArgument(args) {
   return args[0].proposalId;
 }
 
+// KI-Block 5 (Batch-Proposal): wie validateProposalIdArgument oben, zusätzlich
+// eine optionale Liste vom Nutzer in der Vorschau abgewählter relPaths — rein
+// informativ für applyProposal(), keine eigene Pfad-Sicherheitsprüfung nötig
+// (resolveWikiEntrySafe/notesFs.* prüfen jeden Eintrag beim Anwenden erneut).
+function validateApplyProposalArgument(args) {
+  if (args.length !== 1) throw invalidArgument();
+  requireAllowedKeys(args[0], new Set(['proposalId', 'deselectedRelPaths']));
+  if (typeof args[0].proposalId !== 'string' || !/^[A-Za-z0-9._:-]{1,200}$/.test(args[0].proposalId)) throw invalidArgument('Ungültige Proposal-ID.');
+  let deselectedRelPaths;
+  if (args[0].deselectedRelPaths !== undefined) {
+    if (!Array.isArray(args[0].deselectedRelPaths) || args[0].deselectedRelPaths.some(p => typeof p !== 'string')) {
+      throw invalidArgument('Ungültige deselectedRelPaths.');
+    }
+    deselectedRelPaths = args[0].deselectedRelPaths;
+  }
+  return { proposalId: args[0].proposalId, deselectedRelPaths };
+}
+
 function registerAiIpc({
   getMainWindow,
   getCurrentProject,
@@ -315,13 +333,13 @@ function registerAiIpc({
     };
   });
 
-  handleStructured('ai:applyProposal', validateProposalIdArgument, async (_event, proposalId) => {
+  handleStructured('ai:applyProposal', validateApplyProposalArgument, async (_event, { proposalId, deselectedRelPaths }) => {
     const currentProject = typeof getCurrentProject === 'function' ? getCurrentProject() : null;
     const projectPath = currentProject?.path || null;
     if (!projectPath) {
       return { success: false, error: 'Kein geöffnetes Wiki-Projekt vorhanden.', code: 'NO_PROJECT', category: 'project' };
     }
-    return aiProposals.applyProposal(proposalId, projectPath);
+    return aiProposals.applyProposal(proposalId, projectPath, { deselectedRelPaths });
   });
 
   handleStructured('ai:rejectProposal', validateProposalIdArgument, (_event, proposalId) => {

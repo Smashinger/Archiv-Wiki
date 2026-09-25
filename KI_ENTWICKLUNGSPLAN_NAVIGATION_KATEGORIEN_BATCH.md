@@ -10,7 +10,7 @@ Stand: 22.09.2026
 | 2 – Kategorien zuverlässig auflisten | ✅ ABGESCHLOSSEN (23.09.2026) |
 | 3 – Kategorien umbenennen und verschieben | ✅ ABGESCHLOSSEN (25.09.2026) |
 | 4 – Reine Batch-Analyse | ✅ ABGESCHLOSSEN (25.09.2026) |
-| 5 – Batch-Proposal für Inhaltsänderungen | ⬜ offen |
+| 5 – Batch-Proposal für Inhaltsänderungen | ✅ ABGESCHLOSSEN (26.09.2026) |
 | 6 – Umbenennungen und Wikilinks | ⬜ offen |
 | 7 – Logische Reihenfolge | ⬜ offen |
 | Abschließender Integrationsblock | ⬜ offen |
@@ -360,6 +360,46 @@ Dieser Block schreibt nichts und erzeugt noch keine Update-Proposals. Der Nutzer
 
 ## Entwicklungsblock 5: Batch-Proposal für Inhaltsänderungen
 
+**Status: ✅ ABGESCHLOSSEN (26.09.2026).** Implementiert und getestet
+(gezielte Tests + vollständige Testsuite, 381/381 grün). Umgesetzt:
+`propose_batch_content_update` erzeugt EINEN gemeinsamen `batch_update`-
+Vorschlag für mehrere Notizen gleichzeitig (Inhalt und/oder Titel und/oder
+Ziel-Unterkategorie je Notiz), statt vieler einzelner
+`propose_update_note`-Karten. Die Vorschau-Karte zeigt Gesamtzahl sowie
+Inhalts-/Umbenennungs-/Verschiebungs-Zähler, klappbare Diffs pro Notiz und
+eine Checkbox je Notiz zum Abwählen vor der Übernahme.
+
+Anwenden ist pro Notiz unabhängig (wie im Plan gefordert): jede ausgewählte
+Notiz bekommt eine eigene Frischeprüfung (wiederverwendet
+`verifyProposalFreshness()` aus den bestehenden Einzel-Proposals statt einer
+zweiten Prüf-Logik) und wird einzeln gespeichert/umbenannt/verschoben — ein
+Fehler oder eine zwischenzeitliche Änderung bei einer Notiz verhindert nicht
+die anderen. Der Abschlussbericht unterscheidet `updated`/`skipped_stale`/
+`skipped_deselected`/`failed` je Notiz, exakt die im Plan genannten vier
+Kategorien.
+
+Ungültige Einzeleinträge beim Erstellen (nicht existierende Notiz, weder
+Inhalt/Titel/Kategorie angegeben, Namenskollision am Ziel) werden als
+Warnung im Vorschlag markiert statt den gesamten Batch abzulehnen; schlägt
+JEDER Eintrag fehl, wird der Vorschlag insgesamt abgelehnt (keine leere
+Karte).
+
+**Bewusste Abgrenzung (im Plan als Vorschau-Zähler genannt, hier nicht
+umgesetzt):** Tag-Änderungen sind NICHT Teil eines Batch-Eintrags (dafür
+weiterhin `propose_update_note` für die jeweilige Einzelnotiz) und eine
+"Anzahl Reihenfolgeänderungen" ist ebenfalls nicht Teil dieses
+Proposal-Typs — eine neue Reihenfolge ist ein einzelner Config-Schreibvorgang
+für einen ganzen Ordner, kein pro-Notiz atomarer Vorgang, und wird bereits
+vollständig von `propose_reorder_entries` aus Block 3 abgedeckt. Beides wird
+im System-Prompt der KI explizit als weiterhin richtige Wahl genannt.
+
+Sicherheit: Notiz-Pfade werden wie bei jedem anderen KI-Werkzeug über
+`classifyEntry()`/`resolveWikiEntrySafe()` geprüft (keine zweite
+Implementierung); der volle neue/alte Notizinhalt bleibt serverseitig im
+Proposal-Speicher und wird NICHT in den Modellkontext zurückgegeben (nur
+Diff, Titel, Pfade) — derselbe Grundsatz wie beim bestehenden
+`propose_update_note`.
+
 ### Ziel
 
 Nach Zustimmung zum Analyseplan erzeugt die KI einen gemeinsamen, kontrollierbaren Änderungsvorschlag.
@@ -512,17 +552,17 @@ Nach Umsetzung aller Einzelblöcke folgt eine gemeinsame Prüfung ausschließlic
 | 2 | Kategorien vollständig auflisten ✅ ABGESCHLOSSEN | klein | gering |
 | 3 | Kategorien umbenennen/verschieben ✅ ABGESCHLOSSEN | mittel | hoch |
 | 4 | Batch-Analyse ohne Änderungen ✅ ABGESCHLOSSEN | mittel | mittel |
-| 5 | Batch-Inhalts-Proposals | groß | hoch |
+| 5 | Batch-Inhalts-Proposals ✅ ABGESCHLOSSEN | groß | hoch |
 | 6 | Umbenennung und Wikilink-Schutz | mittel | hoch |
 | 7 | Logische Reihenfolge | klein bis mittel | gering |
 | 8 | Gesamtabnahme | mittel | abhängig von Befunden |
 
 ## Nächster freigegebener Entwicklungsblock
 
-Entwicklungsblock 1, 2, 3 und 4 sind abgeschlossen (siehe Fortschritt-Tabelle
-und Status-Vermerke oben). Entwicklungsblock 5 („Batch-Proposal für
-Inhaltsänderungen") ist **noch nicht freigegeben** — nicht eigenständig
-beginnen, ohne dass der Nutzer das ausdrücklich beauftragt. Block 4 hat
-bewusst keine Schreiboperation eingeführt (reine Analyse mehrerer Notizen);
-Block 5 baut darauf auf und hat laut Arbeitsreihenfolge-Tabelle das höchste
-Risiko im gesamten Plan.
+Entwicklungsblock 1 bis 5 sind abgeschlossen (siehe Fortschritt-Tabelle und
+Status-Vermerke oben). Entwicklungsblock 6 („Umbenennungen und Wikilinks")
+ist **noch nicht freigegeben** — nicht eigenständig beginnen, ohne dass der
+Nutzer das ausdrücklich beauftragt. Block 5 hat mit `propose_batch_content_update`
+erstmals echte, mehrfache Inhaltsschreibvorgänge eingeführt (mit Human-in-
+the-Loop-Bestätigung und pro-Notiz-Frischeprüfung); Block 6 baut darauf auf
+und ergänzt gezielten Wikilink-Schutz bei Massenumbenennungen.

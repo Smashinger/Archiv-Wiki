@@ -93,6 +93,10 @@ export function formatToolLabel(tool, args) {
     const target = args?.categoryRelPath ? ` „${args.categoryRelPath}“` : '';
     return `🔬 Analysiere Kategorie${target} …`;
   }
+  if (tool === 'propose_batch_content_update') {
+    const count = Array.isArray(args?.items) ? ` (${args.items.length} Notizen)` : '';
+    return `📚 Batch-Änderungsvorschlag${count} …`;
+  }
   return `⚙️ ${tool || 'Werkzeug'} …`;
 }
 
@@ -139,9 +143,16 @@ export async function shouldAllowProposalApplication(proposal, {
   // Teilbaum-Prüfung wie bei delete/move oben, nur eine Ebene höher angesetzt.
   // reorder_entries ändert nie den Pfad einer Notiz und braucht diese Prüfung
   // nicht.
+  // KI-Block 5 (Batch-Proposal): betrifft ggf. mehrere Notizen gleichzeitig
+  // (proposal.items statt eines einzelnen relPath) — die offene Notiz ist
+  // betroffen, sobald sie unter ihrem alten ODER neuen Pfad in der Liste steht.
+  const affectsOpenNoteViaBatch = type === 'batch_update' && Array.isArray(proposal?.items) &&
+    proposal.items.some(item => openRelPath === item.relPath || openRelPath === item.targetRelPath);
+
   const affectsOpenNote = Boolean(
     openRelPath === sourcePath ||
     openRelPath === targetPath ||
+    affectsOpenNoteViaBatch ||
     (type === 'delete' && (openRelPath === sourcePath || openRelPath.startsWith(sourcePath + '/'))) ||
     (type === 'move' && (openRelPath === sourcePath || openRelPath.startsWith(sourcePath + '/'))) ||
     (type === 'rename_category' && (openRelPath === sourcePath || openRelPath.startsWith(sourcePath + '/'))) ||
@@ -174,7 +185,170 @@ export async function shouldAllowProposalApplication(proposal, {
   return true;
 }
 
+// KI-Block 5 (Batch-Proposal): eigene Kartenvariante statt eines weiteren
+// if/else-Zweigs in renderProposalCard() unten — der Aufbau (Liste mit
+// Checkbox + aufklappbarem Diff pro Notiz, Sammel-Übernehmen) unterscheidet
+// sich zu stark von den bestehenden Einzel-Notiz-Karten, um ihn dort sinnvoll
+// unterzubringen. renderProposalCard() delegiert unten nur dorthin.
+function renderBatchUpdateProposalCard(proposal, { onApply, onReject, beforeApply } = {}) {
+  const card = document.createElement('div');
+  card.className = 'ai-proposal-card ai-proposal-card-batch';
+  const proposalId = proposal.proposalId || proposal.id;
+  card.dataset.proposalId = proposalId;
+
+  const items = Array.isArray(proposal.items) ? proposal.items : [];
+  const counts = proposal.counts || {};
+  const titleText = proposal.title || `Batch-Änderung (${items.length} Notizen)`;
+
+  const headerEl = document.createElement('div');
+  headerEl.className = 'ai-proposal-header';
+  headerEl.innerHTML = `
+    <div class="ai-proposal-badge">📚 Batch-Änderung</div>
+    <div class="ai-proposal-title" title="${escapeHtml(titleText)}">${escapeHtml(titleText)}</div>
+    <div class="ai-proposal-target">${items.length} Notiz(en) — ${counts.contentChanges || 0} Inhalt, ${counts.renames || 0} Umbenennung(en), ${counts.moves || 0} Verschiebung(en)</div>
+  `;
+  card.appendChild(headerEl);
+
+  if (proposal.reason) {
+    const reasonEl = document.createElement('div');
+    reasonEl.className = 'ai-proposal-reason';
+    reasonEl.textContent = proposal.reason;
+    card.appendChild(reasonEl);
+  }
+
+  if (Array.isArray(proposal.warnings) && proposal.warnings.length > 0) {
+    const warnEl = document.createElement('div');
+    warnEl.className = 'ai-proposal-batch-warnings';
+    warnEl.textContent = `⚠️ ${proposal.warnings.length} Notiz(en) übersprungen: ` +
+      proposal.warnings.map(w => w.relPath).join(', ');
+    card.appendChild(warnEl);
+  }
+
+  const listEl = document.createElement('div');
+  listEl.className = 'ai-proposal-batch-list';
+  const rows = [];
+  for (const item of items) {
+    const row = document.createElement('div');
+    row.className = 'ai-proposal-batch-item';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = true;
+    checkbox.className = 'ai-proposal-batch-checkbox';
+
+    const rowHeader = document.createElement('div');
+    rowHeader.className = 'ai-proposal-batch-item-header';
+    const kindIcon = item.newTitle && item.targetSubCategoryRelPath ? '🏷️📦'
+      : item.newTitle ? '🏷️'
+      : item.targetSubCategoryRelPath ? '📦'
+      : '✏️';
+    rowHeader.innerHTML = `<span class="ai-proposal-batch-item-title">${kindIcon} ${escapeHtml(item.title || item.relPath)}</span><span class="ai-proposal-batch-item-path">${escapeHtml(item.relPath)}</span>`;
+
+    const diffEl = document.createElement('div');
+    diffEl.className = 'ai-proposal-diff';
+    diffEl.hidden = true;
+    diffEl.innerHTML = renderDiffLines(item.diff);
+    rowHeader.addEventListener('click', () => {
+      diffEl.hidden = !diffEl.hidden;
+    });
+
+    row.appendChild(checkbox);
+    row.appendChild(rowHeader);
+    row.appendChild(diffEl);
+    listEl.appendChild(row);
+    rows.push({ relPath: item.relPath, checkbox, row });
+  }
+  card.appendChild(listEl);
+
+  const actionsEl = document.createElement('div');
+  actionsEl.className = 'ai-proposal-actions';
+
+  const applyBtn = document.createElement('button');
+  applyBtn.className = 'ai-proposal-apply-btn';
+  applyBtn.type = 'button';
+  applyBtn.textContent = `✓ Ausgewählte übernehmen (${items.length})`;
+
+  const rejectBtn = document.createElement('button');
+  rejectBtn.className = 'ai-proposal-reject-btn';
+  rejectBtn.type = 'button';
+  rejectBtn.textContent = '✕ Verwerfen';
+
+  actionsEl.appendChild(applyBtn);
+  actionsEl.appendChild(rejectBtn);
+  card.appendChild(actionsEl);
+
+  const statusEl = document.createElement('div');
+  statusEl.className = 'ai-proposal-status';
+  statusEl.hidden = true;
+  card.appendChild(statusEl);
+
+  applyBtn.addEventListener('click', async () => {
+    applyBtn.disabled = true;
+    rejectBtn.disabled = true;
+    statusEl.hidden = true;
+    try {
+      if (typeof beforeApply === 'function') {
+        const canProceed = await beforeApply(proposal);
+        if (!canProceed) {
+          applyBtn.disabled = false;
+          rejectBtn.disabled = false;
+          return;
+        }
+      }
+      const deselectedRelPaths = rows.filter(r => !r.checkbox.checked).map(r => r.relPath);
+      const res = await window.archivAPI.ai.applyProposal(proposalId, { deselectedRelPaths });
+      if (res?.success) {
+        card.classList.add('is-applied');
+        const outcomeByPath = new Map((res.results || []).map(r => [r.relPath, r]));
+        for (const { relPath, row, checkbox } of rows) {
+          checkbox.disabled = true;
+          const outcome = outcomeByPath.get(relPath);
+          const badge = document.createElement('span');
+          badge.className = 'ai-proposal-batch-item-outcome';
+          if (outcome?.outcome === 'updated') badge.textContent = '✓ übernommen';
+          else if (outcome?.outcome === 'skipped_stale') badge.textContent = '⚠️ veraltet, übersprungen';
+          else if (outcome?.outcome === 'skipped_deselected') badge.textContent = '– abgewählt';
+          else if (outcome?.outcome === 'failed') badge.textContent = `✕ ${outcome.error || 'Fehler'}`;
+          row.appendChild(badge);
+        }
+        const summary = res.summary || {};
+        actionsEl.innerHTML = `<span class="ai-proposal-badge-success">✓ ${summary.updated || 0} übernommen, ${summary.skippedStale || 0} veraltet übersprungen, ${summary.failed || 0} fehlgeschlagen, ${summary.deselected || 0} abgewählt</span>`;
+        onApply?.(res);
+      } else {
+        applyBtn.disabled = false;
+        rejectBtn.disabled = false;
+        statusEl.textContent = res?.error || 'Fehler beim Anwenden des Batch-Vorschlags.';
+        statusEl.hidden = false;
+      }
+    } catch (err) {
+      applyBtn.disabled = false;
+      rejectBtn.disabled = false;
+      statusEl.textContent = err?.message || 'Fehler beim Anwenden des Batch-Vorschlags.';
+      statusEl.hidden = false;
+    }
+  });
+
+  rejectBtn.addEventListener('click', async () => {
+    applyBtn.disabled = true;
+    rejectBtn.disabled = true;
+    try {
+      await window.archivAPI.ai.rejectProposal(proposalId);
+    } catch {
+      // Still ignorieren falls bereits abgewickelt
+    }
+    card.classList.add('is-rejected');
+    actionsEl.innerHTML = `<span class="ai-proposal-badge-rejected">✕ Verworfen</span>`;
+    onReject?.();
+  });
+
+  return card;
+}
+
 export function renderProposalCard(proposal, { onApply, onReject, beforeApply } = {}) {
+  if ((proposal.type || 'create') === 'batch_update') {
+    return renderBatchUpdateProposalCard(proposal, { onApply, onReject, beforeApply });
+  }
+
   const card = document.createElement('div');
   card.className = 'ai-proposal-card';
   const proposalId = proposal.proposalId || proposal.id;

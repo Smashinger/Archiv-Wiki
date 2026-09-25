@@ -90,7 +90,7 @@ contextBridge.exposeInMainWorld('archivAPI', {
       return () => ipcRenderer.removeListener('ai:stream-tool-call', listener);
     },
     getProposal: (proposalId) => ipcRenderer.invoke('ai:getProposal', { proposalId }),
-    applyProposal: (proposalId) => ipcRenderer.invoke('ai:applyProposal', { proposalId }),
+    applyProposal: (proposalId, options) => ipcRenderer.invoke('ai:applyProposal', { proposalId, ...(Array.isArray(options?.deselectedRelPaths) ? { deselectedRelPaths: options.deselectedRelPaths } : {}) }),
     rejectProposal: (proposalId) => ipcRenderer.invoke('ai:rejectProposal', { proposalId }),
     onStreamProposal: (callback) => {
       const listener = (_event, payload) => callback(payload);

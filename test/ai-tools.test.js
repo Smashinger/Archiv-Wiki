@@ -84,7 +84,7 @@ Dieser Inhalt ist archiviert.
 
 test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werkzeuge', () => {
   assert.ok(Array.isArray(AI_TOOLS_DEFINITIONS));
-  assert.equal(AI_TOOLS_DEFINITIONS.length, 20);
+  assert.equal(AI_TOOLS_DEFINITIONS.length, 21);
 
   const names = AI_TOOLS_DEFINITIONS.map(d => d.function?.name);
   assert.ok(names.includes('search_notes'), 'search_notes ist definiert');
@@ -97,6 +97,7 @@ test('KI-Tools 1: AI_TOOLS_DEFINITIONS enthält gültige Lese- und Proposal-Werk
   assert.ok(names.includes('propose_move_subcategory'), 'propose_move_subcategory ist definiert');
   assert.ok(names.includes('propose_reorder_entries'), 'propose_reorder_entries ist definiert');
   assert.ok(names.includes('analyze_category_notes'), 'analyze_category_notes ist definiert');
+  assert.ok(names.includes('propose_batch_content_update'), 'propose_batch_content_update ist definiert');
   assert.ok(names.includes('get_wiki_tags'), 'get_wiki_tags ist definiert');
   assert.ok(names.includes('suggest_wikilinks'), 'suggest_wikilinks ist definiert');
   assert.ok(names.includes('propose_create_note'), 'propose_create_note ist definiert');
@@ -803,4 +804,32 @@ test('KI-Tools 29: executeAiTool routet analyze_category_notes und fängt dessen
   const bad = await executeAiTool(wikiDir, 'analyze_category_notes', { categoryRelPath: 'Wissen/Linux/Debian.md' });
   assert.equal(bad.success, false);
   assert.ok(bad.error.includes('Haupt- oder Unterkategorie'));
+});
+test('KI-Tools 30: Block 5 - executeAiTool routet propose_batch_content_update und gibt nur Diff/Metadaten, keinen Rohinhalt, an den Modellkontext zurück', async t => {
+  const wikiDir = createTestWikiFixture(t);
+
+  const res = await executeAiTool(wikiDir, 'propose_batch_content_update', {
+    items: [
+      { relPath: 'Projekte/Archiv-Wiki/Architektur.md', newContent: 'Neu und einfach erklärt.' },
+      { relPath: 'Privat/Küche/Pfannkuchen.md', newTitle: 'Pfannkuchen Rezept' }
+    ],
+    reason: 'Vereinfachung gemäß Analyse'
+  });
+
+  assert.equal(res.success, true);
+  assert.equal(res.data.type, 'batch_update');
+  assert.equal(res.data.requiresConfirmation, true);
+  assert.ok(res.data.proposalId);
+  assert.equal(res.data.counts.total, 2);
+  assert.equal(res.data.counts.contentChanges, 1);
+  assert.equal(res.data.counts.renames, 1);
+  assert.equal(res.data.items.length, 2);
+  assert.ok(!('newContent' in res.data.items[0]), 'Roher neuer Inhalt wird nicht doppelt in den Modellkontext zurückgegeben');
+  assert.ok(!('oldContent' in res.data.items[0]));
+  assert.ok(Array.isArray(res.data.items[0].diff));
+
+  // Strukturfehler laufen wie bei den anderen Werkzeugen als reguläres Fehlerergebnis, nicht als Exception
+  const badRes = await executeAiTool(wikiDir, 'propose_batch_content_update', { items: [] });
+  assert.equal(badRes.success, false);
+  assert.ok(badRes.error.includes('nicht-leere Liste'));
 });

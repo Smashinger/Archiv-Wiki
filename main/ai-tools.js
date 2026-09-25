@@ -431,7 +431,7 @@ const AI_TOOLS_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'analyze_category_notes',
-      description: 'Liest mehrere Notizen EINER Haupt- oder Unterkategorie in einem einzigen Aufruf (kein eigener Aufruf pro Notiz nötig) — für Aufträge wie "Analysiere alle Notizen in X und plane, wie sie umgeschrieben/sortiert werden sollten". Liefert nur Rohdaten (Titel, Pfad, Tags, Inhalt, gefundene [[Wikilinks]]); die eigentliche Analyse (Textvorschlag, neuer Titel, Position, Zielkategorie, Wikilink-Risiken) formulierst DU selbst daraus. Begrenzt auf standardmäßig 20, maximal 25 Notizen sowie ein Gesamt-Zeichenbudget — sehr große Notizen bekommen status "zu_gross" ohne Inhalt, bei Erreichen des Budgets status "uebersprungen_budget". WICHTIG: Dieses Werkzeug schreibt NICHTS und erzeugt KEINE Proposals — erst nach Rückmeldung des Nutzers zum Gesamtplan folgen ggf. einzelne propose_update_note-Vorschläge (separater Schritt).',
+      description: 'Liest mehrere Notizen EINER Haupt- oder Unterkategorie in einem einzigen Aufruf (kein eigener Aufruf pro Notiz nötig) — für Aufträge wie "Analysiere alle Notizen in X und plane, wie sie umgeschrieben/sortiert werden sollten". Liefert nur Rohdaten (Titel, Pfad, Tags, Inhalt, gefundene [[Wikilinks]]); die eigentliche Analyse (Textvorschlag, neuer Titel, Position, Zielkategorie, Wikilink-Risiken) formulierst DU selbst daraus. Begrenzt auf standardmäßig 20, maximal 25 Notizen sowie ein Gesamt-Zeichenbudget — sehr große Notizen bekommen status "zu_gross" ohne Inhalt, bei Erreichen des Budgets status "uebersprungen_budget". WICHTIG: Dieses Werkzeug schreibt NICHTS und erzeugt KEINE Proposals — erst nach Rückmeldung des Nutzers zum Gesamtplan folgt ggf. EIN gebündelter propose_batch_content_update-Vorschlag für mehrere Notizen gemeinsam (separater Schritt, siehe dort).',
       parameters: {
         type: 'object',
         properties: {
@@ -445,6 +445,49 @@ const AI_TOOLS_DEFINITIONS = [
           }
         },
         required: ['categoryRelPath']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_batch_content_update',
+      description: 'Schlägt mehrere Notiz-Änderungen (Inhalt, Titel und/oder Ziel-Unterkategorie) GEBÜNDELT als EINEN gemeinsamen Vorschlag vor, statt viele einzelne propose_update_note-Aufrufe zu erzeugen. Nutze dieses Werkzeug NACHDEM zuvor analyze_category_notes aufgerufen wurde UND der Nutzer dem daraus vorgelegten Gesamtplan zugestimmt hat (z. B. "setz das um", "ja, mach das so"). Für JEDE ausgewählte Notiz genau EINEN Eintrag in items übergeben (relPath verpflichtend, mindestens eines von newContent/newTitle/targetSubCategoryRelPath). Ungültige Einzeleinträge (z. B. nicht existierende Notiz, Namenskollision) werden übersprungen und im Vorschlag als Warnung angezeigt statt den gesamten Vorschlag scheitern zu lassen. Der Nutzer kann vor der Übernahme einzelne Notizen in der Vorschau abwählen; beim Anwenden wird jede Notiz unabhängig gespeichert (ein Fehler oder eine zwischenzeitliche Änderung bei EINER Notiz verhindert nicht die anderen). NICHT für Tag-Änderungen (dafür weiterhin propose_update_note) und NICHT für eine neue Reihenfolge (dafür weiterhin propose_reorder_entries) verwenden. Erfordert Bestätigung durch den Nutzer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            description: 'Liste der einzelnen Notiz-Änderungen, ein Eintrag pro Notiz.',
+            items: {
+              type: 'object',
+              properties: {
+                relPath: {
+                  type: 'string',
+                  description: 'Der relative Pfad der zu ändernden Notiz (z. B. "Alle/Notizen/Fastfetch.md").'
+                },
+                newContent: {
+                  type: 'string',
+                  description: 'Optionaler vollständiger neuer Markdown-Inhalt. Weglassen, wenn nur Titel oder Kategorie geändert werden soll.'
+                },
+                newTitle: {
+                  type: 'string',
+                  description: 'Optionaler neuer Titel der Notiz.'
+                },
+                targetSubCategoryRelPath: {
+                  type: 'string',
+                  description: 'Optionale neue Ziel-Unterkategorie (Tiefe 2), falls die Notiz in eine andere Kategorie verschoben werden soll.'
+                }
+              },
+              required: ['relPath']
+            }
+          },
+          reason: {
+            type: 'string',
+            description: 'Kurze, für den Nutzer verständliche Begründung für den gesamten Batch (z. B. "Vereinfachte Sprache und aktualisierte Tags gemäß Analyse").'
+          }
+        },
+        required: ['items']
       }
     }
   }
@@ -1144,6 +1187,39 @@ async function executeAiTool(projectPath, name, args = {}) {
       }
       case 'analyze_category_notes':
         return { success: true, data: analyzeCategoryNotes(projectPath, args) };
+      case 'propose_batch_content_update': {
+        const proposal = aiProposals.createProposal(projectPath, {
+          type: 'batch_update',
+          items: args.items,
+          reason: args.reason
+        });
+        return {
+          success: true,
+          data: {
+            proposalId: proposal.id,
+            type: proposal.type,
+            title: proposal.title,
+            reason: proposal.reason,
+            counts: proposal.counts,
+            warnings: proposal.warnings,
+            // Nur die für Vorschau/Anwenden nötigen Felder je Notiz zurückgeben
+            // (relPath, Titel, Diff) — der vollständige neue/alte Inhalt bleibt
+            // serverseitig im Proposal (activeProposals) und wird nicht doppelt
+            // in den Modellkontext zurückgespeist (derselbe Grundsatz wie beim
+            // einzelnen propose_update_note, das ebenfalls nur diff liefert).
+            items: (proposal.items || []).map(item => ({
+              relPath: item.relPath,
+              targetRelPath: item.targetRelPath,
+              title: item.title,
+              newTitle: item.newTitle,
+              targetSubCategoryRelPath: item.targetSubCategoryRelPath,
+              diff: item.diff
+            })),
+            requiresConfirmation: true,
+            message: `Batch-Vorschlag für ${proposal.counts?.total ?? 0} Notiz(en) wurde erstellt und wartet auf deine Freigabe.`
+          }
+        };
+      }
       case 'audit_knowledge_base': {
         const report = aiKnowledge.auditKnowledgeBase(projectPath);
         const proposals = [];

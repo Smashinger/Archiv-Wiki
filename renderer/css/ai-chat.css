@@ -706,6 +706,69 @@ body.theme-light .ai-diff-line.is-remove{
   font-style:italic;
   padding:2px 10px;
 }
+.ai-proposal-batch-warnings{
+  font-size:11.5px;
+  color:#b8863f;
+  background:rgba(184, 134, 63, 0.1);
+  border-radius:6px;
+  padding:6px 10px;
+  line-height:1.5;
+}
+.ai-proposal-batch-list{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  max-height:320px;
+  overflow-y:auto;
+}
+.ai-proposal-batch-item{
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  padding:6px 8px;
+  border:1px solid var(--c-border, var(--border-soft));
+  border-radius:6px;
+  background:var(--bg-elev-2, var(--bg-color));
+}
+.ai-proposal-batch-checkbox{
+  margin-top:3px;
+  flex:0 0 auto;
+  cursor:pointer;
+}
+.ai-proposal-batch-item-header{
+  flex:1 1 auto;
+  min-width:0;
+  cursor:pointer;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.ai-proposal-batch-item-title{
+  font-size:12.5px;
+  font-weight:600;
+  color:var(--text-main);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.ai-proposal-batch-item-path{
+  font-size:10.5px;
+  color:var(--text-muted);
+  font-family:var(--mono);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.ai-proposal-batch-item-outcome{
+  font-size:10.5px;
+  color:var(--text-muted);
+  white-space:nowrap;
+  align-self:center;
+}
+.ai-proposal-batch-item .ai-proposal-diff{
+  flex-basis:100%;
+  order:3;
+}
 .ai-proposal-actions{
   display:flex;
   align-items:center;
