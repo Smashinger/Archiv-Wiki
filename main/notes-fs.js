@@ -256,9 +256,8 @@ function listProjectTree(projectPath) {
 // rührt keine Datei an. Einträge, die (noch) nicht in einer gespeicherten
 // Liste stehen (z. B. gerade neu angelegt), werden ans Ende ihrer jeweiligen
 // Ebene gehängt.
-// Ursprünglich nur lokal in main/filesystem-ipc.js (fs:listTree). Für
-// KI-Block 2 (list_categories, main/ai-tools.js) hierher verschoben, damit
-// beide dieselbe sichtbare Reihenfolge verwenden — keine zweite Sortierlogik.
+// Zentral hier statt in main/filesystem-ipc.js (fs:listTree), damit alle
+// Aufrufer dieselbe sichtbare Reihenfolge verwenden — keine zweite Sortierlogik.
 function applyChildOrder(nodes, parentRelPath, childOrder) {
   const order = childOrder?.[parentRelPath];
   let sorted = nodes;

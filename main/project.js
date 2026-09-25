@@ -138,11 +138,8 @@ function writeProjectConfig(projectPath, config, options = {}) {
 }
 
 // Pfadumschreibung in .wiki-config.json nach Umbenennen/Verschieben eines
-// Eintrags (Notiz ODER Kategorie). Ursprünglich nur lokal in
-// main/filesystem-ipc.js (für die manuelle Sidebar-Bedienung). Seit KI-Block 3
-// auch von main/ai-proposals.js genutzt (propose_rename_category,
-// propose_move_subcategory) — keine zweite Migrationslogik für denselben
-// Zweck. Rein reines Datenobjekt-Update, kein Dateizugriff.
+// Eintrags (Notiz ODER Kategorie). Rein reines Datenobjekt-Update, kein
+// Dateizugriff.
 function migrateConfigPaths(config, oldRelPath, newRelPath) {
   if (!config || typeof config !== 'object') return false;
   let changed = false;

@@ -27,8 +27,6 @@ const {
 const { registerExportIpc, exportProjectZip } = require('./main/export-ipc');
 const { registerSyncIpc, isSyncInProgress, getSyncStatusSnapshot } = require('./main/sync-ipc');
 const { registerSettingsIpc, matchesStoredAppLockPassword } = require('./main/settings-ipc');
-const { registerAiIpc, abortAllAiRequests } = require('./main/ai-ipc');
-const aiProposals = require('./main/ai-proposals');
 const {
   maybeRunAutoBackup,
   getBackupFolderState,
@@ -736,8 +734,6 @@ function handleProjectReady(projectPath, config) {
   console.log(`[Archiv Wiki] Projekt bereit: ${projectPath}`);
   currentProject = { path: projectPath, config: cloneProjectConfig(config) };
   syncLockStateFromProjectConfig();
-  abortAllAiRequests();
-  aiProposals.clearAllProposals();
   if (mainWindow && !mainWindow.isDestroyed()) {
     // Bereits laufendes Hauptfenster wechselt das Projekt: kompletter Reload
     // lädt den Renderer frisch, dessen init() den jetzt aktuellen
@@ -1856,10 +1852,6 @@ app.whenReady().then(async () => {
     getCurrentProject: () => currentProject,
     getMainWindow: () => mainWindow,
     onProjectConfigLoaded: adoptCurrentProjectConfig
-  }));
-  safeRegister('registerAiIpc', () => registerAiIpc({
-    getCurrentProject: () => currentProject,
-    getMainWindow: () => mainWindow
   }));
   // Bugfix (Audit-Punkt 6): vorher nur im "kein Projekt bekannt"-Zweig weiter
   // unten registriert — wurde der Wizard stattdessen später über

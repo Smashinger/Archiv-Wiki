@@ -41,7 +41,6 @@ import { resolveUiDesign, applyUiDesign } from './ui-design.js';
 import { setupToolbarOverflow } from './toolbar-overflow.js';
 import { countLabel, pluralWord } from './count-label.js';
 import { findNotesLinkingToTitle, renameBreaksTitleLinks } from './wikilink-refs.js';
-import { initAiChat, triggerAiPrompt, isAiChatEnabled, shouldAllowProposalApplication } from './ai-chat.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -8560,77 +8559,6 @@ function buildEditorMenuItems() {
     { label: 'Alles auswählen', action: () => selectAllInEditor() }
   ];
 
-  if (isAiChatEnabled()) {
-    const hasSelection = editorHasSelection();
-    items.push(
-      { separator: true },
-      {
-        label: 'Mit KI bearbeiten …',
-        submenu: [
-          {
-            label: 'Auswahl verbessern / korrigieren',
-            disabled: !hasSelection,
-            action: () => {
-              const text = getEditorSelectionText();
-              if (text) triggerAiPrompt(`Überarbeite und verbessere folgenden Textabschnitt (Rechtschreibung, Grammatik, Stil, Lesbarkeit):\n\n"${text}"\n\nSchlage die Korrektur als Änderung vor.`);
-            }
-          },
-          {
-            label: 'Auswahl kürzen & prägnanter fassen',
-            disabled: !hasSelection,
-            action: () => {
-              const text = getEditorSelectionText();
-              if (text) triggerAiPrompt(`Formuliere folgenden Textabschnitt prägnanter und kürzer, ohne wichtige Fakten auszulassen:\n\n"${text}"`);
-            }
-          },
-          {
-            label: 'Auswahl zusammenfassen',
-            disabled: !hasSelection,
-            action: () => {
-              const text = getEditorSelectionText();
-              if (text) triggerAiPrompt(`Fasse folgenden Textabschnitt kurz und präzise zusammen:\n\n"${text}"`);
-            }
-          },
-          {
-            label: 'Auswahl erklären',
-            disabled: !hasSelection,
-            action: () => {
-              const text = getEditorSelectionText();
-              if (text) triggerAiPrompt(`Erkläre folgenden Begriff bzw. Textabschnitt verständlich:\n\n"${text}"`);
-            }
-          },
-          {
-            label: 'An KI-Chat senden',
-            disabled: !hasSelection,
-            action: () => {
-              const text = getEditorSelectionText();
-              if (text) triggerAiPrompt(`Hier ist ein Textabschnitt aus meiner Notiz:\n\n${text}\n\n`, { autoSend: false });
-            }
-          },
-          { separator: true },
-          {
-            label: 'Ganze Notiz zusammenfassen',
-            action: () => {
-              triggerAiPrompt('Fasse diese Notiz in 3 bis 5 prägnanten Stichpunkten zusammen.');
-            }
-          },
-          {
-            label: 'Passende Tags für Notiz vorschlagen',
-            action: () => {
-              triggerAiPrompt('Analysiere diese Notiz und schlage mir passende, konsistente Tags dafür vor.');
-            }
-          },
-          {
-            label: 'Passende Wikilinks für Notiz finden',
-            action: () => {
-              triggerAiPrompt('Welche passenden internen [[Wikilinks]] zu anderen Notizen in meinem Wiki empfiehlst du für diese Notiz?');
-            }
-          }
-        ]
-      }
-    );
-  }
-
   return items;
 }
 
@@ -8657,66 +8585,6 @@ function buildPreviewMenuItems(previewEl) {
         sel.addRange(range);
       } }
   ];
-
-  if (isAiChatEnabled()) {
-    items.push(
-      { separator: true },
-      {
-        label: 'Auswahl verbessern / korrigieren',
-        disabled: !selectedText,
-        action: () => {
-          if (selectedText) triggerAiPrompt(`Überarbeite und verbessere folgenden Textabschnitt (Rechtschreibung, Grammatik, Stil, Lesbarkeit):\n\n"${selectedText}"\n\nSchlage die Korrektur als Änderung vor.`);
-        }
-      },
-      {
-        label: 'Auswahl kürzen & prägnanter fassen',
-        disabled: !selectedText,
-        action: () => {
-          if (selectedText) triggerAiPrompt(`Formuliere folgenden Textabschnitt prägnanter und kürzer, ohne wichtige Fakten auszulassen:\n\n"${selectedText}"`);
-        }
-      },
-      {
-        label: 'Auswahl zusammenfassen',
-        disabled: !selectedText,
-        action: () => {
-          if (selectedText) triggerAiPrompt(`Fasse folgenden Textabschnitt kurz und präzise zusammen:\n\n"${selectedText}"`);
-        }
-      },
-      {
-        label: 'Auswahl erklären',
-        disabled: !selectedText,
-        action: () => {
-          if (selectedText) triggerAiPrompt(`Erkläre folgenden Begriff bzw. Textabschnitt verständlich:\n\n"${selectedText}"`);
-        }
-      },
-      {
-        label: 'Auswahl an KI-Chat senden',
-        disabled: !selectedText,
-        action: () => {
-          if (selectedText) triggerAiPrompt(`Hier ist ein Textabschnitt aus meiner Notiz:\n\n${selectedText}\n\n`, { autoSend: false });
-        }
-      },
-      { separator: true },
-      {
-        label: 'Ganze Notiz mit KI zusammenfassen',
-        action: () => {
-          triggerAiPrompt('Fasse diese Notiz in 3 bis 5 prägnanten Stichpunkten zusammen.');
-        }
-      },
-      {
-        label: 'Passende Tags für Notiz vorschlagen',
-        action: () => {
-          triggerAiPrompt('Analysiere diese Notiz und schlage mir passende, konsistente Tags dafür vor.');
-        }
-      },
-      {
-        label: 'Passende Wikilinks für Notiz finden',
-        action: () => {
-          triggerAiPrompt('Welche passenden internen [[Wikilinks]] zu anderen Notizen in meinem Wiki empfiehlst du für diese Notiz?');
-        }
-      }
-    );
-  }
 
   return items;
 }
@@ -10268,9 +10136,6 @@ async function renderKnowledgeCare() {
   els.contentScroll.innerHTML = `
     <h1 class="home-heading">Wissenspflege</h1>
     <p class="home-sub">Prüfe dein Wiki auf mögliche Verbesserungen.</p>
-    <div class="kc-ai-action-bar">
-      <button type="button" class="kc-ai-btn" id="kcAiAnalyzeBtn">🤖 Mit KI analysieren & beheben</button>
-    </div>
     <div class="dashboard-section" id="knowledgeLinksSection" aria-label="Verknüpfungen">
       <div class="dashboard-section-header">Verknüpfungen</div>
       <div class="empty-state">Wikilinks werden geprüft …</div>
@@ -10283,10 +10148,6 @@ async function renderKnowledgeCare() {
       <div class="dashboard-section-header">Inhalte</div>
       <div class="empty-state">Inhalte werden geprüft …</div>
     </div>`;
-
-  document.getElementById('kcAiAnalyzeBtn')?.addEventListener('click', () => {
-    triggerAiPrompt('Führe eine Wissenspflege-Prüfung meines Wikis durch und schlage mir konkrete Optimierungen vor.', { autoSend: true });
-  });
 
   try {
     const notes = fs.flattenNotes(state.tree);
@@ -10479,9 +10340,6 @@ async function renderKnowledgeCareDesign2() {
     <div class="knowledge-care-view-d2">
       <h1 class="home-heading">Wissenspflege</h1>
       <p class="home-sub">Prüfe dein Wiki auf mögliche Verbesserungen.</p>
-      <div class="kc-ai-action-bar">
-        <button type="button" class="kc-ai-btn" id="kcAiAnalyzeBtnD2">🤖 Mit KI analysieren & beheben</button>
-      </div>
       <div class="d2-kc-section" id="knowledgeLinksSectionD2" aria-label="Verknüpfungen">
         <div class="d2-kc-section-header"><span>Verknüpfungen</span><span class="d2-kc-section-rule"></span></div>
         <div class="empty-state">Wikilinks werden geprüft …</div>
@@ -10495,10 +10353,6 @@ async function renderKnowledgeCareDesign2() {
         <div class="empty-state">Inhalte werden geprüft …</div>
       </div>
     </div>`;
-
-  document.getElementById('kcAiAnalyzeBtnD2')?.addEventListener('click', () => {
-    triggerAiPrompt('Führe eine Wissenspflege-Prüfung meines Wikis durch und schlage mir konkrete Optimierungen vor.', { autoSend: true });
-  });
 
   try {
     const notes = fs.flattenNotes(state.tree);
@@ -11799,96 +11653,6 @@ function resolveAccentForActiveDesign(config) {
 }
 
 (async function init() {
-  // KI-Block 3: Zwischenspeicher für den Pfad einer offenen Notiz, BEVOR ein
-  // Kategorie-Proposal (rename_category/move_subcategory) angewendet wird.
-  // shouldAllowProposalApplication() unten kann den Editor bereits VOR der
-  // eigentlichen Dateisystemänderung schließen (Leave-Vertrag), wenn die
-  // offene Notiz im betroffenen Unterbaum liegt — zum Zeitpunkt von
-  // onProposalApplied() ist getOpenRelPath() dann schon wieder leer. Der
-  // Zwischenstand wird deshalb hier im selben init()-Gültigkeitsbereich
-  // gemerkt, statt einen zweiten Weg (z. B. eine Proposal-Kopie) einzuführen.
-  let openRelPathBeforeCategoryProposal = null;
-
-  const cleanupAiChat = initAiChat({
-    onProposalApplied: async (result) => {
-      try {
-        if (result?.action === 'deleted') {
-          const currentNotePath = currentSlug().startsWith('note/')
-            ? decodeURIComponent(currentSlug().slice('note/'.length))
-            : null;
-          const deletedPath = result.relPath || '';
-          if (currentNotePath && (currentNotePath === deletedPath || currentNotePath.startsWith(deletedPath + '/'))) {
-            closeEditor();
-            void navigateAfterEntryMutation('#home');
-          }
-        }
-
-        // KI-Block 3: lag die zuvor offene Notiz innerhalb der umbenannten/
-        // verschobenen Kategorie, unter ihrem neuen Pfad wieder öffnen —
-        // dieselbe Präfix-Umschreibung wie migrateConfigPaths() in
-        // main/project.js, nur auf den einen betroffenen Editor-Pfad
-        // angewendet statt auf die Projektkonfiguration.
-        let categoryReopenPath = null;
-        if ((result?.action === 'renamed_category' || result?.action === 'moved_subcategory')
-          && result.oldRelPath && openRelPathBeforeCategoryProposal) {
-          const oldPrefix = result.oldRelPath;
-          const newPrefix = result.relPath;
-          if (openRelPathBeforeCategoryProposal === oldPrefix) {
-            categoryReopenPath = newPrefix;
-          } else if (openRelPathBeforeCategoryProposal.startsWith(oldPrefix + '/')) {
-            categoryReopenPath = newPrefix + openRelPathBeforeCategoryProposal.slice(oldPrefix.length);
-          }
-        }
-        openRelPathBeforeCategoryProposal = null;
-
-        await refreshAll();
-
-        if (categoryReopenPath) {
-          await navigateTo('#note/' + encodeURIComponent(categoryReopenPath));
-        } else if (result?.relPath
-          && !['deleted', 'created_category', 'renamed_category', 'moved_subcategory', 'reordered'].includes(result.action)) {
-          await navigateTo('#note/' + encodeURIComponent(result.relPath));
-        }
-      } catch (err) {
-        console.error('[Archiv Wiki] Aktualisierung nach KI-Vorschlag fehlgeschlagen:', err);
-      }
-    },
-    onBeforeApplyProposal: (proposal) => {
-      openRelPathBeforeCategoryProposal = getOpenRelPath();
-      return shouldAllowProposalApplication(proposal, {
-        getOpenRelPath,
-        isDirty,
-        showConfirmDialog,
-        canLeaveCurrentRoute,
-        closeEditor,
-        getNoteTitle: (relPath) => fs.findNode(state.tree, relPath)?.frontmatter?.title
-          || relPath.split('/').pop().replace(/\.md$/, '')
-      });
-    },
-    getActiveNote: () => {
-      const relPath = getOpenRelPath();
-      if (!relPath) return null;
-      return {
-        relPath,
-        content: getEditorContent() || '',
-        selection: getEditorSelectionText() || ''
-      };
-    },
-    // KI-Block 1 (Baustein 4+5): reine Navigation über den bestehenden, für
-    // "+ Notiz" und Wikilinks bereits genutzten Leave-Vertrag — kein zweiter
-    // Navigationsmechanismus, kein direktes location.hash. Ein Speicherfehler
-    // beim Verlassen ("Hier bleiben") oder ein inzwischen anderer Editor-/
-    // Notizzustand (canLeaveCurrentRoute()/navigateTo() werten renderedHash
-    // und laufende Pfadmutationen selbst aus) verhindert die Navigation
-    // fail-closed, ohne dass hier ein Sonderfall behandelt werden muss.
-    onOpenNote: async ({ relPath } = {}) => {
-      if (!relPath) return { opened: false };
-      if (!await canLeaveCurrentRoute()) return { opened: false };
-      const opened = await navigateTo('#note/' + encodeURIComponent(relPath));
-      return { opened };
-    }
-  });
-  window.addEventListener('beforeunload', () => cleanupAiChat?.());
   state.project = await window.archivAPI.getCurrentProject();
   // Bewusst VOR waitForUnlock() (im Gegensatz zu Akzentfarbe/Sidebar-Größe/
   // Lesebreite weiter unten): ein falsches Theme wäre bei aktivem App-Lock

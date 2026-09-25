@@ -186,9 +186,8 @@ function registerFilesystemIpc({
   }
 
   // Sichtbare Reihenfolge aus .wiki-config.json (childOrder) — die
-  // eigentliche Sortierlogik lebt jetzt zentral in notes-fs.js
-  // (applyChildOrder), seit KI-Block 2 auch von main/ai-tools.js
-  // (list_categories) genutzt. Keine zweite Sortierlogik hier.
+  // eigentliche Sortierlogik lebt zentral in notes-fs.js (applyChildOrder),
+  // keine zweite Sortierlogik hier.
 
   // Eigene Icons pro Kategorie (gesetzt über Rechtsklick → "Icon ändern"),
   // gespeichert als "relPath -> Emoji"-Map in .wiki-config.json — reine

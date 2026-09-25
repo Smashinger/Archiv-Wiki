@@ -60,58 +60,6 @@ contextBridge.exposeInMainWorld('archivAPI', {
     // diese Änderung keine eigene Autorität (siehe main/settings-ipc.js).
     setAppLockPassword: (request) => ipcRenderer.invoke('settings:setAppLockPassword', request)
   },
-  ai: {
-    checkConnection: (options) => ipcRenderer.invoke('ai:checkConnection', options),
-    getModels: (options) => ipcRenderer.invoke('ai:getModels', options),
-    sendMessage: (request) => ipcRenderer.invoke('ai:sendMessage', request),
-    abort: (messageId) => ipcRenderer.invoke('ai:abort', { messageId }),
-    getHistory: () => ipcRenderer.invoke('ai:getHistory'),
-    clearHistory: () => ipcRenderer.invoke('ai:clearHistory'),
-    getSettings: () => ipcRenderer.invoke('ai:getSettings'),
-    updateSettings: (patch) => ipcRenderer.invoke('ai:updateSettings', patch),
-    onStreamChunk: (callback) => {
-      const listener = (_event, payload) => callback(payload);
-      ipcRenderer.on('ai:stream-chunk', listener);
-      return () => ipcRenderer.removeListener('ai:stream-chunk', listener);
-    },
-    onStreamEnd: (callback) => {
-      const listener = (_event, payload) => callback(payload);
-      ipcRenderer.on('ai:stream-end', listener);
-      return () => ipcRenderer.removeListener('ai:stream-end', listener);
-    },
-    onStreamError: (callback) => {
-      const listener = (_event, payload) => callback(payload);
-      ipcRenderer.on('ai:stream-error', listener);
-      return () => ipcRenderer.removeListener('ai:stream-error', listener);
-    },
-    onStreamToolCall: (callback) => {
-      const listener = (_event, payload) => callback(payload);
-      ipcRenderer.on('ai:stream-tool-call', listener);
-      return () => ipcRenderer.removeListener('ai:stream-tool-call', listener);
-    },
-    getProposal: (proposalId) => ipcRenderer.invoke('ai:getProposal', { proposalId }),
-    applyProposal: (proposalId, options) => ipcRenderer.invoke('ai:applyProposal', { proposalId, ...(Array.isArray(options?.deselectedRelPaths) ? { deselectedRelPaths: options.deselectedRelPaths } : {}) }),
-    rejectProposal: (proposalId) => ipcRenderer.invoke('ai:rejectProposal', { proposalId }),
-    onStreamProposal: (callback) => {
-      const listener = (_event, payload) => callback(payload);
-      ipcRenderer.on('ai:stream-proposal', listener);
-      return () => ipcRenderer.removeListener('ai:stream-proposal', listener);
-    },
-    // KI-Block 1: reine Navigationsabsicht (open_note), kein Proposal —
-    // dieselbe Payload-Form wie onStreamProposal, aber ein eigener Kanal,
-    // damit die Renderer-Seite Navigation nie mit einer bestätigungspflichtigen
-    // Datei-/Strukturänderung verwechseln kann.
-    onStreamNavigate: (callback) => {
-      const listener = (_event, payload) => callback(payload);
-      ipcRenderer.on('ai:stream-navigate', listener);
-      return () => ipcRenderer.removeListener('ai:stream-navigate', listener);
-    },
-    onSettingsUpdated: (callback) => {
-      const listener = (_event, payload) => callback(payload);
-      ipcRenderer.on('ai:settings-updated', listener);
-      return () => ipcRenderer.removeListener('ai:settings-updated', listener);
-    }
-  },
   webClipper: {
     getStatus: () => ipcRenderer.invoke('app:getWebClipperStatus'),
     detectBrowsers: () => ipcRenderer.invoke('webclip:detectBrowsers'),
