@@ -4,8 +4,6 @@
 
 **Ein persönliches Markdown-Wiki für den Linux-Desktop – für Notizen, Anleitungen, Setups und Checklisten.**
 
-> 📦 **Offizielles Zuhause:** Die aktive Entwicklung, Tickets und neue Versionen von Archiv-Wiki finden ab sofort auf **[Codeberg](https://codeberg.org/Smashii/Archiv-Wiki)** statt. (GitHub dient als Release-Spiegel für bestehende Installationen).
-
 Archiv-Wiki speichert dein Wissen lokal in einem frei wählbaren Ordner als verständliche Markdown-Dateien. Du kannst deine Notizen ohne Internet bearbeiten; ein Konto ist nicht nötig und es gibt keine Telemetrie. Für die optionale WebDAV-Synchronisierung und die standardmäßig aktivierte Update-Prüfung wird eine Internetverbindung verwendet.
 
 ---

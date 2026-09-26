@@ -63,6 +63,13 @@ ymlContent = ymlContent
 fs.writeFileSync(targetUpdatesYml, ymlContent, 'utf8');
 console.log(`[Release] updates/latest-linux.yml aktualisiert ✓`);
 
+const shaPath = path.join(distDir, 'SHA256SUMS.txt');
+const releaseFiles = [
+  { name: `Archiv-Wiki-${version}.AppImage`, path: appImagePath },
+  { name: 'latest-linux.yml', path: latestYmlPath },
+  ...(fs.existsSync(shaPath) ? [{ name: 'SHA256SUMS.txt', path: shaPath }] : [])
+];
+
 // 3. Veröffentlichung auf Codeberg
 const codebergToken = process.env.CODEBERG_TOKEN;
 if (!codebergToken) {
@@ -76,10 +83,7 @@ if (!codebergToken) {
     releaseName,
     body: releaseBody,
     token: codebergToken,
-    files: [
-      { name: `Archiv-Wiki-${version}.AppImage`, path: appImagePath },
-      { name: 'latest-linux.yml', path: latestYmlPath }
-    ]
+    files: releaseFiles
   });
 }
 
@@ -94,10 +98,7 @@ if (ghToken) {
     releaseName,
     body: releaseBody,
     token: ghToken,
-    files: [
-      { name: `Archiv-Wiki-${version}.AppImage`, path: appImagePath },
-      { name: 'latest-linux.yml', path: latestYmlPath }
-    ]
+    files: releaseFiles
   });
 }
 
