@@ -1,10 +1,6 @@
 # Archiv-Wiki
 
-<p align="center">
-  <img src="docs/branding/repo-logo.png" alt="Archiv-Wiki-Logo" width="112">
-</p>
-
-![Archiv-Wiki](docs/branding/readme-banner.png)
+![Archiv-Wiki-Logo und Schriftzug](docs/branding/readme-banner.png)
 
 **Ein persönliches Markdown-Wiki für den Linux-Desktop – für Notizen, Anleitungen, Setups und Checklisten.**
 
