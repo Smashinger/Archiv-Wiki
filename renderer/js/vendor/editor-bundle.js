@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../node_modules/highlight.js/lib/core.js
+// node_modules/highlight.js/lib/core.js
 var require_core = __commonJS({
-  "../../../node_modules/highlight.js/lib/core.js"(exports, module) {
+  "node_modules/highlight.js/lib/core.js"(exports, module) {
     function deepFreeze(obj) {
       if (obj instanceof Map) {
         obj.clear = obj.delete = obj.set = function() {
@@ -1566,7 +1566,7 @@ var require_core = __commonJS({
   }
 });
 
-// ../../../node_modules/@marijn/find-cluster-break/src/index.js
+// node_modules/@marijn/find-cluster-break/src/index.js
 var rangeFrom = [];
 var rangeTo = [];
 (() => {
@@ -1640,7 +1640,7 @@ function codePointSize(code2) {
   return code2 < 65536 ? 1 : 2;
 }
 
-// ../../../node_modules/@codemirror/state/dist/index.js
+// node_modules/@codemirror/state/dist/index.js
 var Text = class _Text {
   /**
   Get the line description around the given position.
@@ -5014,7 +5014,7 @@ function findColumn(string2, col, tabSize, strict) {
   return strict === true ? -1 : string2.length;
 }
 
-// ../../../node_modules/style-mod/src/style-mod.js
+// node_modules/style-mod/src/style-mod.js
 var C = "\u037C";
 var COUNT = typeof Symbol == "undefined" ? "__" + C : Symbol.for(C);
 var SET = typeof Symbol == "undefined" ? "__styleSet" + Math.floor(Math.random() * 1e8) : /* @__PURE__ */ Symbol("styleSet");
@@ -5145,7 +5145,7 @@ var StyleSet = class {
   }
 };
 
-// ../../../node_modules/w3c-keyname/index.js
+// node_modules/w3c-keyname/index.js
 var base = {
   8: "Backspace",
   9: "Tab",
@@ -5251,7 +5251,7 @@ function keyName(event) {
   return name2;
 }
 
-// ../../../node_modules/crelt/index.js
+// node_modules/crelt/index.js
 function crelt() {
   var elt2 = arguments[0];
   if (typeof elt2 == "string") elt2 = document.createElement(elt2);
@@ -5280,7 +5280,7 @@ function add(elt2, child) {
   }
 }
 
-// ../../../node_modules/@codemirror/view/dist/index.js
+// node_modules/@codemirror/view/dist/index.js
 var nav = typeof navigator != "undefined" ? navigator : { userAgent: "", vendor: "", platform: "" };
 var doc = typeof document != "undefined" ? document : { documentElement: { style: {} } };
 var ie_edge = /* @__PURE__ */ /Edge\/(\d+)/.exec(nav.userAgent);
@@ -15074,7 +15074,7 @@ function maxLineNumber(lines) {
   return last;
 }
 
-// ../../../node_modules/@lezer/common/dist/index.js
+// node_modules/@lezer/common/dist/index.js
 var DefaultBufferLength = 1024;
 var nextPropID = 0;
 var Range2 = class {
@@ -17125,7 +17125,7 @@ function enterFragments(mounts, ranges) {
   return result;
 }
 
-// ../../../node_modules/@lezer/highlight/dist/index.js
+// node_modules/@lezer/highlight/dist/index.js
 var nextTagID = 0;
 var Tag = class _Tag {
   /**
@@ -17849,7 +17849,7 @@ var classHighlighter = tagHighlighter([
   { tag: tags.punctuation, class: "tok-punctuation" }
 ]);
 
-// ../../../node_modules/@codemirror/language/dist/index.js
+// node_modules/@codemirror/language/dist/index.js
 var _a;
 var languageDataProp = /* @__PURE__ */ new NodeProp();
 function defineLanguageFacet(baseData) {
@@ -19063,7 +19063,7 @@ var marks = {
   auto: /* @__PURE__ */ Decoration.mark({ class: "cm-iso", inclusive: true, attributes: { dir: "auto" }, bidiIsolate: null })
 };
 
-// ../../../node_modules/@codemirror/commands/dist/index.js
+// node_modules/@codemirror/commands/dist/index.js
 var toggleComment = (target) => {
   let { state } = target, line = state.doc.lineAt(state.selection.main.from), config2 = getConfig(target.state, line.from);
   return config2.line ? toggleLineComment(target) : config2.block ? toggleBlockCommentByLine(target) : false;
@@ -20158,7 +20158,7 @@ var defaultKeymap = /* @__PURE__ */ [
 ].concat(standardKeymap);
 var indentWithTab = { key: "Tab", run: indentMore, shift: indentLess };
 
-// ../../../node_modules/@codemirror/autocomplete/dist/index.js
+// node_modules/@codemirror/autocomplete/dist/index.js
 var CompletionContext = class {
   /**
   Create a new completion context. (Mostly useful for testing
@@ -21975,7 +21975,7 @@ var completionKeymap = [
 ];
 var completionKeymapExt = /* @__PURE__ */ Prec.highest(/* @__PURE__ */ keymap.computeN([completionConfig], (state) => state.facet(completionConfig).defaultKeymap ? [completionKeymap] : []));
 
-// ../../../node_modules/@lezer/markdown/dist/index.js
+// node_modules/@lezer/markdown/dist/index.js
 var CompositeBlock = class _CompositeBlock {
   static create(type, value, from, parentHash, end) {
     let hash2 = parentHash + (parentHash << 8) + type + (value << 4) | 0;
@@ -24039,7 +24039,7 @@ var Emoji = {
   }]
 };
 
-// ../../../node_modules/@lezer/lr/dist/index.js
+// node_modules/@lezer/lr/dist/index.js
 var Stack = class _Stack {
   /**
   @internal
@@ -25801,7 +25801,7 @@ function getSpecializer(spec) {
   return spec.get;
 }
 
-// ../../../node_modules/@lezer/html/dist/index.js
+// node_modules/@lezer/html/dist/index.js
 var scriptText = 55;
 var StartCloseScriptTag = 1;
 var styleText = 56;
@@ -26145,7 +26145,7 @@ function configureNesting(tags3 = [], attributes = []) {
   });
 }
 
-// ../../../node_modules/@lezer/css/dist/index.js
+// node_modules/@lezer/css/dist/index.js
 var descendantOp = 148;
 var Unit = 1;
 var identifier = 149;
@@ -26320,7 +26320,7 @@ var parser3 = LRParser.deserialize({
   tokenPrec: 2444
 });
 
-// ../../../node_modules/@codemirror/lang-css/dist/index.js
+// node_modules/@codemirror/lang-css/dist/index.js
 var _properties = null;
 function properties() {
   if (!_properties && typeof document == "object" && document.body) {
@@ -27181,7 +27181,7 @@ function css() {
   return new LanguageSupport(cssLanguage, cssLanguage.data.of({ autocomplete: cssCompletionSource }));
 }
 
-// ../../../node_modules/@lezer/javascript/dist/index.js
+// node_modules/@lezer/javascript/dist/index.js
 var noSemi = 316;
 var noSemiType = 317;
 var incdec = 1;
@@ -27393,7 +27393,7 @@ var parser4 = LRParser.deserialize({
   tokenPrec: 15201
 });
 
-// ../../../node_modules/@codemirror/lang-javascript/dist/index.js
+// node_modules/@codemirror/lang-javascript/dist/index.js
 var snippets = [
   /* @__PURE__ */ snippetCompletion("function ${name}(${params}) {\n	${}\n}", {
     label: "function",
@@ -27705,7 +27705,7 @@ var autoCloseTags = /* @__PURE__ */ EditorView.inputHandler.of((view, from, to, 
   return true;
 });
 
-// ../../../node_modules/@codemirror/lang-html/dist/index.js
+// node_modules/@codemirror/lang-html/dist/index.js
 var Targets = ["_blank", "_self", "_top", "_parent"];
 var Charsets = ["ascii", "utf-8", "utf-16", "latin1", "latin1"];
 var Methods = ["get", "post", "put", "delete"];
@@ -28445,7 +28445,7 @@ var autoCloseTags2 = /* @__PURE__ */ EditorView.inputHandler.of((view, from, to,
   return true;
 });
 
-// ../../../node_modules/@codemirror/lang-markdown/dist/index.js
+// node_modules/@codemirror/lang-markdown/dist/index.js
 var data = /* @__PURE__ */ defineLanguageFacet({ commentTokens: { block: { open: "<!--", close: "-->" } } });
 var headingProp = /* @__PURE__ */ new NodeProp();
 var commonmark = /* @__PURE__ */ parser.configure({
@@ -28866,7 +28866,7 @@ var pasteURLAsLink = /* @__PURE__ */ EditorView.domEventHandlers({
   }
 });
 
-// ../../../node_modules/@codemirror/search/dist/index.js
+// node_modules/@codemirror/search/dist/index.js
 var basicNormalize = typeof String.prototype.normalize == "function" ? (x2) => x2.normalize("NFKD") : (x2) => x2;
 var SearchCursor = class {
   /**
@@ -29865,7 +29865,7 @@ var searchExtensions = [
   baseTheme3
 ];
 
-// ../../../node_modules/marked/lib/marked.esm.js
+// node_modules/marked/lib/marked.esm.js
 function C2() {
   return { async: false, breaks: false, extensions: null, gfm: true, hooks: null, pedantic: false, renderer: null, silent: false, tokenizer: null, walkTokens: null };
 }
@@ -31117,11 +31117,11 @@ var on = f.parseInline;
 var ln = b.parse;
 var pn = x.lex;
 
-// ../../../node_modules/highlight.js/es/core.js
+// node_modules/highlight.js/es/core.js
 var import_core = __toESM(require_core(), 1);
 var core_default = import_core.default;
 
-// ../../../node_modules/highlight.js/es/languages/javascript.js
+// node_modules/highlight.js/es/languages/javascript.js
 var IDENT_RE = "[A-Za-z$_][0-9A-Za-z$_]*";
 var KEYWORDS = [
   "as",
@@ -31822,7 +31822,7 @@ function javascript2(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/python.js
+// node_modules/highlight.js/es/languages/python.js
 function python(hljs) {
   const regex = hljs.regex;
   const IDENT_RE2 = new RegExp("[\\p{XID_Start}_]\\p{XID_Continue}*", "u");
@@ -32237,7 +32237,7 @@ function python(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/bash.js
+// node_modules/highlight.js/es/languages/bash.js
 function bash(hljs) {
   const regex = hljs.regex;
   const VAR = {};
@@ -32631,7 +32631,7 @@ function bash(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/json.js
+// node_modules/highlight.js/es/languages/json.js
 function json(hljs) {
   const ATTRIBUTE = {
     className: "attr",
@@ -32671,7 +32671,7 @@ function json(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/yaml.js
+// node_modules/highlight.js/es/languages/yaml.js
 function yaml(hljs) {
   const LITERALS2 = "true false yes no null";
   const URI_CHARACTERS = "[\\w#;/?:@&=+$,.~*'()[\\]]+";
@@ -32872,7 +32872,7 @@ function yaml(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/xml.js
+// node_modules/highlight.js/es/languages/xml.js
 function xml(hljs) {
   const regex = hljs.regex;
   const TAG_NAME_RE = regex.concat(/[\p{L}_]/u, regex.optional(/[\p{L}0-9_.-]*:/u), /[\p{L}0-9_.-]*/u);
@@ -33098,7 +33098,7 @@ function xml(hljs) {
   };
 }
 
-// ../../../node_modules/highlight.js/es/languages/css.js
+// node_modules/highlight.js/es/languages/css.js
 var MODES = (hljs) => {
   return {
     IMPORTANT: {
@@ -34035,7 +34035,7 @@ function css2(hljs) {
   };
 }
 
-// ../../../node_modules/katex/dist/katex.mjs
+// node_modules/katex/dist/katex.mjs
 var ParseError = class _ParseError extends Error {
   // The underlying error message without any context added.
   constructor(message, token) {
@@ -48363,7 +48363,7 @@ var katex = {
   __domTree
 };
 
-// ../../../node_modules/dompurify/dist/purify.es.mjs
+// node_modules/dompurify/dist/purify.es.mjs
 function _arrayLikeToArray(r, a) {
   (null == a || a > r.length) && (a = r.length);
   for (var e = 0, n = Array(a); e < a; e++) n[e] = r[e];

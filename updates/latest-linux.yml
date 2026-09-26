@@ -1,9 +1,9 @@
-version: 2.3.2
+version: 2.4.0
 files:
-  - url: https://codeberg.org/Smashii/Archiv-Wiki/releases/download/v2.3.2/Archiv-Wiki-2.3.2.AppImage
-    sha512: FRXHn3PCrHB1a7hANGRgSzJBEye0lc4X7rchCuemkqK8eF+eqZzJ1B2v/dmKQVzjPoPKRNUd3i58Lcuu+DSzuA==
-    size: 118162605
-    blockMapSize: 124097
-path: https://codeberg.org/Smashii/Archiv-Wiki/releases/download/v2.3.2/Archiv-Wiki-2.3.2.AppImage
-sha512: FRXHn3PCrHB1a7hANGRgSzJBEye0lc4X7rchCuemkqK8eF+eqZzJ1B2v/dmKQVzjPoPKRNUd3i58Lcuu+DSzuA==
-releaseDate: '2026-09-26T06:38:25.759Z'
+  - url: https://codeberg.org/Smashii/Archiv-Wiki/releases/download/v2.4.0/Archiv-Wiki-2.4.0.AppImage
+    sha512: VM3HCcfFt5MiM4KYSGrx2tiBHYiFhDNDtbFlQ0hNHq5zPN75kyipb+Dhx9H5LxUJT+kuOjEfcoC5CiiTd//Lew==
+    size: 118191326
+    blockMapSize: 124146
+path: https://codeberg.org/Smashii/Archiv-Wiki/releases/download/v2.4.0/Archiv-Wiki-2.4.0.AppImage
+sha512: VM3HCcfFt5MiM4KYSGrx2tiBHYiFhDNDtbFlQ0hNHq5zPN75kyipb+Dhx9H5LxUJT+kuOjEfcoC5CiiTd//Lew==
+releaseDate: '2026-09-26T21:04:31.906Z'
