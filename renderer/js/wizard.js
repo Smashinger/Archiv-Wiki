@@ -425,7 +425,13 @@ els.btnSelectFolder.addEventListener('click', async () => {
   // Abgebrochener Dialog: bestehende Anzeige (z. B. „Direkt öffnen") NICHT
   // verändern — es wurde ja kein neuer Ordner gewählt.
   if (!result) return;
+  applyFolderSelection(result);
+});
 
+// Übernimmt das Prüfergebnis eines Ordners (inspectProjectFolder im
+// Hauptprozess) in Schritt 1 — für die Auswahl über den Knopf ebenso wie für
+// einen vorbelegten Ordner (neues Wiki aus dem Wiki-Wechsler heraus).
+function applyFolderSelection(result) {
   // Erst ab hier (echte neue Auswahl) Hinweise zurücksetzen.
   els.folderErrorBanner.classList.remove('show');
   els.folderExistingBanner.classList.remove('show');
@@ -458,13 +464,23 @@ els.btnSelectFolder.addEventListener('click', async () => {
 
   updateNextEnabled();
   requestResize();
-});
+}
+
+// Vom Hauptfenster aus gestartet („Neues Wiki hier anlegen“): Ordner ist schon
+// gewählt. Beim normalen Erststart liefert der Hauptprozess null.
+window.archivAPI.getWizardInitialFolder?.()
+  .then((result) => { if (result) applyFolderSelection(result); })
+  .catch((err) => console.error('Vorbelegter Ordner konnte nicht übernommen werden:', err));
 
 els.btnOpenExisting.addEventListener('click', async () => {
   try {
     await window.archivAPI.openExistingProject(state.projectPath);
   } catch (err) {
-    els.folderErrorBanner.textContent = err.message;
+    // Ohne das technische Präfix "Error invoking remote method '…': Error:".
+    els.folderErrorBanner.textContent = String(err?.message || '')
+      .replace(/^Error invoking remote method '[^']*':\s*/, '')
+      .replace(/^(?:[A-Za-z]*Error:\s*)+/, '')
+      .trim() || 'Das Wiki in diesem Ordner konnte nicht geöffnet werden.';
     els.folderErrorBanner.classList.add('show');
     requestResize();
   }

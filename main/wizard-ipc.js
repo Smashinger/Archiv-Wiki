@@ -160,7 +160,7 @@ function persistWizardConfig({ projectPath, config, rawSync, rememberPassword, p
   }
 }
 
-function registerWizardIpc({ getWizardWindow, onProjectReady }) {
+function registerWizardIpc({ getWizardWindow, onProjectReady, consumeInitialFolder }) {
   // Für die "Passwort merken"-Checkbox im Wizard: dasselbe safeStorage wie in
   // main/sync-ipc.js, aber projektunabhängig abfragbar (es gibt zu diesem
   // Zeitpunkt noch kein "aktuelles Projekt").
@@ -178,6 +178,13 @@ function registerWizardIpc({ getWizardWindow, onProjectReady }) {
 
     const folder = result.filePaths[0];
     return inspectProjectFolder(folder);
+  });
+
+  // Vorbelegter Ordner (neues Wiki aus dem Wiki-Wechsler heraus): wird genau
+  // einmal abgeholt und wie eine Auswahl in Schritt 1 geprüft.
+  ipcMain.handle('wizard:getInitialFolder', () => {
+    const folder = typeof consumeInitialFolder === 'function' ? consumeInitialFolder() : null;
+    return folder ? inspectProjectFolder(folder) : null;
   });
 
   // Fenstersteuerung der eigenen (rahmenlosen) Titelleiste des Wizards.

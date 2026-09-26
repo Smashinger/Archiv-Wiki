@@ -42,7 +42,15 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="1"/><line x1="9.5" y1="5" x2="9.5" y2="19"/></svg>
       </button>
       <span class="app-titlebar-divider" aria-hidden="true"></span>
-      <span class="app-titlebar-appname" id="appTitlebarAppName">Archiv-Wiki</span>
+      <!-- Wiki-Wechsler: Der Wiki-Name ist zugleich der Auslöser der
+           Auswahlliste (bekannte Wikis, Häkchen beim aktiven). Er steht in
+           Classic und Design2 an derselben Stelle und bleibt auch bei
+           eingeklappter Sidebar sichtbar. Menü und Aktionen: app.js,
+           Abschnitt "Wiki-Wechsler". -->
+      <button class="app-titlebar-wiki-switch" id="titlebarWikiSwitchBtn" type="button" title="Wiki wechseln" aria-label="Wiki wechseln" aria-haspopup="menu" aria-expanded="false">
+        <span class="app-titlebar-appname" id="appTitlebarAppName">Archiv-Wiki</span>
+        <svg class="app-titlebar-wiki-switch-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
     </div>
     <!-- Zone 2 — Suche, in der Fenstermitte: flex:1 mit justify-center -->
     <div class="app-titlebar-zone2" id="appTitlebarZone2">

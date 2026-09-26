@@ -41,6 +41,7 @@ import { resolveUiDesign, applyUiDesign } from './ui-design.js';
 import { setupToolbarOverflow } from './toolbar-overflow.js';
 import { countLabel, pluralWord } from './count-label.js';
 import { findNotesLinkingToTitle, renameBreaksTitleLinks } from './wikilink-refs.js';
+import { buildWikiSwitcherMenuHtml, buildWikiForgetMenuHtml } from './wiki-switcher-data.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -75,6 +76,8 @@ function updateAppBranding(wikiName = state.project?.config?.wikiName) {
   if (!appName) return;
   const normalizedName = typeof wikiName === 'string' ? wikiName.trim() : '';
   appName.textContent = normalizedName ? `Wiki von ${normalizedName}` : 'Archiv-Wiki';
+  // Der Name ist zugleich der Wiki-Wechsler — Screenreader hören beides.
+  document.getElementById('titlebarWikiSwitchBtn')?.setAttribute('aria-label', `Wiki wechseln, aktuell: ${appName.textContent}`);
 }
 
 // Phase 4H (sichtbarer Design-Umschalter): einziger Ort, an dem ein per
@@ -626,6 +629,7 @@ const APP_LOCK_TITLEBAR_INERT_SELECTORS = [
   // Fensterdekoration verhalten).
   '#titlebarBurgerBtn',
   '#titlebarSidebarBtn',
+  '#titlebarWikiSwitchBtn',
   '#titlebarThemeBtn',
   '#titlebarSettingsBtn',
 ];
@@ -1978,20 +1982,189 @@ async function handleMenuOpenProjectRequest() {
     const folder = await window.archivAPI.selectDirectory();
     if (!folder) return; // Dialog abgebrochen — aktuelles Projekt bleibt unverändert
 
+    // Erst prüfen, was im Ordner liegt: Ein Ordner ohne Wiki (z. B. gerade im
+    // Dialog neu angelegt) ist kein Fehler, sondern Anlass für ein neues Wiki.
+    const inspected = await window.archivAPI.knownProjects.inspectFolder(folder);
+    if (inspected?.status === 'no-wiki') {
+      await offerNewWikiInFolder(inspected);
+      return;
+    }
+    if (inspected?.status !== 'wiki') {
+      await showMessageDialog({
+        title: 'Wiki konnte nicht geöffnet werden',
+        message: `${inspected?.message || 'In diesem Ordner wurde kein Archiv-Wiki gefunden.'} Das aktuelle Wiki bleibt geöffnet.`
+      });
+      return;
+    }
+
     // Bei Erfolg lädt der Hauptprozess dieses Fenster selbst neu
     // (main.js, handleProjectReady) — ab hier läuft kein weiterer
     // Renderer-Code mehr in diesem Dokumentkontext.
     await window.archivAPI.openExistingProject(folder);
   } catch (err) {
     await showMessageDialog({
-      title: 'Projektordner konnte nicht geöffnet werden',
-      message: err?.message || 'Der gewählte Ordner enthält kein bestehendes Archiv-Wiki-Projekt.'
+      title: 'Wiki konnte nicht geöffnet werden',
+      message: readableIpcErrorMessage(err) || 'Der gewählte Ordner enthält kein bestehendes Archiv-Wiki.'
     });
   } finally {
     openProjectRequestPending = false;
   }
 }
+
+// Ordner ohne Wiki: verständlich erklären und anbieten, dort über den
+// Einrichtungsassistenten ein neues Wiki anzulegen. Das aktuelle Wiki bleibt
+// geöffnet, bis der Assistent abgeschlossen ist; abbrechen ändert nichts.
+async function offerNewWikiInFolder(inspected) {
+  if (!inspected.writable) {
+    await showMessageDialog({ title: 'Kein Wiki in diesem Ordner', message: inspected.message });
+    return;
+  }
+  const existingFiles = inspected.entryCount > 0
+    ? ' Die Dateien, die schon im Ordner liegen, bleiben dabei erhalten.'
+    : '';
+  const create = await showConfirmDialog({
+    title: 'Noch kein Wiki in diesem Ordner',
+    message: `${inspected.message} Möchtest du dort ein neues Wiki anlegen? Dafür öffnet sich der Einrichtungsassistent.${existingFiles} Dein aktuelles Wiki bleibt unverändert.`,
+    confirmLabel: 'Neues Wiki anlegen',
+    cancelLabel: 'Abbrechen'
+  });
+  if (!create) return;
+  const result = await window.archivAPI.knownProjects.createInFolder(inspected.path);
+  if (!result?.ok) {
+    await showMessageDialog({
+      title: 'Neues Wiki kann nicht angelegt werden',
+      message: result?.message || 'Der Einrichtungsassistent konnte nicht geöffnet werden.'
+    });
+  }
+}
 window.archivAPI.onMenuOpenProject(() => { void handleMenuOpenProjectRequest(); });
+
+// --- Wiki-Wechsler (Titelleiste) ---
+// Es ist immer genau EIN Wiki geöffnet. Der Wiki-Name in der Titelleiste
+// öffnet eine Auswahlliste der bekannten Wikis (main/known-projects.js). Ein
+// Wechsel läuft über dieselbe Dirty-/Save-Barriere wie "Projektordner öffnen …"
+// und über dieselbe Projektöffnungs-Logik im Hauptprozess (handleProjectReady
+// lädt das Fenster neu) — kein zweiter, konkurrierender Wechselweg.
+const wikiSwitchBtn = document.getElementById('titlebarWikiSwitchBtn');
+let wikiSwitchMenu = null;
+let wikiSwitchProjects = [];
+// Gleiches Muster wie beim Burger-Menü: Die Menübasis verwirft das Menü schon
+// beim pointerdown auf den Auslöser, dessen click darf es nicht wieder öffnen.
+let wikiSwitchMenuDismissedAt = 0;
+
+function closeWikiSwitchMenu() {
+  if (!wikiSwitchMenu) return;
+  closeHtmlContextMenu(wikiSwitchMenu, { reason: 'action' });
+  wikiSwitchMenu = null;
+  wikiSwitchBtn?.setAttribute('aria-expanded', 'false');
+}
+
+function showWikiSwitchMenu(html, label) {
+  wikiSwitchMenu = createHtmlContextMenu({
+    className: 'context-menu wiki-switcher-menu',
+    trigger: wikiSwitchBtn,
+    label,
+    position: contextMenuPointForElement(wikiSwitchBtn),
+    html,
+    onDismiss: () => {
+      wikiSwitchMenuDismissedAt = Date.now();
+      wikiSwitchMenu = null;
+      wikiSwitchBtn?.setAttribute('aria-expanded', 'false');
+    }
+  });
+  wikiSwitchBtn?.setAttribute('aria-expanded', 'true');
+  wikiSwitchMenu.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-wiki-action]');
+    if (!button) return;
+    const { wikiAction, wikiPath } = button.dataset;
+    const project = wikiSwitchProjects.find(entry => entry.path === wikiPath) || null;
+    closeWikiSwitchMenu();
+    if (wikiAction === 'switch') void switchToKnownWiki(project);
+    else if (wikiAction === 'open') void handleMenuOpenProjectRequest();
+    else if (wikiAction === 'forget-menu') showWikiSwitchMenu(buildWikiForgetMenuHtml(wikiSwitchProjects), 'Aus Liste entfernen');
+    else if (wikiAction === 'forget') void forgetKnownWiki(project);
+  });
+}
+
+async function switchToKnownWiki(project) {
+  if (!project || project.isCurrent) return;
+  if (appLockActive || openProjectRequestPending) return;
+  openProjectRequestPending = true;
+  try {
+    // Auch vor einem gerade nicht erreichbaren Wiki: Ist der Ordner inzwischen
+    // wieder da, wechselt der Hauptprozess sofort — ungespeicherte Änderungen
+    // müssen dann bereits gesichert sein.
+    if (!await canLeaveCurrentRoute()) return;
+    const result = await window.archivAPI.knownProjects.switchTo(project.path);
+    // Bei Erfolg lädt der Hauptprozess dieses Fenster selbst neu.
+    if (result?.ok) return;
+    if (result?.reason === 'missing' || result?.reason === 'invalid') {
+      await offerForgetUnreachableWiki(project, result.message);
+      return;
+    }
+    await showMessageDialog({
+      title: 'Wiki konnte nicht geöffnet werden',
+      message: result?.message || 'Das Wiki konnte nicht geöffnet werden. Das aktuelle Wiki bleibt geöffnet.'
+    });
+  } catch (err) {
+    await showMessageDialog({
+      title: 'Wiki konnte nicht geöffnet werden',
+      message: err?.message || 'Das Wiki konnte nicht geöffnet werden. Das aktuelle Wiki bleibt geöffnet.'
+    });
+  } finally {
+    openProjectRequestPending = false;
+  }
+}
+
+async function offerForgetUnreachableWiki(project, message) {
+  const remove = await showConfirmDialog({
+    title: 'Wiki nicht erreichbar',
+    message: `${message || 'Das Wiki wurde nicht gefunden.'} Du kannst „${project.name}“ aus der Liste entfernen — der Ordner selbst wird dabei nicht angerührt.`,
+    confirmLabel: 'Aus Liste entfernen',
+    cancelLabel: 'In Liste behalten'
+  });
+  if (remove) await forgetKnownWiki(project, { confirmed: true });
+}
+
+async function forgetKnownWiki(project, { confirmed = false } = {}) {
+  if (!project || project.isCurrent || appLockActive) return;
+  if (!confirmed) {
+    const ok = await showConfirmDialog({
+      title: 'Aus Liste entfernen?',
+      message: `„${project.name}“ wird nur aus dieser Auswahlliste entfernt. Der Ordner und alle Notizen darin bleiben unverändert erhalten. Über „Weiteren Wiki-Ordner öffnen …“ kannst du das Wiki jederzeit wieder hinzufügen.`,
+      confirmLabel: 'Entfernen',
+      cancelLabel: 'Abbrechen'
+    });
+    if (!ok) return;
+  }
+  try {
+    const result = await window.archivAPI.knownProjects.forget(project.path);
+    if (!result?.ok) {
+      await showMessageDialog({ title: 'Nicht möglich', message: result?.message || 'Das Wiki konnte nicht aus der Liste entfernt werden.' });
+    }
+  } catch (err) {
+    await showMessageDialog({ title: 'Nicht möglich', message: err?.message || 'Das Wiki konnte nicht aus der Liste entfernt werden.' });
+  }
+}
+
+wikiSwitchBtn?.addEventListener('click', async () => {
+  if (wikiSwitchMenu?.isConnected) {
+    closeWikiSwitchMenu();
+    return;
+  }
+  if (Date.now() - wikiSwitchMenuDismissedAt < 250) return;
+  if (appLockActive) return;
+  try {
+    const result = await window.archivAPI.knownProjects.list();
+    wikiSwitchProjects = Array.isArray(result?.projects) ? result.projects : [];
+  } catch (error) {
+    console.error('Liste der bekannten Wikis konnte nicht gelesen werden:', error);
+    wikiSwitchProjects = [];
+  }
+  // Während des Lesens gesperrt oder erneut geöffnet? Dann nichts mehr zeigen.
+  if (appLockActive || wikiSwitchMenu?.isConnected) return;
+  showWikiSwitchMenu(buildWikiSwitcherMenuHtml(wikiSwitchProjects), 'Wiki wechseln');
+});
 
 // Automatisches Update-System (Nutzer-Feature): dezente Ecken-Benachrichtigung
 // statt eines blockierenden Dialogs — passend zum Wunsch "keine aufdringlichen

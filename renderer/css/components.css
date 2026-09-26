@@ -974,6 +974,20 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
    sonst verlöre man beim Wandern der Maus den Bezug. */
 .context-menu button[data-menu].is-open{ background: var(--bg-elev); color: var(--text-main); }
 
+/* Wiki-Wechsler (Titelleiste, siehe app.js): eine normale .context-menu,
+   damit Classic und Design2 automatisch ihre gewohnten Menüfarben tragen.
+   Einträge bleiben einzeilig (Design2 setzt eine feste Menüzeilenhöhe); der
+   vollständige Ordnerpfad steht im Tooltip. */
+.wiki-switcher-menu{ min-width:220px; max-width:320px; }
+.wiki-switcher-menu .wiki-switcher-item{ display:flex; align-items:center; gap:8px; width:100%; }
+.wiki-switcher-menu .wiki-switcher-check{ flex:0 0 12px; color: var(--accent-color); text-align:center; }
+.wiki-switcher-menu .wiki-switcher-name{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wiki-switcher-menu .wiki-switcher-item.is-current .wiki-switcher-name{ color: var(--text-main); }
+.wiki-switcher-menu .wiki-switcher-hint{ flex:none; margin-left:auto; font-size:11px; color: var(--text-faint); }
+.wiki-switcher-menu .wiki-switcher-item.is-unreachable .wiki-switcher-name{ opacity:.6; }
+[data-ui-design="design2"] .wiki-switcher-menu .wiki-switcher-item.is-current .wiki-switcher-name{ color: var(--d2-text); }
+[data-ui-design="design2"] .wiki-switcher-menu .wiki-switcher-hint{ color: var(--d2-faint); }
+
 /* --- Icon-/Emoji-Picker (Editor-Toolbar) ---
    Bausteine (Grid/Button/Gruppen-Label/Leer-Meldung) bleiben — werden vom
    neuen showIconPicker im Emoji-Reiter weiterhin genutzt.

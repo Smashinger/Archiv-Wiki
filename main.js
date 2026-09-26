@@ -16,6 +16,7 @@ const { readAppState, writeAppState } = require('./main/app-state');
 const { getAutoStartSettings, setAutoStartSettings, shouldStartHidden, revealExistingWindow } = require('./main/autostart');
 const { adoptProjectConfig, cloneProjectConfig, isValidProject, requireProjectConfig } = require('./main/project');
 const { registerWizardIpc } = require('./main/wizard-ipc');
+const { rememberKnownProject, forgetKnownProject, normalizeKnownProjects, inspectKnownProject, missingProjectMessage, invalidProjectMessage, registerKnownProjectsIpc } = require('./main/known-projects');
 const { registerFilesystemIpc } = require('./main/filesystem-ipc');
 const { registerIncomingIpc } = require('./main/incoming-ipc');
 const { startWebClipReceiver } = require('./main/webclip-receiver');
@@ -685,8 +686,18 @@ function secureWindowNavigation(browserWindow, documentPath) {
   browserWindow.webContents.on('will-navigate', handlers.handleWillNavigate);
 }
 
-function createWizardWindow() {
+// Ordner, mit dem der Einrichtungsassistent vorbelegt startet (Wiki-Wechsler:
+// „Neues Wiki hier anlegen“ für einen Ordner ohne Wiki). Wird vom Wizard beim
+// Laden genau einmal abgeholt (wizard:getInitialFolder).
+let pendingWizardInitialFolder = null;
+
+function createWizardWindow({ parent = null } = {}) {
+  // Mit Elternfenster (neues Wiki aus dem laufenden Hauptfenster heraus) ist
+  // der Assistent modal: Solange er offen ist, kann im Hauptfenster nichts
+  // bearbeitet werden, was sein abschließender Neuladen verwerfen würde.
+  const modalParent = parent && !parent.isDestroyed() ? { parent, modal: true } : {};
   wizardWindow = new BrowserWindow({
+    ...modalParent,
     // Eigene Titelleiste (Custom Window Chrome) wie das Hauptfenster: frame:false
     // entfernt die native Dekoration; renderer/wizard.html rendert die
     // 28px-Titelleiste selbst. useContentSize misst die reine Inhaltsfläche,
@@ -720,8 +731,23 @@ function createWizardWindow() {
   // wurde (kein Hauptfenster existiert), gibt es nichts mehr zu tun → App beenden.
   wizardWindow.on('closed', () => {
     wizardWindow = null;
+    pendingWizardInitialFolder = null;
     if (!mainWindow) app.quit();
   });
+}
+
+// Wiki-Wechsler: „Weiteren Wiki-Ordner öffnen …“ hat einen Ordner ohne Wiki
+// geliefert und der Nutzer möchte dort ein neues anlegen. Das aktuelle Wiki
+// bleibt geöffnet, bis der Assistent abgeschlossen ist (handleProjectReady).
+function openWizardForNewWiki(folderPath) {
+  if (wizardWindow && !wizardWindow.isDestroyed()) {
+    wizardWindow.show();
+    wizardWindow.focus();
+    return { ok: false, message: 'Der Einrichtungsassistent ist bereits geöffnet.' };
+  }
+  pendingWizardInitialFolder = folderPath;
+  createWizardWindow({ parent: mainWindow });
+  return { ok: true };
 }
 
 // Wird aufgerufen, sobald der Wizard ein Projekt fertig eingerichtet ODER ein
@@ -733,6 +759,7 @@ function createWizardWindow() {
 function handleProjectReady(projectPath, config) {
   console.log(`[Archiv Wiki] Projekt bereit: ${projectPath}`);
   currentProject = { path: projectPath, config: cloneProjectConfig(config) };
+  rememberOpenedProject(projectPath, config);
   syncLockStateFromProjectConfig();
   if (mainWindow && !mainWindow.isDestroyed()) {
     // Bereits laufendes Hauptfenster wechselt das Projekt: kompletter Reload
@@ -747,6 +774,51 @@ function handleProjectReady(projectPath, config) {
   if (wizardWindow) {
     wizardWindow.close();
   }
+}
+
+// Wiki-Wechsler (main/known-projects.js): jedes geöffnete Wiki landet in der
+// Liste der bekannten Wikis in app-state.json. Ein Fehler beim Merken darf
+// das Öffnen selbst nie verhindern.
+function rememberOpenedProject(projectPath, config) {
+  try {
+    writeAppState({
+      knownProjects: rememberKnownProject(readAppState().knownProjects, { path: projectPath, name: config?.wikiName })
+    });
+  } catch (error) {
+    console.error('[Archiv Wiki] Wiki konnte nicht in die Liste der bekannten Wikis übernommen werden:', error?.message || error);
+  }
+}
+
+// Beim Start ist das zuletzt geöffnete Wiki nicht mehr nutzbar (Ordner
+// gelöscht, verschoben, Laufwerk nicht verbunden …). Statt kommentarlos den
+// Einrichtungsassistenten zu zeigen, erklärt ein Hinweis den Grund und bietet —
+// falls vorhanden — das zuletzt benutzte andere Wiki aus der Liste an.
+// Rückgabe: { path, config } des gewählten Ersatz-Wikis oder null (Assistent).
+async function askForStartupFallbackProject(appState) {
+  if (!appState?.lastProjectPath) return null; // Erststart: kein Hinweis nötig
+  const fallback = normalizeKnownProjects(appState.knownProjects)
+    .map(entry => ({ entry, inspected: inspectKnownProject(entry.path) }))
+    .find(({ entry, inspected }) => inspected.status === 'ok' && entry.path !== path.resolve(appState.lastProjectPath));
+  const fallbackName = fallback ? (fallback.inspected.config.wikiName || fallback.entry.name) : '';
+  const buttons = fallback
+    ? [`„${fallbackName}“ öffnen`, 'Einrichtungsassistent öffnen']
+    : ['Einrichtungsassistent öffnen'];
+  try {
+    const { response } = await dialog.showMessageBox({
+      type: 'warning',
+      title: 'Wiki nicht gefunden',
+      message: 'Das zuletzt geöffnete Wiki ist nicht erreichbar.',
+      detail: `${inspectKnownProject(appState.lastProjectPath).status === 'missing' ? missingProjectMessage(appState.lastProjectPath) : invalidProjectMessage(appState.lastProjectPath)}\n\nEs wurde nichts gelöscht oder verändert.`,
+      buttons,
+      defaultId: 0,
+      cancelId: buttons.length - 1,
+      noLink: true
+    });
+    if (fallback && response === 0) return { path: fallback.entry.path, config: fallback.inspected.config };
+  } catch (error) {
+    console.error('[Archiv Wiki] Hinweis zum fehlenden Wiki konnte nicht angezeigt werden:', error?.message || error);
+  }
+  return null;
 }
 
 function createMainWindow() {
@@ -1251,6 +1323,14 @@ function registerCoreIpc() {
       await fs.promises.cp(oldPath, newPath, { recursive: true });
       currentProject = { path: newPath, config: currentProject.config };
       writeAppState({ lastProjectPath: newPath });
+      // Wiki-Wechsler: Der alte Ordner bleibt als Kopie stehen, soll aber
+      // nicht mehr als eigenes Wiki in der Auswahl auftauchen.
+      try {
+        writeAppState({ knownProjects: forgetKnownProject(readAppState().knownProjects, oldPath) });
+      } catch (error) {
+        console.error('[Archiv Wiki] Alter Speicherort konnte nicht aus der Wiki-Liste entfernt werden:', error?.message || error);
+      }
+      rememberOpenedProject(newPath, currentProject.config);
       console.log(`[Archiv Wiki] Speicherort verschoben: ${oldPath} → ${newPath}`);
       return { moved: true, newPath, oldPath };
     } catch (err) {
@@ -1860,7 +1940,23 @@ app.whenReady().then(async () => {
   // Kanäle (wizard:finish usw.). Jetzt einmalig und bedingungslos beim Start,
   // unabhängig davon, ob der Wizard sofort oder erst später gezeigt wird —
   // mehrfaches Registrieren wäre ohnehin sinnlos, einmalig reicht.
-  safeRegister('registerWizardIpc', () => registerWizardIpc({ getWizardWindow: () => wizardWindow, onProjectReady: handleProjectReady }));
+  safeRegister('registerWizardIpc', () => registerWizardIpc({
+    getWizardWindow: () => wizardWindow,
+    onProjectReady: handleProjectReady,
+    consumeInitialFolder: () => {
+      const folder = pendingWizardInitialFolder;
+      pendingWizardInitialFolder = null;
+      return folder;
+    }
+  }));
+  safeRegister('registerKnownProjectsIpc', () => registerKnownProjectsIpc({
+    ipcMain,
+    getCurrentProject: () => currentProject,
+    readAppState,
+    writeAppState,
+    onProjectReady: handleProjectReady,
+    onCreateWikiInFolder: openWizardForNewWiki
+  }));
 
   // Automatisches Backup: einmal am Tag ein ZIP-Snapshot in den beim
   // Einrichten gewählten backupPath (siehe main/backup.js — vorher wurde
@@ -1890,7 +1986,13 @@ app.whenReady().then(async () => {
   }, 8000);
 
   const appState = readAppState();
-  if (isValidProject(appState.lastProjectPath)) {
+  const startupFallbackProject = isValidProject(appState.lastProjectPath)
+    ? null
+    : await askForStartupFallbackProject(appState);
+  if (startupFallbackProject) {
+    writeAppState({ lastProjectPath: startupFallbackProject.path });
+    handleProjectReady(startupFallbackProject.path, startupFallbackProject.config);
+  } else if (isValidProject(appState.lastProjectPath)) {
     // Bereits eingerichtetes Projekt aus einem früheren Start → Wizard
     // überspringen und direkt ins Hauptfenster.
     console.log(`[Archiv Wiki] Bekanntes Projekt gefunden: ${appState.lastProjectPath}`);
@@ -1898,6 +2000,9 @@ app.whenReady().then(async () => {
       path: appState.lastProjectPath,
       config: cloneProjectConfig(requireProjectConfig(appState.lastProjectPath))
     };
+    // Bestehende Installationen: das zuletzt geöffnete Wiki wird so beim
+    // ersten Start mit Wiki-Wechsler automatisch erster Listeneintrag.
+    rememberOpenedProject(currentProject.path, currentProject.config);
     createMainWindow();
   } else {
     // Kein (gültiges) Projekt bekannt → Setup-Wizard zeigen.

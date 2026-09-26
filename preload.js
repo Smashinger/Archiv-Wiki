@@ -92,6 +92,7 @@ contextBridge.exposeInMainWorld('archivAPI', {
 
   // --- Setup-Wizard (Schritt 2) ---
   selectProjectFolder: () => ipcRenderer.invoke('wizard:selectProjectFolder'),
+  getWizardInitialFolder: () => ipcRenderer.invoke('wizard:getInitialFolder'),
   selectBackupFolder: () => ipcRenderer.invoke('wizard:selectBackupFolder'),
   getDefaultBackupPath: () => ipcRenderer.invoke('wizard:getDefaultBackupPath'),
   isEncryptionAvailable: () => ipcRenderer.invoke('wizard:isEncryptionAvailable'),
@@ -103,6 +104,15 @@ contextBridge.exposeInMainWorld('archivAPI', {
 
   // --- Aktuelles Projekt ---
   getCurrentProject: () => ipcRenderer.invoke('project:getCurrent'),
+
+  // --- Wiki-Wechsler (main/known-projects.js): immer genau ein aktives Wiki ---
+  knownProjects: {
+    list: () => ipcRenderer.invoke('projects:getKnown'),
+    switchTo: (projectPath) => ipcRenderer.invoke('projects:switchTo', projectPath),
+    forget: (projectPath) => ipcRenderer.invoke('projects:forget', projectPath),
+    inspectFolder: (folderPath) => ipcRenderer.invoke('projects:inspectFolder', folderPath),
+    createInFolder: (folderPath) => ipcRenderer.invoke('projects:createInFolder', folderPath)
+  },
 
   // --- Export (Schritt 6): PDF/HTML pro Notiz, ZIP fürs ganze Projekt ---
   exportApi: {

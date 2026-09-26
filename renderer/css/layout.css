@@ -348,6 +348,37 @@ body.theme-light .app-titlebar-btn svg.icon-moon{ display:block; }
 .app-titlebar-appname,
 .app-titlebar-divider{ -webkit-app-region: drag; }
 
+/* Wiki-Wechsler: Der Anwendungsname ist zugleich der Auslöser der Wiki-
+   Auswahl und damit KEINE Ziehfläche mehr (sonst schluckte die Drag-Region
+   den Klick). Gezogen wird weiterhin über Trennlinien und die freie Mitte.
+   Sehr lange Wiki-Namen werden gekürzt, damit Zone 1 bei schmalem Fenster
+   (Mindestbreite 960px) die Suche nicht verdrängt. */
+.app-titlebar-wiki-switch{
+  display:inline-flex; align-items:center; gap:6px;
+  min-width:0; max-width:240px; height:27px; padding:0 6px;
+  background:transparent; border:none; border-radius:4px;
+  color: var(--text-muted); cursor:pointer;
+  -webkit-app-region: no-drag;
+}
+.app-titlebar .app-titlebar-wiki-switch .app-titlebar-appname{
+  min-width:0; overflow:hidden; text-overflow:ellipsis;
+  -webkit-app-region: no-drag;
+}
+.app-titlebar-wiki-switch-chevron{
+  width:11px; height:11px; flex-shrink:0; color: var(--text-faint);
+}
+.app-titlebar-wiki-switch:hover,
+.app-titlebar-wiki-switch[aria-expanded="true"]{ background: var(--overlay-medium); }
+.app-titlebar-wiki-switch:hover .app-titlebar-appname,
+.app-titlebar-wiki-switch[aria-expanded="true"] .app-titlebar-appname{ color: var(--text-main); }
+.app-titlebar-wiki-switch:focus-visible{ outline:2px solid var(--accent-dim); outline-offset:-2px; }
+[data-ui-design="design2"] .app-titlebar-wiki-switch-chevron{ color: var(--c-faint, var(--d2-faint)); }
+[data-ui-design="design2"] .app-titlebar-wiki-switch:hover,
+[data-ui-design="design2"] .app-titlebar-wiki-switch[aria-expanded="true"]{ background: var(--c-s2, var(--d2-surface-2)); }
+[data-ui-design="design2"] .app-titlebar-wiki-switch:hover .app-titlebar-appname,
+[data-ui-design="design2"] .app-titlebar-wiki-switch[aria-expanded="true"] .app-titlebar-appname{ color: var(--c-text, var(--d2-text)); }
+[data-ui-design="design2"] .app-titlebar-wiki-switch:focus-visible{ outline-color: var(--accent-color); }
+
 /* ---------------------------------------------------------------------------
    GLOBALE TOPBAR IM SPERRBILDSCHIRM (body.app-locked, gesetzt von
    setAppChromeInert() in app.js)
