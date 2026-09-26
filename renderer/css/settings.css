@@ -456,4 +456,3 @@
 /* Suche im Bereich Allgemein blendet nicht passende Zeilen und leere
    Abschnitte aus — sie ist der Einstieg in den Bereich, kein zweiter Dialog. */
 .aws-row[hidden], .aws-group[hidden], .aws-search[hidden], .aws-notes[hidden]{ display: none !important; }
-

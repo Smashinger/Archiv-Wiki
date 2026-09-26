@@ -5,6 +5,27 @@
 // ausschließlich den Datensatz, dessen Version der installierten App entspricht.
 
 export const RELEASE_NOTES_BY_VERSION = Object.freeze({
+  '2.3.2': Object.freeze({
+    intro: 'Dieses Update bringt das neue Archiv-Wiki-Markenlogo, stellt Classic als Standard für neue Wikis wieder her und enthält wichtige Fehlerbehebungen für Dateipfade und Kontextmenüs.',
+    sections: Object.freeze([
+      Object.freeze({
+        title: '🐛 BEHOBEN',
+        items: Object.freeze([
+          'Verschieben von Kategorien: Beim Verschieben einer Unterkategorie per Drag & Drop werden die internen Zuordnungen aller darin enthaltenen Notizen zuverlässig aktualisiert, sodass die Notizen in der richtigen Hauptkategorie verbleiben.',
+          'Saubere Projektkonfiguration: Beim Umbenennen, Verschieben oder Löschen von Notizen und Ordnern werden verknüpfte Symbole, Sortierreihenfolgen und Lesepositionen in der Projektdatei konsistent migriert oder bereinigt.',
+          'Kontextmenüs am Fensterrand: Kontextmenüs klappen nahe dem unteren Bildschirmrand automatisch nach oben auf, statt abgeschnitten zu werden.'
+        ])
+      }),
+      Object.freeze({
+        title: '✅ GEMACHT',
+        items: Object.freeze([
+          'Neues AW-Markenlogo: Frisches, einheitliches AW-Logo für Anwendungsfenster, Desktop-Symbol, Einrichtungsassistent und Systembenachrichtigungen.',
+          'Standard-Design für neue Wikis: Neu eingerichtete Wikis starten wieder im bewährten Classic-Design. Design 2 bleibt in den Einstellungen jederzeit frei wählbar; bestehende Wikis bleiben unverändert.',
+          'Optimierte Typografie & Einstellungen: Design 2 nutzt die Systemschriftart Inter für klarere Lesbarkeit; das zweispaltige Einstellungsfenster ist gleichmäßiger und symmetrisch zentriert.'
+        ])
+      })
+    ])
+  }),
   '2.3.1': Object.freeze({
     intro: 'Dieses Update behebt mehrere Fehler im Editor, verbessert die Datensicherheit beim Speichern und bringt spürbare Komfortverbesserungen für die tägliche Notizverwaltung.',
     sections: Object.freeze([

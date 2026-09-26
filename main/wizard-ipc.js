@@ -293,11 +293,10 @@ function buildNewProjectConfig({ wikiName, accentKey, customAccentColor, appLock
     version: '1.0.0',
     created: new Date().toISOString(),
     wikiName: (wikiName || '').trim(),
-    // Neue Wikis starten im aktuellen Zieldesign. Bewusst nur beim Anlegen
-    // gesetzt: Die Rückfallregel "fehlender Wert → Classic" (ui-design.js,
-    // 12_KNOWN_DECISIONS) bleibt für bestehende Wikis unverändert, und
-    // Einstellungen → Darstellung schaltet weiterhin frei um.
-    uiDesign: 'design2',
+    // Classic bleibt der Standard für neue Wikis. Design 2 wird nur gewählt,
+    // wenn der Nutzer es später unter Einstellungen → Darstellung aktiviert.
+    // Bestehende Wiki-Einstellungen werden hier nicht verändert.
+    uiDesign: 'classic',
     accentKey: accentKey || 'orange',
     appLock,
     editor,
