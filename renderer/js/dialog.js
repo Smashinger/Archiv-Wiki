@@ -24,7 +24,7 @@ function markDialogAction(button) {
   const action = button.dataset.action || '';
   const isPrimary = button.classList.contains('primary')
     || button.classList.contains('danger')
-    || ['ok', 'apply', 'open-github', 'syncall'].includes(action);
+    || ['ok', 'apply', 'open-github', 'open-codeberg', 'syncall'].includes(action);
   const isSecondary = ['cancel', 'close', 'close-x'].includes(action);
   if (isPrimary) button.dataset.dialogAction = 'primary';
   else if (isSecondary) button.dataset.dialogAction = 'secondary';

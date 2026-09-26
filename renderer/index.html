@@ -23,6 +23,11 @@
 <link rel="stylesheet" href="css/archiv-wiki-tokens.css">
 <link rel="stylesheet" href="css/settings.css">
 <link rel="stylesheet" href="css/sidebar-tree.css">
+<!-- Design 3 (isoliert): jede Regel liegt unter [data-ui-design="design3"],
+     wirkt also nie auf Classic oder Design 2. Bewusst als LETZTES Stylesheet
+     eingebunden, damit die Design-3-Tokens bei gleicher Spezifität gegen die
+     gemeinsamen Classic-Regeln gewinnen (siehe Kopfkommentar in design3.css). -->
+<link rel="stylesheet" href="css/design3.css">
 </head>
 <body>
   <!-- Eigene Titelleiste (Custom Window Chrome): ersetzt die native KDE/KWin-
@@ -64,9 +69,9 @@
            #titlebarSidebarBtn auf #burgerBtn. Kein zweiter Sync-Dialog, keine
            zweite Sync-Logik. Bewusst ein <button>, damit der Zugang auch per
            Tastatur und für Screenreader existiert. -->
-      <button class="app-titlebar-sync" id="titlebarSyncStatus" type="button" title="Synchronisationseinstellungen" aria-label="Synchronisationseinstellungen öffnen">
-        <span class="app-titlebar-sync-dot" id="titlebarSyncDot"></span>
-        <span class="app-titlebar-sync-text" id="titlebarSyncText">WEBDAV SYNCHRON</span>
+      <button class="app-titlebar-sync" id="titlebarSyncStatus" type="button" title="WebDAV ist nicht eingerichtet — Synchronisationseinstellungen öffnen" aria-label="WebDAV: nicht eingerichtet. Synchronisationseinstellungen öffnen">
+        <span class="app-titlebar-sync-dot is-offline" id="titlebarSyncDot" aria-hidden="true"></span>
+        <span class="app-titlebar-sync-text" id="titlebarSyncText">WEBDAV</span>
       </button>
       <span class="app-titlebar-divider" aria-hidden="true"></span>
       <!-- Globale Aktionsgruppe: nimmt die bestehenden .topbar-Aktionsknoten

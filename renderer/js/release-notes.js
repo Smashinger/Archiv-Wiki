@@ -5,6 +5,27 @@
 // ausschließlich den Datensatz, dessen Version der installierten App entspricht.
 
 export const RELEASE_NOTES_BY_VERSION = Object.freeze({
+  '2.4.0': Object.freeze({
+    intro: 'Dieses Update bringt den schnellen Wiki-Wechsler in der Titelleiste, führt das neue, moderne Design 3 ein, verbessert die WebDAV-Statusanzeige und stellt die Update- und Feedback-Infrastruktur zukunftssicher auf die europäische Plattform Codeberg um.',
+    sections: Object.freeze([
+      Object.freeze({
+        title: '✨ NEU',
+        items: Object.freeze([
+          'Wiki-Wechsler in der Titelleiste: Direkt über den Wiki-Namen oben im Fenster lässt sich jetzt blitzschnell zwischen bekannten Wikis umschalten oder ein neuer Ordner als Wiki einrichten.',
+          'Neues Design 3: Eine dritte, eigenständige und moderne Design-Variante steht ab sofort in den Einstellungen zur freien Auswahl.',
+          'Unabhängiges Zuhause auf Codeberg: Fehlerberichte, Rückmeldungen und zukünftige Aktualisierungen laufen ab sofort über die datenschutzfreundliche Open-Source-Plattform Codeberg.'
+        ])
+      }),
+      Object.freeze({
+        title: '🛠️ VERBESSERT',
+        items: Object.freeze([
+          'Klarere WebDAV-Statusanzeige: Die Anzeige in der Titelleiste zeigt den Verbindungszustand nun mit eindeutigen Farbpunkten und aufgeräumter Beschriftung an.',
+          'Aktualisierte Dashboard-Tipps: Neue und verständlichere Hinweise zur Mehrfachauswahl, zur Bildereinfügung und zum schnellen Wechseln von Wikis.',
+          'Feinjustierter Sidebar-Griff: Die Ziehkante der Seitenleiste wurde optisch verfeinert und bietet eine präzisere Rückmeldung bei Maus- und Tastaturinteraktionen.'
+        ])
+      })
+    ])
+  }),
   '2.3.2': Object.freeze({
     intro: 'Dieses Update bringt das neue Archiv-Wiki-Markenlogo, stellt Classic als Standard für neue Wikis wieder her und enthält wichtige Fehlerbehebungen für Dateipfade und Kontextmenüs.',
     sections: Object.freeze([

@@ -125,11 +125,12 @@
   display:flex; align-items:center; gap:7px; padding:0 4px; flex-shrink:0;
 }
 [data-ui-design="design2"] .app-titlebar-sync-dot{
-  width:6px; height:6px; border-radius:50%; background: var(--c-blue, var(--d2-system)); flex-shrink:0;
+  width:6px; height:6px; border-radius:50%; flex-shrink:0;
 }
-[data-ui-design="design2"] .app-titlebar-sync-dot.is-amber{ background: var(--c-amber, #D9A05B); }
-[data-ui-design="design2"] .app-titlebar-sync-dot.is-faint{ background: var(--c-faint, var(--d2-faint)); }
-[data-ui-design="design2"] .app-titlebar-sync-dot.is-pulse{ animation: titlebar-sync-pulse 1.6s ease-in-out infinite; }
+[data-ui-design="design2"] .app-titlebar-sync-dot.is-ok{ background: var(--green); }
+[data-ui-design="design2"] .app-titlebar-sync-dot.is-syncing{ background: var(--d2-system); }
+[data-ui-design="design2"] .app-titlebar-sync-dot.is-error{ background: var(--red); }
+[data-ui-design="design2"] .app-titlebar-sync-dot.is-offline{ background: var(--d2-faint); }
 @keyframes titlebar-sync-pulse{ 0%,100%{opacity:1} 50%{opacity:.4} }
 [data-ui-design="design2"] .app-titlebar-sync-text{
   font-family: var(--font-mono, var(--mono)); font-size:10px; letter-spacing:.06em;
@@ -191,11 +192,12 @@ body.theme-light .app-titlebar-btn svg.icon-moon{ display:block; }
   display:flex; align-items:center; gap:7px; padding:0 4px; flex-shrink:0;
 }
 .app-titlebar-sync-dot{
-  width:6px; height:6px; border-radius:50%; background: var(--accent-color); flex-shrink:0;
+  width:6px; height:6px; border-radius:50%; background: var(--text-faint); flex-shrink:0;
 }
-.app-titlebar-sync-dot.is-amber{ background: var(--amber); }
-.app-titlebar-sync-dot.is-faint{ background: var(--text-faint); }
-.app-titlebar-sync-dot.is-pulse{ animation: titlebar-sync-pulse 1.6s ease-in-out infinite; }
+.app-titlebar-sync-dot.is-ok{ background: var(--green); }
+.app-titlebar-sync-dot.is-syncing{ background: var(--blue); animation: titlebar-sync-pulse 1.6s ease-in-out infinite; }
+.app-titlebar-sync-dot.is-error{ background: var(--red); }
+.app-titlebar-sync-dot.is-offline{ background: var(--text-faint); }
 .app-titlebar-sync-text{
   font-family: var(--mono); font-size:10px; letter-spacing:.06em;
   text-transform:uppercase; color: var(--text-muted); white-space:nowrap;

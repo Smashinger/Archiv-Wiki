@@ -21,7 +21,13 @@
 // fasst ausschließlich die Design-Root-Markierung an, nie die Theme-Klasse,
 // nie die Akzentfarbe.
 
-export const UI_DESIGNS = ['classic', 'design2'];
+// "design3" (Design 3, isoliert): reine Stylesheet-Variante über dem
+// Classic-DOM. Es gibt KEINE Design-3-Renderfunktionen — alle Verzweigungen
+// in app.js prüfen ausschließlich auf 'design2', Design 3 rendert daher wie
+// Classic und erhält sein Aussehen allein aus renderer/css/design3.css unter
+// [data-ui-design="design3"]. Ein Auftrag "ändere Design 3" betrifft nur
+// design3.css; Classic und Design 2 bleiben davon unberührt.
+export const UI_DESIGNS = ['classic', 'design2', 'design3'];
 export const DEFAULT_UI_DESIGN = 'classic';
 
 // Phase 4H (sichtbarer Design-Umschalter): einzige Stelle mit sichtbaren
@@ -30,7 +36,8 @@ export const DEFAULT_UI_DESIGN = 'classic';
 // gewünschten Anzeigereihenfolge im Umschalter.
 export const UI_DESIGN_LABELS = {
   classic: 'Classic',
-  design2: 'Design 2'
+  design2: 'Design 2',
+  design3: 'Design 3'
 };
 
 /**

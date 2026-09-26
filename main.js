@@ -87,10 +87,12 @@ function compareVersions(a, b) {
 function getUpdateReleaseUrl(version = null) {
   try {
     const homepage = require('./package.json').homepage || '';
-    const match = homepage.match(/github\.com\/([^/]+)\/([^/]+?)\/?$/);
+    const match = homepage.match(/(?:github\.com|codeberg\.org)\/([^/]+)\/([^/]+?)\/?$/);
     if (!match) return null;
-    const base = `https://github.com/${match[1]}/${match[2]}/releases`;
-    return version ? `${base}/tag/v${version}` : `${base}/latest`;
+    const isCodeberg = homepage.includes('codeberg.org');
+    const domain = isCodeberg ? 'https://codeberg.org' : 'https://github.com';
+    const base = `${domain}/${match[1]}/${match[2]}/releases`;
+    return version ? `${base}/tag/v${version}` : (isCodeberg ? base : `${base}/latest`);
   } catch {
     return null;
   }

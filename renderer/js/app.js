@@ -962,11 +962,12 @@ document.addEventListener('keydown', (e) => {
     els.titlebarThemeBtn?.click();
   }
 });
-// Sync-Status Punkt/Text spiegelt existierenden Sync-Status (vereinfacht).
+// Der sichtbare Text bleibt bewusst kurz; der Punkt zeigt den Zustand sofort:
+// Grün = erfolgreich, Blau = läuft, Rot = Problem, Grau = aus/bereit.
+// Die genaue Erklärung bleibt als title und aria-label erreichbar.
 //
 // Die Farbe des Punktes kommt ausschließlich aus der jeweiligen Zustands-
-// Klasse (siehe .app-titlebar-sync-dot/.is-amber/.is-faint in layout.css:
-// global Classic-Tokens, darunter die Design2-Rollen). Ein früher hier
+// Klasse in layout.css. Ein früher hier
 // zusätzlich gesetzter Inline-Hintergrund ("var(--c-blue)"/"var(--c-amber)"/
 // "var(--c-faint)") benannte Variablen, die in keinem der von index.html
 // geladenen Stylesheets definiert sind (--c-* stammen aus der nicht
@@ -993,21 +994,23 @@ function updateTitlebarSync() {
   const configured = Boolean(String(state.project?.config?.sync?.url || '').trim());
   let view;
   if (status.state === 'syncing') {
-    view = { cls: 'is-pulse', text: 'SYNCHRONISIERT…', title: 'Synchronisiere …' };
+    view = { cls: 'is-syncing', title: 'WebDAV synchronisiert gerade' };
   } else if (status.state === 'error') {
-    view = { cls: 'is-amber', text: 'SYNC-FEHLER', title: 'Letzte Synchronisation fehlgeschlagen' };
+    view = { cls: 'is-error', title: 'Letzte WebDAV-Synchronisation fehlgeschlagen' };
   } else if (status.state === 'conflicts') {
-    view = { cls: 'is-amber', text: 'SYNC-KONFLIKT', title: 'Ungelöste Synchronisationskonflikte' };
+    view = { cls: 'is-error', title: 'WebDAV hat ungelöste Synchronisationskonflikte' };
   } else if (!configured) {
-    view = { cls: 'is-faint', text: 'WEBDAV AUS', title: 'WebDAV ist nicht eingerichtet — Synchronisationseinstellungen öffnen' };
+    view = { cls: 'is-offline', title: 'WebDAV ist nicht eingerichtet' };
   } else if (status.lastSyncAt) {
-    view = { cls: '', text: 'WEBDAV SYNCHRONISIERT', title: 'Zuletzt erfolgreich synchronisiert: ' + formatRelativeTime(status.lastSyncAt) };
+    view = { cls: 'is-ok', title: 'Zuletzt erfolgreich synchronisiert: ' + formatRelativeTime(status.lastSyncAt) };
   } else {
-    view = { cls: 'is-faint', text: 'WEBDAV BEREIT', title: 'WebDAV ist eingerichtet, aber in dieser Sitzung noch nicht synchronisiert' };
+    view = { cls: 'is-offline', title: 'WebDAV ist eingerichtet, aber in dieser Sitzung noch nicht synchronisiert' };
   }
   els.titlebarSyncDot.className = 'app-titlebar-sync-dot' + (view.cls ? ' ' + view.cls : '');
-  els.titlebarSyncText.textContent = view.text;
-  els.titlebarSyncStatus.title = view.title;
+  els.titlebarSyncText.textContent = 'WEBDAV';
+  const actionHint = 'Synchronisationseinstellungen öffnen';
+  els.titlebarSyncStatus.title = `${view.title} — ${actionHint}`;
+  els.titlebarSyncStatus.setAttribute('aria-label', `WebDAV: ${view.title}. ${actionHint}`);
 }
 updateTitlebarSync();
 
@@ -1851,19 +1854,19 @@ async function showBugReportModal() {
         <div><span class="bugreport-label">Plattform</span> ${escapeHtml(platformLabel)} (${escapeHtml(platformInfo.arch)})</div>
         <div><span class="bugreport-label">Electron</span> ${escapeHtml(platformInfo.electron)}</div>
       </div>
-      <p class="sync-modal-note">Diese Angaben werden automatisch in den Bug-Report übernommen — hilft beim Nachvollziehen, du musst sie nicht selbst eintippen. Der Bug-Text selbst wird auf GitHub verfasst.</p>
-      ${latestDiagnostic ? '<p class="sync-modal-note">Ein lokaler Diagnosebericht ist verfügbar. Er wird nicht automatisch an GitHub übertragen.</p>' : ''}
+      <p class="sync-modal-note">Diese Angaben werden automatisch in den Bug-Report übernommen — hilft beim Nachvollziehen, du musst sie nicht selbst eintippen. Der Bug-Text selbst wird auf Codeberg verfasst.</p>
+      ${latestDiagnostic ? '<p class="sync-modal-note">Ein lokaler Diagnosebericht ist verfügbar. Er wird nicht automatisch an Codeberg übertragen.</p>' : ''}
       <div class="prompt-actions">
         ${latestDiagnostic ? '<button type="button" class="btn ghost" data-action="view-diagnostics">Diagnosebericht anzeigen</button>' : ''}
         <button type="button" class="btn" data-action="cancel">Abbrechen</button>
-        <button type="button" class="btn primary" data-action="open-github">Zu GitHub Issues →</button>
+        <button type="button" class="btn primary" data-action="open-codeberg">Zu Codeberg Issues →</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
 
   function close() { dialogController.destroy(); }
   const closeButton = overlay.querySelector('[data-action="close-x"]');
-  const openButton = overlay.querySelector('[data-action="open-github"]');
+  const openButton = overlay.querySelector('[data-action="open-codeberg"]');
   closeButton.addEventListener('click', close);
   overlay.querySelector('[data-action="cancel"]').addEventListener('click', close);
   overlay.querySelector('[data-action="view-diagnostics"]')?.addEventListener('click', () => {
@@ -1882,7 +1885,7 @@ async function showBugReportModal() {
       '**Schritte zum Nachstellen:**',
       '1. '
     ].join('\n');
-    const url = 'https://github.com/Smashinger/Archiv-Wiki/issues/new'
+    const url = 'https://codeberg.org/Smashii/Archiv-Wiki/issues/new'
       + '?title=' + encodeURIComponent('')
       + '&body=' + encodeURIComponent(body);
     // window.open() wird vom bestehenden setWindowOpenHandler in main.js
@@ -5934,13 +5937,6 @@ const RECENT_SIZE_OPTIONS = [4, 10, 20];
 // und eindeutig erkennbare Kontextbedingungen.
 const DASHBOARD_TIPS = [
   {
-    id: 'first-note',
-    category: 'firstSteps',
-    priority: 'high',
-    text: 'Lege mit „+ Haupt“ eine Hauptkategorie und darin mit „+ Unter“ eine Unterkategorie an – dort erstellst du mit „+ Notiz“ deine erste Notiz.',
-    isRelevant: context => context.noteCount === 0
-  },
-  {
     id: 'context-menu',
     category: 'firstSteps',
     priority: 'high',
@@ -5968,7 +5964,25 @@ const DASHBOARD_TIPS = [
     id: 'images',
     category: 'general',
     priority: 'medium',
-    text: 'Bilder lassen sich direkt per Ziehen-und-Ablegen in eine Notiz einfügen.'
+    text: 'Bilder fügst du über die Bild-Schaltfläche, per Ziehen-und-Ablegen oder mit Strg+V aus der Zwischenablage in eine Notiz ein.'
+  },
+  {
+    id: 'incoming',
+    category: 'general',
+    priority: 'medium',
+    text: 'Im Eingang sammelst du Web-Clips, Texte, Dateien und Bilder und verarbeitest sie anschließend zu Notizen.'
+  },
+  {
+    id: 'multi-select',
+    category: 'general',
+    priority: 'medium',
+    text: 'Mit der Mehrfachauswahl kannst du mehrere Notizen gemeinsam verschieben, archivieren oder löschen.'
+  },
+  {
+    id: 'wiki-switcher',
+    category: 'general',
+    priority: 'medium',
+    text: 'Über den Wiki-Namen oben in der Titelleiste wechselst du schnell zwischen deinen bekannten Wikis.'
   },
   {
     id: 'pinned',
@@ -6006,7 +6020,7 @@ const DASHBOARD_TIPS = [
     id: 'dashboard-customize',
     category: 'general',
     priority: 'low',
-    text: 'Über das Zahnrad kannst du die Bereiche des Dashboards ein- oder ausblenden und neu anordnen.'
+    text: 'Über das Regler-Symbol kannst du die Bereiche des Dashboards ein- oder ausblenden und neu anordnen.'
   },
   {
     id: 'tags',
@@ -6019,7 +6033,7 @@ const DASHBOARD_TIPS = [
     id: 'accent-color',
     category: 'general',
     priority: 'low',
-    text: 'Über die Einstellungen lässt sich eine eigene Akzentfarbe wählen — auch als Zufallsfarbe per Klick.'
+    text: 'In den Einstellungen wählst du eine feste Akzentfarbe oder legst über die Plus-Schaltfläche einen eigenen Farbwert fest.'
   }
 ];
 

@@ -8,7 +8,7 @@
     "name": "Smashinger",
     "email": "smashii@example.com"
   },
-  "homepage": "https://github.com/Smashinger/Archiv-Wiki",
+  "homepage": "https://codeberg.org/Smashii/Archiv-Wiki",
   "license": "MIT",
   "private": true,
   "engines": {
@@ -20,7 +20,7 @@
     "test": "node --test test/*.test.js",
     "build:vendor": "node build/build.mjs",
     "dist": "node build/verify-webclip-crx.mjs && electron-builder",
-    "release": "node build/verify-webclip-crx.mjs && electron-builder --publish always",
+    "release": "node build/verify-webclip-crx.mjs && electron-builder && node build/publish-release.mjs",
     "postinstall": "electron-builder install-app-deps"
   },
   "devDependencies": {
@@ -86,10 +86,8 @@
       "output": "dist"
     },
     "publish": {
-      "provider": "github",
-      "owner": "Smashinger",
-      "repo": "Archiv-Wiki",
-      "releaseType": "draft"
+      "provider": "generic",
+      "url": "https://codeberg.org/Smashii/Archiv-Wiki/raw/branch/main/updates/"
     },
     "linux": {
       "target": [

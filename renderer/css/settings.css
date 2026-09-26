@@ -9,8 +9,14 @@
    Präfix "aws-" (Archiv-Wiki-Settings) statt der früheren .settings-*-Klassen:
    Das Fenster hat eine eigene, in sich geschlossene Formensprache und darf
    weder von components.css noch von den [data-ui-design="design2"]-Regeln in
-   design2.css mitgestaltet werden. Es sieht in Classic und Design2 identisch
-   aus (siehe Abschnitt 8 der Spezifikation). */
+   design2.css mitgestaltet werden.
+
+   Aussehen je Oberflächen-Design: Die Grundwerte (archiv-wiki-tokens.css,
+   Rosé/Braun, Barlow Condensed/IBM Plex Mono) sind die Formensprache von
+   Design 2. Classic legt sie in Abschnitt 6 unten auf die Classic-Tokens um,
+   Design 3 in seinem eigenen, isolierten Stylesheet. Struktur und Maße bleiben in allen
+   Designs gleich. Die Überschriften- und Monoschrift laufen dafür über
+   --aws-font-head/--aws-font-mono; ohne Umlegung gilt der Grundwert. */
 
 /* --------------------------------------------------------------------
    1  Das Fenster
@@ -92,7 +98,7 @@
 }
 .aws-titlebar-title{
   margin-left: 12px;
-  font-family: 'Barlow Condensed', var(--sans); font-weight: 600;
+  font-family: var(--aws-font-head, 'Barlow Condensed', var(--sans)); font-weight: 600;
   font-size: 12px; letter-spacing: .16em; text-transform: uppercase;
   color: var(--c-dim);
 }
@@ -189,8 +195,8 @@
 
 .aws-group-head{ display: flex; align-items: center; margin-bottom: 12px; }
 .aws-group-head > span{
-  font-family: 'Barlow Condensed', var(--sans); font-weight: 600;
-  font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+  font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 600;
+  font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
   color: var(--c-rose); white-space: nowrap;
 }
 .aws-group-head > i{ flex: 1; height: 1px; margin-left: 10px; background: var(--c-line); }
@@ -256,9 +262,9 @@
 }
 .aws-input::placeholder{ color: var(--c-faint); }
 .aws-input:focus-visible{ outline: 2px solid var(--c-blue); outline-offset: -2px; }
-.aws-input.is-mono{ font-family: 'IBM Plex Mono', var(--mono); font-size: 11px; color: var(--c-dim); }
-.aws-input.is-mono-13{ font-family: 'IBM Plex Mono', var(--mono); font-size: 13px; color: var(--c-dim); }
-.aws-input.is-placeholder{ font-family: 'IBM Plex Mono', var(--mono); font-size: 11.5px; color: var(--c-faint); }
+.aws-input.is-mono{ font-family: var(--aws-font-mono, 'IBM Plex Mono', var(--mono)); font-size: 11px; color: var(--c-dim); }
+.aws-input.is-mono-13{ font-family: var(--aws-font-mono, 'IBM Plex Mono', var(--mono)); font-size: 13px; color: var(--c-dim); }
+.aws-input.is-placeholder{ font-family: var(--aws-font-mono, 'IBM Plex Mono', var(--mono)); font-size: 11.5px; color: var(--c-faint); }
 
 /* Zahlenfeld plus Einheit. Rechtsbündig, damit die Einheit auf derselben
    Kante endet wie jedes andere Bedienelement des Bereichs (Prüfliste). */
@@ -348,7 +354,7 @@
 
 .aws-switch-line{ display: flex; align-items: center; gap: 10px; }
 .aws-state-word{
-  font-family: 'IBM Plex Mono', var(--mono); font-size: 11px; letter-spacing: .06em;
+  font-family: var(--aws-font-mono, 'IBM Plex Mono', var(--mono)); font-size: 11px; letter-spacing: .06em;
   color: var(--c-faint);
 }
 
@@ -397,7 +403,7 @@
 .aws-state-text{ flex: 1; min-width: 0; }
 .aws-state-title{ font-size: 13.5px; color: var(--c-text); }
 .aws-state-sub{ margin-top: 3px; font-size: 12px; color: var(--c-faint); }
-.aws-state-sub.is-mono{ font-family: 'IBM Plex Mono', var(--mono); font-size: 11px; }
+.aws-state-sub.is-mono{ font-family: var(--aws-font-mono, 'IBM Plex Mono', var(--mono)); font-size: 11px; }
 
 /* --------------------------------------------------------------------
    5  Bereichsspezifisches
@@ -428,7 +434,7 @@
 /* 5.6 Web Clipper — Statuspunkt */
 .aws-dot-line{ display: flex; align-items: center; gap: 8px; }
 .aws-dot-line > i{ width: 6px; height: 6px; border-radius: 50%; background: var(--c-blue); display: block; }
-.aws-value-mono{ font-family: 'IBM Plex Mono', var(--mono); font-size: 11.5px; color: var(--c-faint); text-align: right; }
+.aws-value-mono{ font-family: var(--aws-font-mono, 'IBM Plex Mono', var(--mono)); font-size: 11.5px; color: var(--c-faint); text-align: right; }
 
 /* 5.7 Datenschutz */
 .aws-privacy{ display: flex; flex-direction: column; gap: 9px; list-style: none; margin: 0; padding: 0; }
@@ -441,8 +447,8 @@
 .aws-notes p{ margin: 0 0 8px; color: var(--c-faint); }
 .aws-notes h6{
   margin: 10px 0 4px;
-  font-family: 'Barlow Condensed', var(--sans); font-weight: 600;
-  font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--c-rose);
+  font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 600;
+  font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--c-rose);
 }
 .aws-notes ul{ margin: 0; padding-left: 16px; }
 .aws-notes strong{ font-weight: 600; color: var(--c-text); }
@@ -456,3 +462,58 @@
 /* Suche im Bereich Allgemein blendet nicht passende Zeilen und leere
    Abschnitte aus — sie ist der Einstieg in den Bereich, kein zweiter Dialog. */
 .aws-row[hidden], .aws-group[hidden], .aws-search[hidden], .aws-notes[hidden]{ display: none !important; }
+
+/* --------------------------------------------------------------------
+   6  Classic
+   --------------------------------------------------------------------
+   Ohne diesen Abschnitt zeigte Classic die Rosé/Braun-Palette und die
+   Barlow-Schrift von Design 2: die --c-*-Tokens gelten für jedes Design, und
+   Barlow/IBM Plex Mono stammen aus design2.css. Hier werden sie NUR unter
+   Classic auf die Classic-Tokens aus styles.css umgelegt (Flächen, Text,
+   Rahmen, Nutzer-Akzentfarbe, JetBrains Mono) — Hell/Dunkel folgt dabei
+   automatisch body.theme-light. Spezifität (0,2,1): schlägt die
+   Hell-Variante in archiv-wiki-tokens.css, die früher geladen wird.
+   Design 2 und Design 3 bleiben unberührt. */
+body[data-ui-design="classic"] .aws-scrim{
+  --c-shell:   var(--bg-color);
+  --c-s1:      var(--bg-elev);
+  --c-s2:      var(--bg-elev-2);
+  --c-s3:      var(--border);
+  --c-rose:    var(--accent-color);
+  --c-rose-t:  var(--accent-soft);
+  --c-rose-on: var(--accent-color);
+  --c-on-rose: #ffffff;               /* wie .btn.primary in components.css */
+  --c-blue:    var(--accent-color);   /* Hauptaktion = Akzent, wie .btn.primary */
+  --c-on-blue: #ffffff;
+  --c-amber:   var(--amber);
+  --c-green:   var(--green);
+  --c-text:    var(--text-main);
+  --c-dim:     var(--text-muted);
+  --c-muted:   var(--text-muted);
+  --c-faint:   var(--text-faint);
+  --c-line:    var(--border-soft);
+  --aws-font-head: var(--mono);
+  --aws-font-mono: var(--mono);
+}
+/* Text auf der Akzent-Tönung (aktiver Reiter/Segment): auf heller Fläche die
+   dunklere Akzentstufe, sonst wäre z. B. Limette auf Weiß kaum lesbar. */
+body.theme-light[data-ui-design="classic"] .aws-scrim{ --c-rose-on: var(--accent-dim); }
+
+/* Classic-Formensprache: Dialog mit Rahmen (.prompt-modal), Kopfzeile wie
+   .dialog-header, Abschnittsmarken wie die Mono-Gruppenlabels, Felder und
+   Knöpfe mit 1-px-Rahmen wie .prompt-input/.btn. Der Rahmen der Felder läuft
+   als inset-Schatten, damit sich kein Maß der Zeilenform verschiebt. */
+body[data-ui-design="classic"] .aws-scrim .aws-window.aws-surface{
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+}
+body[data-ui-design="classic"] .aws-titlebar-title{
+  font-size: 13px; letter-spacing: normal; text-transform: none;
+  color: var(--c-text);
+}
+body[data-ui-design="classic"] :is(.aws-input, .aws-select-value, .aws-search, .aws-seg, .aws-btn2){
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+body[data-ui-design="classic"] :is(.aws-btn1, .aws-btn2){
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+}
+body[data-ui-design="classic"] .aws-btn2:hover:not(:disabled){ box-shadow: inset 0 0 0 1px var(--accent-dim); }

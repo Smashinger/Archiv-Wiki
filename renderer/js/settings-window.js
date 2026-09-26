@@ -60,9 +60,9 @@ function formatDateTime(isoString) {
   return date.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
 }
 
-const GITHUB_REPOSITORY_URL = 'https://github.com/Smashinger/Archiv-Wiki';
-const GITHUB_DISCUSSIONS_URL = `${GITHUB_REPOSITORY_URL}/discussions`;
-const GITHUB_RELEASES_URL = `${GITHUB_REPOSITORY_URL}/releases`;
+const CODEBERG_REPOSITORY_URL = 'https://codeberg.org/Smashii/Archiv-Wiki';
+const CODEBERG_ISSUES_URL = `${CODEBERG_REPOSITORY_URL}/issues`;
+const CODEBERG_RELEASES_URL = `${CODEBERG_REPOSITORY_URL}/releases`;
 const FIREFOX_AMO_URL = 'https://addons.mozilla.org/de/firefox/addon/archiv-wiki-web-clipper/';
 
 const BACKUP_INTERVAL_OPTIONS = [
@@ -235,6 +235,10 @@ const SETTINGS_SECTIONS = [
 let closeActiveSettingsWindow = null;
 let settingsWindowOpenGeneration = 0;
 let releaseNotesExpanded = false;
+// Laufende Nummer der Design-Auswahl im Einstellungsfenster (siehe
+// renderAppearanceSection) — bewusst modulweit, damit sie einen
+// Neuaufbau des Bereichs während eines laufenden Speicherns übersteht.
+let uiDesignRequestSeq = 0;
 
 export async function showSettingsWindow(context = {}) {
   const openGeneration = ++settingsWindowOpenGeneration;
@@ -630,8 +634,8 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
       + feedbackLine('stCloseFeedback'))
   ) + group('Hilfe und Feedback',
     row('Tastenkürzel', '', textAction('stShowShortcuts', 'Übersicht öffnen'))
-    + row('Frage oder Vorschlag', 'Öffnet GitHub Discussions im Browser. Es werden keine Wiki-Inhalte übertragen.',
-      textAction('stOpenDiscussions', 'Auf GitHub teilen'))
+    + row('Frage oder Vorschlag', 'Öffnet Codeberg Issues im Browser. Es werden keine Wiki-Inhalte übertragen.',
+      textAction('stOpenDiscussions', 'Auf Codeberg teilen'))
   );
 
   el.innerHTML = pane(2, left, right);
@@ -734,7 +738,7 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
   });
 
   el.querySelector('#stShowShortcuts').addEventListener('click', () => context.onShowShortcuts?.());
-  el.querySelector('#stOpenDiscussions').addEventListener('click', () => window.open(GITHUB_DISCUSSIONS_URL, '_blank'));
+  el.querySelector('#stOpenDiscussions').addEventListener('click', () => window.open(CODEBERG_ISSUES_URL, '_blank'));
 
   el.querySelector('#stMoveProjectFolder').addEventListener('click', async (event) => {
     const action = event.currentTarget;
@@ -784,6 +788,14 @@ function accentSwatchesHtml(config) {
 
 function renderAppearanceSection(el, config, updateSetting, context) {
   const isCustomAccent = config.accentKey === 'custom';
+  // Oberflächen-Design: maßgeblich ist die tatsächlich angewandte Root-
+  // Markierung (data-ui-design), nicht config.uiDesign. Dieses config-Objekt
+  // kann veraltet sein: updateSetting() ersetzt die Fenster-config durch die
+  // Antwort von settings.update, ein späterer Designwechsel schreibt aber nur
+  // in das beim Rendern übergebene Objekt. Nach einem Reiterwechsel zeigte der
+  // Umschalter dann wieder "Classic", während Design 3 aktiv war — und der
+  // Klick auf Classic wurde als "unverändert" verworfen.
+  const appliedUiDesign = resolveUiDesign(document.body.dataset.uiDesign || config.uiDesign);
   const left = group('Farbe',
     row('Akzentfarbe', 'Trägt Auswahl, Marken und Themenrücken.',
       accentSwatchesHtml(config)
@@ -806,7 +818,7 @@ function renderAppearanceSection(el, config, updateSetting, context) {
       }))
     + row('Oberflächen-Design', 'Noch nicht umgestellte Bereiche zeigen weiterhin Classic.',
       segmented({
-        id: 'stUiDesign', value: resolveUiDesign(config.uiDesign),
+        id: 'stUiDesign', value: appliedUiDesign,
         options: UI_DESIGNS.map(key => ({ value: key, label: UI_DESIGN_LABELS[key] || key }))
       })
       + feedbackLine('stUiDesignFeedback'))
@@ -897,16 +909,28 @@ function renderAppearanceSection(el, config, updateSetting, context) {
   // Konfiguration, kein zweiter Speicher. Die zentrale Konfigurations-
   // rückmeldung in app.js übernimmt danach applyUiDesign() und einen sicheren
   // Re-Render der aktuellen Ansicht.
+  //
+  // "Unverändert" heißt: bereits angewandt (siehe appliedUiDesign oben). So
+  // greift auch ein schneller Klick zurück auf das gespeicherte Design,
+  // solange das Speichern des vorherigen Klicks noch läuft.
   onSegmentChange(el, 'stUiDesign', async (rawValue) => {
     const value = resolveUiDesign(rawValue);
-    const previous = resolveUiDesign(config.uiDesign);
+    const previous = resolveUiDesign(document.body.dataset.uiDesign || config.uiDesign);
     if (value === previous) return;
+    const request = ++uiDesignRequestSeq;
     applyUiDesign(value);
     try {
       await fs.setProjectSetting('uiDesign', value);
     } catch (error) {
       console.error('Oberflächen-Design konnte nicht gespeichert werden:', error);
+      // Eine inzwischen neuere Auswahl nicht mit einem alten Fehler überschreiben.
+      if (request !== uiDesignRequestSeq) return;
       applyUiDesign(previous);
+      el.querySelectorAll('#stUiDesign .aws-seg-btn').forEach(b => {
+        const isActive = b.dataset.value === previous;
+        b.classList.toggle('is-active', isActive);
+        b.setAttribute('aria-pressed', String(isActive));
+      });
       setFeedback(el, 'stUiDesignFeedback', 'Konnte nicht gespeichert werden.', true);
       return;
     }
@@ -1181,7 +1205,7 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
   const left = stateRow({ id: 'stUpdateState', needsAction: state.needsAction, title: state.title, sub: state.sub, subMono: true, action: state.action })
     + block(inlineGroup(
       (notesHtml ? textAction('stToggleReleaseNotes', `Änderungen in v${status.currentVersion || '?'} ansehen`) : '')
-      + textAction('stOpenReleases', 'GitHub-Releases öffnen'), { wideGap: true })
+      + textAction('stOpenReleases', 'Codeberg-Releases öffnen'), { wideGap: true })
       + notesHtml)
     + feedbackLine('stUpdateFeedback');
 
@@ -1214,7 +1238,7 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
   });
 
   el.querySelector('#stOpenReleases').addEventListener('click', () => {
-    window.open(status.releaseUrl || GITHUB_RELEASES_URL, '_blank');
+    window.open(status.releaseUrl || CODEBERG_RELEASES_URL, '_blank');
   });
 
   el.querySelector('#stCheckNow')?.addEventListener('click', async (event) => {
