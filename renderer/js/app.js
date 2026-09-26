@@ -1632,6 +1632,9 @@ async function setSidebarWidth(px) {
   let startX = 0, startWidth = 0, dragging = false;
 
   handle.addEventListener('mousedown', (e) => {
+    // Nur die linke Maustaste zieht. Ein Rechtsklick öffnet das Menü und darf
+    // den Griff normal (per Maus, ohne Fokusrahmen) fokussieren.
+    if (e.button !== 0) return;
     dragging = true;
     startX = e.clientX;
     startWidth = els.sidebar.getBoundingClientRect().width;
@@ -1665,11 +1668,12 @@ async function setSidebarWidth(px) {
   // offensichtlichem) Doppelklick auf den schmalen Ziehbereich.
   function openSidebarWidthContextMenu(clientX, clientY) {
     const menu = createHtmlContextMenu({
+      className: 'context-menu sidebar-width-menu',
       trigger: handle,
       label: 'Sidebar-Breite',
       position: { clientX, clientY: clientY + 4 },
       html: renderSimpleContextMenuItems([
-        { label: '↺ Standardbreite wiederherstellen', data: { action: 'reset-width' } }
+        { label: '<span class="context-menu-icon" aria-hidden="true">↺</span><span>Standardbreite wiederherstellen</span>', data: { action: 'reset-width' } }
       ])
     });
     menu.addEventListener('click', (ev) => {

@@ -974,6 +974,12 @@ body.theme-light .lib-icon{ filter: none; opacity: .82; }
    sonst verlöre man beim Wandern der Maus den Bezug. */
 .context-menu button[data-menu].is-open{ background: var(--bg-elev); color: var(--text-main); }
 
+/* Rechtsklick-Menü am Sidebar-Griff: der Eintrag bleibt einzeilig, das Menü
+   wird dafür so breit wie nötig statt am allgemeinen max-width umzubrechen
+   (in Design2 lief die zweite Zeile sonst aus der festen Zeilenhöhe). */
+.sidebar-width-menu{ max-width:none; }
+.sidebar-width-menu button{ white-space:nowrap; }
+
 /* Wiki-Wechsler (Titelleiste, siehe app.js): eine normale .context-menu,
    damit Classic und Design2 automatisch ihre gewohnten Menüfarben tragen.
    Einträge bleiben einzeilig (Design2 setzt eine feste Menüzeilenhöhe); der
