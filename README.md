@@ -4,7 +4,7 @@
 
 **Ein persönliches Markdown-Wiki für den Linux-Desktop – für Notizen, Anleitungen, Setups und Checklisten.**
 
-Archiv-Wiki speichert dein Wissen lokal in einem frei wählbaren Ordner als verständliche Markdown-Dateien. Die Anwendung benötigt keinen Account, sendet keinerlei Telemetriedaten und arbeitet vollständig offline. Eine optionale WebDAV-Synchronisierung kann bei Bedarf für den Abgleich mit einer eigenen Nextcloud oder einem WebDAV-Server eingerichtet werden.
+Archiv-Wiki speichert dein Wissen lokal in einem frei wählbaren Ordner als verständliche Markdown-Dateien. Du kannst deine Notizen ohne Internet bearbeiten; ein Konto ist nicht nötig und es gibt keine Telemetrie. Für die optionale WebDAV-Synchronisierung und die standardmäßig aktivierte Update-Prüfung wird eine Internetverbindung verwendet.
 
 ---
 
@@ -25,25 +25,27 @@ Archiv-Wiki speichert dein Wissen lokal in einem frei wählbaren Ordner als vers
 
 Der Editor verbindet direktes Markdown-Schreiben mit einer synchronen Vorschau. Codeblöcke mit Syntaxhervorhebung, mathematische Formeln (KaTeX), Hinweisblöcke (Callouts), Tabellen und interne Wiki-Links (`[[Notiz]]`) werden in Echtzeit gerendert.
 
-![Editor mit Sidebar und Split-Ansicht](docs/screenshots/editor-split.png)
+![Editor mit Sidebar und Split-Ansicht](docs/screenshots/archiv-wiki-projektueberblick-split.png)
 
 ### Zentrales Dashboard
 
 Das Dashboard bietet beim Programmstart einen schnellen Überblick über kürzlich bearbeitete Seiten, angepinnte Favoriten, Wiki-Statistiken und die Notizstruktur.
 
-![Dashboard von Archiv-Wiki](docs/screenshots/dashboard-aktuell.png)
+![Dashboard von Archiv-Wiki](docs/screenshots/archiv-wiki-dashboard.png)
 
 ### Anpassbare Oberfläche & Einstellungen
 
 Über das zentrale Einstellungsfenster lassen sich Akzentfarben, Modus (Dunkel/Hell), Sidebar-Größe, Lesebreite, Backups, Updates und Web-Clipper-Anbindungen bequem anpassen.
 
-![Einstellungsfenster von Archiv-Wiki](docs/screenshots/einstellungen.png)
+![Einstellungsfenster von Archiv-Wiki](docs/screenshots/archiv-wiki-darstellung.png)
 
-### Alternatives Oberflächendesign (Design 2 Vorschau)
+### Classic und Design 2
 
-Neben dem bewährten und produktionsreifen **Classic**-Design enthält Archiv-Wiki eine optionale Vorschau auf ein alternatives Oberflächenkonzept (**Design 2**). Es bietet eine neu gestaltete Kopf- und Themenleiste und kann in den Einstellungen jederzeit ausgewählt werden:
+**Classic ist das vorgesehene Standarddesign.** Design 2 ist eine wählbare Alternative mit neu gestalteter Kopf- und Themenleiste. Du kannst unter **Einstellungen → Darstellung** jederzeit wechseln:
 
-![Vorschau auf das alternative Design 2](docs/screenshots/design2-preview.png)
+![Dashboard im Design 2](docs/screenshots/archiv-wiki-design2-dashboard.png)
+
+**Hinweis zu Version 2.3.1:** Neue Wikis starten dort wegen eines Fehlers noch mit Design 2. Die Korrektur für Classic ist lokal fertig, aber noch nicht in der GitHub-Downloadversion enthalten. Bereits bestehende Wiki-Einstellungen werden nicht automatisch geändert.
 
 ---
 
@@ -71,9 +73,9 @@ Neben dem bewährten und produktionsreifen **Classic**-Design enthält Archiv-Wi
 
 ### Datensicherheit und Privatsphäre
 - **Eigene Dateien:** Notizen bleiben ganz normale `.md`-Dateien auf deiner Festplatte.
-- **Backups:** Automatische Zeitplan-Backups oder manuelle ZIP-Archive mit Prüfsummenvalidierung.
+- **Backups:** Automatische Zeitplan-Backups oder manuelle ZIP-Archive mit Integritätsprüfung.
 - **Papierkorb:** Gelöschte Notizen landen im Papierkorb und können jederzeit wiederhergestellt werden.
-- **Optionales App-Passwort:** Schützt das Öffnen der Anwendung mit sicherem Argon2id-Hash.
+- **Optionales App-Passwort:** Schützt das Öffnen der Anwendung; das Passwort wird nicht im Klartext gespeichert.
 - **Optionale Cloud-Synchronisation:** WebDAV-Integration für eigene Nextcloud-, ownCloud- oder Server-Instanzen.
 
 ---
@@ -82,7 +84,7 @@ Neben dem bewährten und produktionsreifen **Classic**-Design enthält Archiv-Wi
 
 Archiv-Wiki wird für **Linux** als transportables AppImage bereitgestellt und auf **Fedora** entwickelt und getestet.
 
-1. Öffne die [Releases](../../releases).
+1. Öffne die [Releases](https://github.com/Smashinger/Archiv-Wiki/releases).
 2. Lade die neueste `.AppImage`-Datei herunter.
 3. Mache die Datei ausführbar und starte sie.
 
@@ -113,10 +115,9 @@ Mit dem Web Clipper lassen sich Webseiten, markierte Absätze oder Bilder direkt
 
 ---
 
-## Dokumentation
+## Änderungen
 
-- Ausführliche Anleitungen zur Einrichtung und Bedienung findest du im [GitHub-Wiki](../../wiki).
-- Neuigkeiten und Änderungsprotokolle einzelner Versionen sind in den [Releases](../../releases) zu finden.
+Neuigkeiten und Änderungsprotokolle einzelner Versionen stehen bei den [Releases](https://github.com/Smashinger/Archiv-Wiki/releases).
 
 ---
 
