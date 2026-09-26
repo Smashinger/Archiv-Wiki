@@ -162,6 +162,9 @@ function mountEditorDocument({
   currentOnSaved = readOnly ? null : onSaved;
   currentOnSaveError = readOnly ? null : onSaveError;
   currentRelPath = relPath;
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new CustomEvent('archiv:active-note-changed', { detail: { relPath: currentRelPath } }));
+  }
   currentFileVersion = fileVersion;
   dirty = false;
   contentRevision = 0;
@@ -559,6 +562,9 @@ export function getEditorGeneration() {
 export function retargetOpenNote(expectedRelPath, nextRelPath) {
   if (!currentEditor || currentRelPath !== expectedRelPath || !nextRelPath) return false;
   currentRelPath = nextRelPath;
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new CustomEvent('archiv:active-note-changed', { detail: { relPath: currentRelPath } }));
+  }
   return true;
 }
 
@@ -662,6 +668,9 @@ export function closeEditor() {
   currentPreviewContainer = null;
   currentPreviewSearch = { search: '', caseSensitive: false, regexp: false, wholeWord: false };
   currentRelPath = null;
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    window.dispatchEvent(new CustomEvent('archiv:active-note-changed', { detail: { relPath: null } }));
+  }
   currentFileVersion = null;
   contentRevision = 0;
   dirty = false;

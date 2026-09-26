@@ -13,7 +13,7 @@ Diese Datei dokumentiert die vorhandenen Store-Assets für Firefox Add-ons und d
 | `icons/icon-48.png` | 48 × 48 px | PNG mit Transparenz | referenziert | vorhanden |
 | `icons/icon-128.png` | 128 × 128 px | PNG mit Transparenz | referenziert | vorhanden und grundsätzlich storefähig |
 
-Das 128×128-PNG besitzt transparenten Rand. Das sichtbare Motiv belegt ungefähr 56 × 72 Pixel und ist damit kleiner als die typische Chrome-Gestaltungsempfehlung. Das ist kein technischer Paketfehler. Vor der Einreichung soll das Icon in der echten Store-Vorschau auf ausreichende Erkennbarkeit geprüft werden. Das Logo wurde nicht verändert.
+Die Icons stammen aus dem dunklen AW-Kreis der Vorlage `branding-source/ChatGPT-Bild 26. Sept. 2026, 06_31_03.png` und werden mit `branding-source/aw-preview/build_aw_icons.py` erzeugt. Das 128×128-PNG nutzt die Fläche fast vollständig; nur außerhalb des Kreises ist es transparent. Vor der Einreichung soll das Icon in der echten Store-Vorschau geprüft werden.
 
 ---
 
@@ -96,4 +96,3 @@ Optional bleibt ein Marquee Promotional Image mit 1400 × 560 Pixeln. Es ist kei
 - Testprofile oder lokale Entwicklerpfade
 - private Browserfenster oder Inkognito-Inhalte
 - persönliche Konten, E-Mail-Adressen oder private URLs
-

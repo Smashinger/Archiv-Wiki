@@ -187,7 +187,14 @@ function getSearchDocuments(projectPath) {
             // Feature A / Block 3: einziges neues Feld am Suchdokument, für
             // den Aktiv/Archiv/Alle-Statusfilter in der Suche (renderer/js/
             // search.js docMatchesFilters()). Keine zweite Datenquelle.
-            archived: Boolean(frontmatter.archived)
+            archived: Boolean(frontmatter.archived),
+            // KI-Block 1: modified/created werden 1:1 aus dem Frontmatter
+            // durchgereicht (keine eigene Zeitquelle) — dieselben beiden
+            // Felder, nach denen dashboard-data.js "Zuletzt bearbeitet"
+            // sortiert (modified, ersatzweise created). Rein additiv, ändert
+            // die bestehende Dokumentstruktur für andere Aufrufer nicht.
+            modified: frontmatter.modified || null,
+            created: frontmatter.created || null
           });
         } catch { /* defekte Notiz — einfach überspringen statt Index-Aufbau abzubrechen */ }
       }
@@ -239,6 +246,31 @@ function listProjectTree(projectPath) {
   }
 
   return walk(path.resolve(projectPath), '');
+}
+
+// Jede Ordner-Ebene (Wurzel = Hauptkategorien, jede Unterkategorie = ihre
+// Notizen, jede Hauptkategorie = ihre Unterkategorien) wird vom Dateisystem
+// selbst immer alphabetisch geliefert. Eine per Drag gesetzte eigene
+// Reihenfolge wird deshalb separat in .wiki-config.json gemerkt — ein Objekt
+// "übergeordneter Pfad -> Namensliste" (Wurzel = ""), rein anzeige-seitig,
+// rührt keine Datei an. Einträge, die (noch) nicht in einer gespeicherten
+// Liste stehen (z. B. gerade neu angelegt), werden ans Ende ihrer jeweiligen
+// Ebene gehängt.
+// Zentral hier statt in main/filesystem-ipc.js (fs:listTree), damit alle
+// Aufrufer dieselbe sichtbare Reihenfolge verwenden — keine zweite Sortierlogik.
+function applyChildOrder(nodes, parentRelPath, childOrder) {
+  const order = childOrder?.[parentRelPath];
+  let sorted = nodes;
+  if (Array.isArray(order) && order.length > 0) {
+    const byName = new Map(nodes.map(n => [n.name, n]));
+    const ordered = order.filter(name => byName.has(name)).map(name => byName.get(name));
+    const remaining = nodes.filter(n => !order.includes(n.name));
+    sorted = [...ordered, ...remaining];
+  }
+  for (const node of sorted) {
+    if (node.type === 'folder') node.children = applyChildOrder(node.children, node.relPath, childOrder);
+  }
+  return sorted;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,16 +376,23 @@ function createNote(projectPath, subCategoryRelPath, title, templateBody, option
   // Zusätzliche Herkunfts-/Import-Metadaten dürfen das normale Notizmodell
   // nicht überschreiben. Titel, Kategorie, Tags und Zeitstempel bleiben daher
   // weiterhin ausschließlich in der Verantwortung der bestehenden Notizlogik.
-  const reservedFrontmatterKeys = new Set(['title', 'tags', 'category', 'mainCategory', 'created', 'modified']);
+  const reservedFrontmatterKeys = new Set(['title', 'category', 'mainCategory', 'created', 'modified']);
   const extraFrontmatter = Object.fromEntries(
-    Object.entries(requestedFrontmatter).filter(([key]) => !reservedFrontmatterKeys.has(key))
+    Object.entries(requestedFrontmatter).filter(([key]) => !reservedFrontmatterKeys.has(key) && key !== 'tags')
   );
+
+  const rawTags = Array.isArray(creationOptions.tags)
+    ? creationOptions.tags
+    : (Array.isArray(requestedFrontmatter.tags) ? requestedFrontmatter.tags : []);
+  const initialTags = rawTags
+    .filter(t => typeof t === 'string' && t.trim())
+    .map(t => t.trim());
 
   const now = new Date().toISOString();
   const frontmatter = {
     ...extraFrontmatter,
     title: displayTitle,
-    tags: [],
+    tags: [...new Set(initialTags)],
     category: path.basename(dirPath),
     mainCategory: path.basename(path.dirname(dirPath)),
     created: now,
@@ -817,8 +856,23 @@ function renameEntry(projectPath, relPath, newName) {
   renameOrMove(fullPath, newPath);
 
   if (kind === 'note') {
-    const { frontmatter, body } = readNoteRaw(newPath);
-    writeNoteRaw(newPath, { ...frontmatter, title: baseName, modified: new Date().toISOString() }, body);
+    try {
+      const { frontmatter, body } = readNoteRaw(newPath);
+      writeNoteRaw(newPath, { ...frontmatter, title: baseName, modified: new Date().toISOString() }, body);
+    } catch (err) {
+      try {
+        renameOrMove(newPath, fullPath);
+      } catch (rollbackErr) {
+        const criticalErr = new Error(
+          `Fehler beim Aktualisieren der Notiz nach dem Umbenennen (${err.message}) und Rollback fehlgeschlagen (${rollbackErr.message}).`
+        );
+        criticalErr.code = 'ROLLBACK_FAILED';
+        criticalErr.cause = err;
+        criticalErr.rollbackError = rollbackErr;
+        throw criticalErr;
+      }
+      throw err;
+    }
   }
 
   return { relPath: path.relative(projectPath, newPath) };
@@ -830,6 +884,30 @@ function renameEntry(projectPath, relPath, newName) {
 //  - Unterkategorie: nur in eine (andere) Hauptkategorie verschiebbar
 //  - Notiz: nur in eine (andere) Unterkategorie verschiebbar
 // ---------------------------------------------------------------------------
+// Aktualisiert category/mainCategory im Frontmatter aller Notizen unterhalb
+// eines verschobenen Unterkategorie-Ordners auf dessen NEUEN Ort — siehe
+// Kommentar in moveEntry() unten. Rekursiv, damit auch eine (regelwidrige,
+// aber laut getDepth()-Kommentar nicht ausgeschlossene) tiefere Verschachtelung
+// erfasst wird. Eine einzelne defekte Notiz überspringt nur diese eine Datei,
+// bricht aber nicht die bereits erfolgte Verschiebung des restlichen Ordners ab.
+function updateMovedCategoryNoteFields(dirPath, category, mainCategory) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  } catch { return; }
+  for (const entry of entries) {
+    const entryPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      updateMovedCategoryNoteFields(entryPath, category, mainCategory);
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith(NOTE_EXT)) {
+      try {
+        const { frontmatter, body } = readNoteRaw(entryPath);
+        writeNoteRaw(entryPath, { ...frontmatter, category, mainCategory }, body);
+      } catch { /* einzelne defekte Notiz überspringen */ }
+    }
+  }
+}
+
 function moveEntry(projectPath, relPath, targetRelPath) {
   const kind = classifyEntry(projectPath, relPath);
   if (kind === 'mainCategory') {
@@ -862,13 +940,42 @@ function moveEntry(projectPath, relPath, targetRelPath) {
   renameOrMove(fullPath, destPath);
 
   if (!isDir) {
-    const { frontmatter, body } = readNoteRaw(destPath);
-    writeNoteRaw(destPath, {
-      ...frontmatter,
-      category: path.basename(targetDir),
-      mainCategory: path.basename(path.dirname(targetDir)),
-      modified: new Date().toISOString()
-    }, body);
+    try {
+      const { frontmatter, body } = readNoteRaw(destPath);
+      writeNoteRaw(destPath, {
+        ...frontmatter,
+        category: path.basename(targetDir),
+        mainCategory: path.basename(path.dirname(targetDir)),
+        modified: new Date().toISOString()
+      }, body);
+    } catch (err) {
+      try {
+        renameOrMove(destPath, fullPath);
+      } catch (rollbackErr) {
+        const criticalErr = new Error(
+          `Fehler beim Aktualisieren der Notiz nach dem Verschieben (${err.message}) und Rollback fehlgeschlagen (${rollbackErr.message}).`
+        );
+        criticalErr.code = 'ROLLBACK_FAILED';
+        criticalErr.cause = err;
+        criticalErr.rollbackError = rollbackErr;
+        throw criticalErr;
+      }
+      throw err;
+    }
+  } else {
+    // Bugfix (per KI-Block-3-Test entdeckt, betrifft auch das manuelle
+    // Verschieben einer Unterkategorie per Drag&Drop): Wird eine ganze
+    // Unterkategorie verschoben, blieben die category/mainCategory-Felder im
+    // Frontmatter der darin enthaltenen Notizen bisher auf der alten
+    // Hauptkategorie stehen — nur beim Verschieben EINER einzelnen Notiz (oben)
+    // wurden sie aktualisiert. getSearchDocuments() bevorzugt einen
+    // vorhandenen Frontmatter-Wert vor dem tatsächlichen Ordnernamen, wodurch
+    // verschobene Notizen dauerhaft unter der falschen (alten) Hauptkategorie
+    // geführt worden wären. Bewusst OHNE modified-Zeitstempel: das Verschieben
+    // einer Kategorie ist keine inhaltliche Bearbeitung jeder einzelnen darin
+    // enthaltenen Notiz und soll "Zuletzt bearbeitet" nicht mit potenziell
+    // vielen Einträgen auf einmal fluten.
+    updateMovedCategoryNoteFields(destPath, path.basename(destPath), path.basename(path.dirname(destPath)));
   }
 
   return { relPath: path.relative(projectPath, destPath) };
@@ -1184,9 +1291,12 @@ function emptyTrash(projectPath) {
 module.exports = {
   sanitizeName,
   resolveSafe,
+  resolveWikiEntrySafe,
+  resolveNoteSafe,
   getDepth,
   classifyEntry,
   listProjectTree,
+  applyChildOrder,
   getSearchDocuments,
   createMainCategory,
   createSubCategory,

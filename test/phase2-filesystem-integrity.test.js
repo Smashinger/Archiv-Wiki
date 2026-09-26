@@ -179,3 +179,44 @@ test('Phase 2 Atomic Copy: Fehler vor Rename hinterlässt keine Temp-Datei', t =
   assert.equal(fs.readFileSync(targetPath, 'utf8'), 'ALT');
   assert.deepEqual(fs.readdirSync(dir).filter(name => name.includes('.tmp-')), []);
 });
+
+test('Phase 2 Integrity: M4 - renameEntry meldet ROLLBACK_FAILED wenn Rollback ebenfalls fehlschlägt', t => {
+  const dir = makeTestDir(t, 'phase2-rollback-failed');
+  const projectDir = dir;
+  const relPath = 'Haupt/Unter/Test.md';
+  writeSimpleNote(projectDir, relPath, '---\ntitle: Test\n---\nInhalt');
+
+  const originalRenameSync = fs.renameSync;
+  let callCount = 0;
+  fs.renameSync = (from, to) => {
+    callCount++;
+    if (callCount === 1) {
+      return originalRenameSync(from, to);
+    }
+    const error = new Error('I/O error during rollback');
+    error.code = 'EIO';
+    throw error;
+  };
+  t.after(() => { fs.renameSync = originalRenameSync; });
+
+  const originalWriteFileSync = fs.writeFileSync;
+  fs.writeFileSync = (p, data, opt) => {
+    if (String(p).includes('NeuerName')) {
+      const err = new Error('Disk full');
+      err.code = 'ENOSPC';
+      throw err;
+    }
+    return originalWriteFileSync(p, data, opt);
+  };
+  t.after(() => { fs.writeFileSync = originalWriteFileSync; });
+
+  assert.throws(
+    () => nfs.renameEntry(projectDir, relPath, 'NeuerName'),
+    err => {
+      assert.equal(err.code, 'ROLLBACK_FAILED');
+      assert.ok(err.cause);
+      assert.ok(err.rollbackError);
+      return true;
+    }
+  );
+});

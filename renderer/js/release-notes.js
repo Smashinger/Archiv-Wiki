@@ -5,6 +5,26 @@
 // ausschließlich den Datensatz, dessen Version der installierten App entspricht.
 
 export const RELEASE_NOTES_BY_VERSION = Object.freeze({
+  '2.3.2-beta.1': Object.freeze({
+    intro: 'Diese Vorabversion bringt das neue AW-Logo, stellt Classic als Standard für neue Wikis wieder her und enthält weitere Korrekturen. Sie ist zum Testen gedacht.',
+    sections: Object.freeze([
+      Object.freeze({
+        title: '🐛 BEHOBEN',
+        items: Object.freeze([
+          'Neue Wikis starten wieder mit Classic. Design 2 bleibt in den Einstellungen wählbar; bestehende Wiki-Einstellungen werden nicht verändert.',
+          'Beim Umbenennen und Verschieben von Notizen oder Kategorien werden zugehörige Angaben und gespeicherte Pfade zuverlässiger aktualisiert.',
+          'Kontextmenüs bleiben auch nahe dem unteren Fensterrand besser sichtbar.'
+        ])
+      }),
+      Object.freeze({
+        title: '✅ VERBESSERT',
+        items: Object.freeze([
+          'Neues AW-Logo für Anwendung, Einrichtungsassistent und Desktop-Symbol.',
+          'Design 2 verwendet die Schrift Inter; das Einstellungsfenster ist gleichmäßiger angeordnet.'
+        ])
+      })
+    ])
+  }),
   '2.3.1': Object.freeze({
     intro: 'Dieses Update behebt mehrere Fehler im Editor, verbessert die Datensicherheit beim Speichern und bringt spürbare Komfortverbesserungen für die tägliche Notizverwaltung.',
     sections: Object.freeze([

@@ -6,7 +6,7 @@
 // Reiterwechsel nichts springt; einspaltige Bereiche zentrieren darin ihren
 // 580-px-Block.
 //
-// Jeder der sieben Bereiche ist eine eigene, unabhängige render-Funktion. Ein
+// Jeder der acht Bereiche ist eine eigene, unabhängige render-Funktion. Ein
 // künftiger Bereich wird als weiterer Eintrag in SETTINGS_SECTIONS ergänzt —
 // an der Fenster-/Reiter-Logik selbst muss dafür nichts geändert werden.
 //
@@ -220,16 +220,16 @@ function setFeedback(el, id, message, isError = false) {
   target.classList.toggle('is-error', Boolean(isError && message));
 }
 
-// --- Die sieben Bereiche -------------------------------------------------
+// --- Die acht Bereiche ---------------------------------------------------
 
 const SETTINGS_SECTIONS = [
   { id: 'general', label: 'Allgemein', columns: 2, render: renderGeneralSection },
   { id: 'appearance', label: 'Darstellung', columns: 2, render: renderAppearanceSection },
-  { id: 'editor', label: 'Editor', columns: 1, render: renderEditorSection },
-  { id: 'backup', label: 'Backup', columns: 1, render: renderBackupSection },
-  { id: 'updates', label: 'Updates', columns: 1, render: renderUpdatesSection },
+  { id: 'editor', label: 'Editor', columns: 2, render: renderEditorSection },
+  { id: 'backup', label: 'Backup', columns: 2, render: renderBackupSection },
+  { id: 'updates', label: 'Updates', columns: 2, render: renderUpdatesSection },
   { id: 'webclipper', label: 'Web Clipper', columns: 2, render: renderWebClipperSection },
-  { id: 'security', label: 'Sicherheit', columns: 1, render: renderSecuritySection }
+  { id: 'security', label: 'Sicherheit', columns: 2, render: renderSecuritySection }
 ];
 
 let closeActiveSettingsWindow = null;
@@ -579,7 +579,7 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
   if (!lifecycle.isCurrent()) return;
 
   const left = group('Wiki',
-    row('Dein Name', 'Für die persönliche Begrüßung und „Wiki von …“.',
+    row('Dein Name', 'Für die persönliche Begrüßung und „Wiki von …”.',
       textInput({ id: 'stWikiName', value: config.wikiName || '', placeholder: 'z. B. Max' }))
     + row('Speicherort', 'Kopiert das Wiki; der bisherige Ordner bleibt erhalten.',
       readonlyValue({ id: 'stProjectPath', text: context.projectPath || '' })
@@ -607,17 +607,18 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
         ]
       })
       + feedbackLine('stWindowStartFeedback'))
-    + row('Mit dem System starten', 'Startet Archiv-Wiki automatisch beim Anmelden am Computer.',
+  );
+
+  const right = group('Mit dem System starten',
+    row('Autostart', 'Startet Archiv-Wiki automatisch beim Anmelden am Computer.',
       toggle({ id: 'stAutoStart', on: Boolean(autoStartSettings.openAtLogin), label: 'Mit dem System starten' })
       + feedbackLine('stAutoStartFeedback'))
-    + row('Minimiert im Tray starten', 'Gilt nur bei „Mit dem System starten“: Archiv-Wiki startet dann unaufdringlich als Symbol in der Systemleiste, ohne das Hauptfenster zu öffnen.',
+    + row('Minimiert starten', 'Im Systemtray starten statt im Hauptfenster.',
       toggle({ id: 'stStartMinimized', on: Boolean(autoStartSettings.startMinimized), disabled: !autoStartSettings.openAtLogin, label: 'Minimiert im Tray starten' })
       + feedbackLine('stStartMinimizedFeedback'),
       { disabled: !autoStartSettings.openAtLogin })
-  );
-
-  const right = group('Verhalten',
-    row('Beim Schließen', 'Was der Schließen-Knopf des Fensters tut. Im Tray bleibt Archiv-Wiki im Hintergrund aktiv.',
+  ) + group('Verhalten',
+    row('Beim Schließen', 'Was der Schließen-Knopf des Fensters tut. Im Tray bleibt Archiv-Wiki aktiv.',
       radios({
         id: 'stCloseBehavior', name: 'stCloseBehavior', value: closeBehavior,
         options: [
@@ -631,10 +632,6 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
     row('Tastenkürzel', '', textAction('stShowShortcuts', 'Übersicht öffnen'))
     + row('Frage oder Vorschlag', 'Öffnet GitHub Discussions im Browser. Es werden keine Wiki-Inhalte übertragen.',
       textAction('stOpenDiscussions', 'Auf GitHub teilen'))
-  ) + group('Diagnose',
-    row('Diagnoseberichte', 'Höchstens fünf, nur lokal, nie automatisch übertragen. Pfade und Zugangsdaten werden vorher anonymisiert.',
-      inlineGroup(button2('stViewDiagnostics', 'Berichte anzeigen') + button2('stCreateDiagnostics', 'Erstellen'))
-      + feedbackLine('stDiagnosticsFeedback'))
   );
 
   el.innerHTML = pane(2, left, right);
@@ -738,28 +735,6 @@ async function renderGeneralSection(el, config, updateSetting, context, lifecycl
 
   el.querySelector('#stShowShortcuts').addEventListener('click', () => context.onShowShortcuts?.());
   el.querySelector('#stOpenDiscussions').addEventListener('click', () => window.open(GITHUB_DISCUSSIONS_URL, '_blank'));
-  el.querySelector('#stViewDiagnostics').addEventListener('click', () => { void showDiagnosticsDialog(); });
-
-  el.querySelector('#stCreateDiagnostics').addEventListener('click', async (event) => {
-    const button = event.currentTarget;
-    setFeedback(el, 'stDiagnosticsFeedback', '');
-    button.disabled = true;
-    const originalLabel = button.textContent;
-    button.textContent = 'Wird erstellt …';
-    try {
-      const report = await window.archivAPI.diagnostics.createManual();
-      if (!lifecycle.isCurrent()) return;
-      await showDiagnosticsDialog({ initialReportId: report?.id || null });
-    } catch (error) {
-      console.error('Diagnosebericht konnte nicht erstellt werden:', error);
-      setFeedback(el, 'stDiagnosticsFeedback', 'Der Bericht konnte nicht erstellt werden.', true);
-    } finally {
-      if (button.isConnected) {
-        button.disabled = false;
-        button.textContent = originalLabel;
-      }
-    }
-  });
 
   el.querySelector('#stMoveProjectFolder').addEventListener('click', async (event) => {
     const action = event.currentTarget;
@@ -953,24 +928,23 @@ function renderAppearanceSection(el, config, updateSetting, context) {
   });
 }
 
-// --- 5.3  Editor — einspaltig -------------------------------------------
+// --- 5.3  Editor — zweispaltig ------------------------------------------
 
 function renderEditorSection(el, config, updateSetting) {
   const editor = config.editor || {};
-  el.innerHTML = pane(1,
-    group('Schreiben',
-      row('Schriftgröße', '',
-        select({ id: 'stFontSize', value: String(config.editorFontSize || 13), options: EDITOR_FONT_SIZE_OPTIONS }))
-      + row('Automatisches Speichern', '0 schaltet es ab.',
-        measure({ id: 'stAutoSave', value: editor.autoSave ?? 30, unit: 'Sekunden', min: 0, max: 300, step: '5' }))
-      + row('Einrückung', '',
-        measure({ id: 'stTabSize', value: editor.tabSize ?? 2, unit: 'Leerzeichen pro Tab', min: 1, max: 8 }))
-    )
-    + group('Sprache',
-      row('Rechtschreibprüfung', 'Verwendet derzeit Deutsch.',
-        toggle({ id: 'stSpellcheck', on: editor.spellcheck !== false, label: 'Rechtschreibprüfung' }))
-    )
+  const left = group('Schreiben',
+    row('Schriftgröße', '',
+      select({ id: 'stFontSize', value: String(config.editorFontSize || 13), options: EDITOR_FONT_SIZE_OPTIONS }))
+    + row('Automatisches Speichern', '0 schaltet es ab.',
+      measure({ id: 'stAutoSave', value: editor.autoSave ?? 30, unit: 'Sekunden', min: 0, max: 300, step: '5' }))
+    + row('Einrückung', '',
+      measure({ id: 'stTabSize', value: editor.tabSize ?? 2, unit: 'Leerzeichen pro Tab', min: 1, max: 8 }))
   );
+  const right = group('Sprache',
+    row('Rechtschreibprüfung', 'Verwendet derzeit Deutsch.',
+      toggle({ id: 'stSpellcheck', on: editor.spellcheck !== false, label: 'Rechtschreibprüfung' }))
+  );
+  el.innerHTML = pane(2, left, right);
 
   onSelectChange(el, 'stFontSize', async (value) => {
     const px = applyEditorFontSize(Number(value));
@@ -1023,14 +997,13 @@ async function renderBackupSection(el, config, updateSetting, context, lifecycle
       : '';
   const successMessage = feedback?.type === 'success' ? feedback.message : '';
 
-  el.innerHTML = pane(1,
-    stateRow({
-      id: 'stBackupState',
-      needsAction,
-      title: status.lastSuccessAt ? `Letztes Backup ${formatRelative(status.lastSuccessAt)}` : 'Noch kein Backup erstellt',
-      sub: `Nächstes geplantes Backup: ${formatFuture(status.nextScheduledAt)}`,
-      action: backupAction
-    })
+  const stateAndSettings = stateRow({
+    id: 'stBackupState',
+    needsAction,
+    title: status.lastSuccessAt ? `Letztes Backup ${formatRelative(status.lastSuccessAt)}` : 'Noch kein Backup erstellt',
+    sub: `Nächstes geplantes Backup: ${formatFuture(status.nextScheduledAt)}`,
+    action: backupAction
+  })
     + feedbackLine('stBackupFeedback', errorMessage || successMessage, Boolean(errorMessage))
     + group('Speicherort und Zeitplan',
       row('Backup-Ordner', '',
@@ -1042,15 +1015,24 @@ async function renderBackupSection(el, config, updateSetting, context, lifecycle
           value: String(config.backupIntervalDays ?? 1),
           options: BACKUP_INTERVAL_OPTIONS.map(o => ({ value: String(o.value), label: o.label }))
         }))
-    )
+    );
+
+  const left = stateAndSettings
     + group('Umfang',
       block('<div class="aws-words"><span>Notizen</span><span>Anhänge</span><span>Wiki-Einstellungen</span></div>'
         + '<p class="aws-block-note">Ein Backup ist eine vollständige Kopie deines Wikis. Bewahre die Dateien sicher auf.</p>')
-    )
-    + group('Wiederherstellung',
-      block(`<div class="aws-split"><p>ZIP entpacken und den Ordner in Archiv-Wiki öffnen.</p>${button2('stOpenBackupFolder', 'Backup-Ordner öffnen')}</div>`)
-    )
-  );
+    );
+
+  const right = group('Wiederherstellung',
+    block(`<div class="aws-split"><p>ZIP entpacken und den Ordner in Archiv-Wiki öffnen.</p>${button2('stOpenBackupFolder', 'Backup-Ordner öffnen')}</div>`)
+  )
+    + group('Diagnose',
+      row('Diagnoseberichte', 'Höchstens fünf, nur lokal, nie automatisch übertragen. Pfade und Zugangsdaten werden vorher anonymisiert.',
+        inlineGroup(button2('stViewDiagnostics', 'Berichte anzeigen') + button2('stCreateDiagnostics', 'Erstellen'))
+        + feedbackLine('stDiagnosticsFeedback'))
+    );
+
+  el.innerHTML = pane(2, left, right);
 
   async function rerender(nextStatus) {
     if (!lifecycle.isCurrent()) return;
@@ -1196,24 +1178,25 @@ async function renderUpdatesSection(el, config, updateSetting, context, lifecycl
   const state = updateStateFor(status);
   const notesHtml = releaseNotesHtml(status.currentVersion);
 
-  el.innerHTML = pane(1,
-    stateRow({ id: 'stUpdateState', needsAction: state.needsAction, title: state.title, sub: state.sub, subMono: true, action: state.action })
+  const left = stateRow({ id: 'stUpdateState', needsAction: state.needsAction, title: state.title, sub: state.sub, subMono: true, action: state.action })
     + block(inlineGroup(
       (notesHtml ? textAction('stToggleReleaseNotes', `Änderungen in v${status.currentVersion || '?'} ansehen`) : '')
       + textAction('stOpenReleases', 'GitHub-Releases öffnen'), { wideGap: true })
       + notesHtml)
-    + feedbackLine('stUpdateFeedback')
-    + group('Update-Verhalten',
-      row('Beim Start nach Updates suchen', 'Prüft nur; es wird nichts geladen.',
-        toggle({ id: 'stUpdateCheckOnStart', on: Boolean(updateSettings.checkOnStart), label: 'Beim Start nach Updates suchen' }))
-      + row('Automatisch herunterladen', 'Installiert wird erst nach deiner Bestätigung.',
-        toggle({ id: 'stUpdateAutoDownload', on: Boolean(updateSettings.autoDownload), label: 'Automatisch herunterladen' }))
-      + row('Vor jedem Download nachfragen', 'Hat Vorrang vor automatischem Herunterladen.',
-        toggle({ id: 'stUpdateConfirmDownload', on: Boolean(updateSettings.confirmBeforeDownload), label: 'Vor jedem Download nachfragen' }))
-      + row('Vor dem Neustart nachfragen', 'Immer aktiv — Archiv-Wiki startet nie von selbst neu.',
-        toggle({ id: 'stUpdateConfirmRestart', on: true, disabled: true, label: 'Vor dem Neustart nachfragen' })),
-      { className: 'has-wide-label' })
-  );
+    + feedbackLine('stUpdateFeedback');
+
+  const right = group('Update-Verhalten',
+    row('Beim Start nach Updates suchen', 'Prüft nur; es wird nichts geladen.',
+      toggle({ id: 'stUpdateCheckOnStart', on: Boolean(updateSettings.checkOnStart), label: 'Beim Start nach Updates suchen' }))
+    + row('Automatisch herunterladen', 'Installiert wird erst nach deiner Bestätigung.',
+      toggle({ id: 'stUpdateAutoDownload', on: Boolean(updateSettings.autoDownload), label: 'Automatisch herunterladen' }))
+    + row('Vor jedem Download nachfragen', 'Hat Vorrang vor automatischem Herunterladen.',
+      toggle({ id: 'stUpdateConfirmDownload', on: Boolean(updateSettings.confirmBeforeDownload), label: 'Vor jedem Download nachfragen' }))
+    + row('Vor dem Neustart nachfragen', 'Immer aktiv — Archiv-Wiki startet nie von selbst neu.',
+      toggle({ id: 'stUpdateConfirmRestart', on: true, disabled: true, label: 'Vor dem Neustart nachfragen' })),
+    { className: 'has-wide-label' });
+
+  el.innerHTML = pane(2, left, right);
 
   async function rerender(nextStatus) {
     if (!lifecycle.isCurrent()) return;
@@ -1555,7 +1538,7 @@ async function renderWebClipperSection(el, config, updateSetting, context, lifec
   });
 }
 
-// --- 5.7  Sicherheit — einspaltig ---------------------------------------
+// --- 5.8  Sicherheit — einspaltig ---------------------------------------
 
 const PRIVACY_POINTS = [
   'Wiki-Dateien liegen lokal',
@@ -1580,18 +1563,19 @@ function renderSecuritySection(el, config, updateSetting, context) {
       textInput({ id: 'stNewAppLockPw', type: 'password', placeholder: enabled ? 'Neues Passwort' : 'Passwort', attrs: ' autocomplete="new-password"' })
       + button2('stSetAppLockPw', 'Setzen'));
 
-  el.innerHTML = pane(1,
-    group('Zugriff',
-      row('App-Passwortschutz', 'Schützt den Zugriff in Archiv-Wiki. Die Dateien im Wiki-Ordner werden nicht verschlüsselt.',
-        toggleWithWord({ id: 'stAppLockToggle', on: enabled, label: 'App-Passwortschutz', word: enabled ? 'AKTIVIERT' : 'DEAKTIVIERT' }))
-      + row('Passwort', '',
-        passwordFields + feedbackLine('stAppLockFeedback'),
-        { disabled: !enabled })
-    )
-    + group('Datenschutz',
-      block(`<ul class="aws-privacy">${PRIVACY_POINTS.map(point => `<li>${ICONS.check}<span>${esc(point)}</span></li>`).join('')}</ul>`)
-    )
+  const left = group('Zugriff',
+    row('App-Passwortschutz', 'Schützt den Zugriff in Archiv-Wiki. Die Dateien im Wiki-Ordner werden nicht verschlüsselt.',
+      toggleWithWord({ id: 'stAppLockToggle', on: enabled, label: 'App-Passwortschutz', word: enabled ? 'AKTIVIERT' : 'DEAKTIVIERT' }))
+    + row('Passwort', '',
+      passwordFields + feedbackLine('stAppLockFeedback'),
+      { disabled: !enabled })
   );
+
+  const right = group('Datenschutz',
+    block(`<ul class="aws-privacy">${PRIVACY_POINTS.map(point => `<li>${ICONS.check}<span>${esc(point)}</span></li>`).join('')}</ul>`)
+  );
+
+  el.innerHTML = pane(2, left, right);
 
   const passwordRow = el.querySelector('#stSetAppLockPw').closest('.aws-row');
   const newPasswordInput = el.querySelector('#stNewAppLockPw');

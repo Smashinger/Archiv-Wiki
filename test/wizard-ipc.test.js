@@ -78,10 +78,10 @@ test('Editor-Standardwerte: Tab 2, Auto-Save 30 bleiben die Vorgaben', () => {
 
 // --- Neue Projektkonfiguration ------------------------------------------------
 
-test('Neues Wiki startet in Design2, eigene Akzentfarbe nur mit gültigem Hex', () => {
+test('Neues Wiki startet in Classic, eigene Akzentfarbe nur mit gültigem Hex', () => {
   const base = { wikiName: '  Test  ', appLock: { enabled: false }, editor: { tabSize: 2, autoSave: 30 }, backupPath: '/tmp/b' };
   const config = wiz.buildNewProjectConfig({ ...base, accentKey: 'custom', customAccentColor: '#12aB9f' });
-  assert.equal(config.uiDesign, 'design2');
+  assert.equal(config.uiDesign, 'classic');
   assert.equal(config.wikiName, 'Test');
   assert.equal(config.customAccentColor, '#12aB9f');
   assert.equal(wiz.buildNewProjectConfig({ ...base }).accentKey, 'orange');

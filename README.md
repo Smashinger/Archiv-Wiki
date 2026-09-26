@@ -45,7 +45,7 @@ Das Dashboard bietet beim Programmstart einen schnellen Überblick über kürzli
 
 ![Dashboard im Design 2](docs/screenshots/archiv-wiki-design2-dashboard.png)
 
-**Hinweis zu Version 2.3.1:** Neue Wikis starten dort wegen eines Fehlers noch mit Design 2. Die Korrektur für Classic ist lokal fertig, aber noch nicht in der GitHub-Downloadversion enthalten. Bereits bestehende Wiki-Einstellungen werden nicht automatisch geändert.
+**Hinweis zu Version 2.3.1:** Neue Wikis starten dort wegen eines Fehlers noch mit Design 2. In der [Vorabversion 2.3.2-beta.1](https://github.com/Smashinger/Archiv-Wiki/releases/tag/v2.3.2-beta.1) ist Classic wieder der Standard. Bereits bestehende Wiki-Einstellungen werden nicht automatisch geändert.
 
 ---
 

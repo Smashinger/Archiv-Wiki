@@ -8558,6 +8558,8 @@ function buildEditorMenuItems() {
       } },
     { label: 'Alles auswählen', action: () => selectAllInEditor() }
   ];
+
+  return items;
 }
 
 // Vorschau ist reiner Lesemodus (gerendertes HTML, keine Markdown-Quelle an
@@ -8571,7 +8573,7 @@ function buildPreviewMenuItems(previewEl) {
   // (auch auf den Menüpunkt selbst) löscht standardmäßig eine bestehende
   // Textauswahl im Browser, noch bevor die eigentliche Aktion läuft.
   const selectedText = window.getSelection().toString();
-  return [
+  const items = [
     { label: 'Kopieren', disabled: !selectedText, action: async () => {
         if (selectedText) await window.archivAPI.clipboard.writeText(selectedText);
       } },
@@ -8583,6 +8585,8 @@ function buildPreviewMenuItems(previewEl) {
         sel.addRange(range);
       } }
   ];
+
+  return items;
 }
 
 function wireEditorContextMenus() {

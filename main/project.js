@@ -137,6 +137,154 @@ function writeProjectConfig(projectPath, config, options = {}) {
   return validateProjectConfig(JSON.parse(serializedConfig));
 }
 
+// Pfadumschreibung in .wiki-config.json nach Umbenennen/Verschieben eines
+// Eintrags (Notiz ODER Kategorie). Rein reines Datenobjekt-Update, kein
+// Dateizugriff.
+function migrateConfigPaths(config, oldRelPath, newRelPath) {
+  if (!config || typeof config !== 'object') return false;
+  let changed = false;
+
+  if (config.categoryIcons && typeof config.categoryIcons === 'object') {
+    const updatedIcons = {};
+    for (const [key, icon] of Object.entries(config.categoryIcons)) {
+      if (key === oldRelPath) {
+        updatedIcons[newRelPath] = icon;
+        changed = true;
+      } else if (key.startsWith(oldRelPath + '/')) {
+        updatedIcons[newRelPath + key.slice(oldRelPath.length)] = icon;
+        changed = true;
+      } else {
+        updatedIcons[key] = icon;
+      }
+    }
+    if (changed) config.categoryIcons = updatedIcons;
+  }
+
+  if (config.childOrder && typeof config.childOrder === 'object') {
+    const updatedOrder = {};
+    const oldParent = oldRelPath.includes('/') ? oldRelPath.split('/').slice(0, -1).join('/') : '';
+    const newParent = newRelPath.includes('/') ? newRelPath.split('/').slice(0, -1).join('/') : '';
+    const oldName = oldRelPath.split('/').pop();
+    const newName = newRelPath.split('/').pop();
+
+    for (const [parentKey, list] of Object.entries(config.childOrder)) {
+      let targetParentKey = parentKey;
+      if (parentKey === oldRelPath) {
+        targetParentKey = newRelPath;
+        changed = true;
+      } else if (parentKey.startsWith(oldRelPath + '/')) {
+        targetParentKey = newRelPath + parentKey.slice(oldRelPath.length);
+        changed = true;
+      }
+
+      if (Array.isArray(list)) {
+        let nextList = list;
+        if (parentKey === oldParent) {
+          if (oldParent === newParent) {
+            nextList = list.map(item => (item === oldName ? newName : item));
+            if (nextList.some((item, i) => item !== list[i])) changed = true;
+          } else {
+            nextList = list.filter(item => item !== oldName);
+            if (nextList.length !== list.length) changed = true;
+          }
+        }
+        updatedOrder[targetParentKey] = nextList;
+      } else {
+        updatedOrder[targetParentKey] = list;
+      }
+    }
+    if (changed) config.childOrder = updatedOrder;
+  }
+
+  if (Array.isArray(config.savedCollapsedGroups)) {
+    const nextCollapsed = config.savedCollapsedGroups.map(p => {
+      if (p === oldRelPath) {
+        changed = true;
+        return newRelPath;
+      }
+      if (p.startsWith(oldRelPath + '/')) {
+        changed = true;
+        return newRelPath + p.slice(oldRelPath.length);
+      }
+      return p;
+    });
+    if (changed) config.savedCollapsedGroups = nextCollapsed;
+  }
+
+  if (config.noteScrollPositions && typeof config.noteScrollPositions === 'object') {
+    const updatedPositions = {};
+    for (const [key, pos] of Object.entries(config.noteScrollPositions)) {
+      if (key === oldRelPath) {
+        updatedPositions[newRelPath] = pos;
+        changed = true;
+      } else if (key.startsWith(oldRelPath + '/')) {
+        updatedPositions[newRelPath + key.slice(oldRelPath.length)] = pos;
+        changed = true;
+      } else {
+        updatedPositions[key] = pos;
+      }
+    }
+    if (changed) config.noteScrollPositions = updatedPositions;
+  }
+
+  return changed;
+}
+
+// Pfadbereinigung in .wiki-config.json nach endgültiger Entfernung eines
+// Eintrags (Papierkorb). Gleiche Herkunft/Nutzung wie migrateConfigPaths()
+// oben.
+function removeConfigPaths(config, relPath) {
+  if (!config || typeof config !== 'object') return false;
+  let changed = false;
+
+  if (config.categoryIcons && typeof config.categoryIcons === 'object') {
+    for (const key of Object.keys(config.categoryIcons)) {
+      if (key === relPath || key.startsWith(relPath + '/')) {
+        delete config.categoryIcons[key];
+        changed = true;
+      }
+    }
+  }
+
+  if (config.childOrder && typeof config.childOrder === 'object') {
+    const parentDir = relPath.includes('/') ? relPath.split('/').slice(0, -1).join('/') : '';
+    const baseName = relPath.split('/').pop();
+    for (const [parentKey, list] of Object.entries(config.childOrder)) {
+      if (parentKey === relPath || parentKey.startsWith(relPath + '/')) {
+        delete config.childOrder[parentKey];
+        changed = true;
+      } else if (parentKey === parentDir && Array.isArray(list)) {
+        const nextList = list.filter(item => item !== baseName);
+        if (nextList.length !== list.length) {
+          config.childOrder[parentKey] = nextList;
+          changed = true;
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(config.savedCollapsedGroups)) {
+    const nextCollapsed = config.savedCollapsedGroups.filter(
+      p => p !== relPath && !p.startsWith(relPath + '/')
+    );
+    if (nextCollapsed.length !== config.savedCollapsedGroups.length) {
+      config.savedCollapsedGroups = nextCollapsed;
+      changed = true;
+    }
+  }
+
+  if (config.noteScrollPositions && typeof config.noteScrollPositions === 'object') {
+    for (const key of Object.keys(config.noteScrollPositions)) {
+      if (key === relPath || key.startsWith(relPath + '/')) {
+        delete config.noteScrollPositions[key];
+        changed = true;
+      }
+    }
+  }
+
+  return changed;
+}
+
 function updateProjectConfig(projectPath, mutateConfig) {
   if (typeof mutateConfig !== 'function') {
     throw new TypeError('Config-Mutation muss eine Funktion sein.');
@@ -188,6 +336,8 @@ module.exports = {
   adoptProjectConfig,
   writeProjectConfig,
   updateProjectConfig,
+  migrateConfigPaths,
+  removeConfigPaths,
   defaultBackupPath,
   isValidProject
 };

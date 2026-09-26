@@ -105,23 +105,13 @@
   src: url('../assets/fonts/ibm-plex-mono-variable-roman.woff2') format('woff2');
 }
 
-/* Semantische Design2-Fonttokens: Barlow trägt die normale Oberfläche,
-   Fließtext, Titel und Aktionen. Barlow Condensed bleibt ausschließlich den
-   kleinen, versalen Abschnittsköpfen vorbehalten; IBM Plex Mono echten
-   Metadaten/Zahlen/Zeiten/Tags/Badges/Status. So bleibt die Hierarchie der
-   Referenz erhalten.
-
-   Korrekturauftrag Punkt 1: hier stand bis dahin var(--sans), also Inter.
-   Bewusst wird NUR dieses Design2-Token umgestellt und nicht --sans selbst
-   (styles.css) — --sans trägt die gesamte Classic-Oberfläche, die laut
-   Auftrag unverändert bleibt. Barlow liegt vollständig lokal vor
-   (renderer/assets/fonts, 400/500/600/700 plus kursiv, @font-face oben in
-   dieser Datei); Inter bleibt als Rückfall hinter Barlow stehen, damit eine
-   fehlende Datei die Oberfläche nicht auf die Systemschrift wirft.
-   sidebar-tree.css hatte Barlow für den Notizbaum bereits lokal gesetzt —
-   diese Ausnahme wird durch die Umstellung zur Regel. */
+/* Semantische Design2-Fonttokens: Inter trägt als var(--sans) die normale
+   Oberfläche, Fließtext, Titel und Aktionen (optimiert für Bildschirme
+   und Lesbarkeit auf großen Displays, identisch zu Classic). Barlow Condensed
+   bleibt den kleinen, versalen Abschnittsköpfen vorbehalten; IBM Plex Mono
+   den Metadaten/Zahlen/Zeiten/Tags/Badges/Status. */
 [data-ui-design="design2"]{
-  --d2-font-body: 'Barlow', var(--sans);
+  --d2-font-body: var(--sans);
   --d2-font-heading-condensed: 'Barlow Condensed', var(--sans);
   --d2-font-mono: 'IBM Plex Mono', var(--mono);
   --d2-statusbar-h: 30px;
