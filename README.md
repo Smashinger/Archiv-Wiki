@@ -1,6 +1,6 @@
 # Archiv-Wiki
 
-![Archiv-Wiki-Logo und Schriftzug](docs/branding/readme-banner.png)
+![Archiv-Wiki-Logo und Schriftzug](docs/branding/readme-banner-aw.png)
 
 **Ein persönliches Markdown-Wiki für den Linux-Desktop – für Notizen, Anleitungen, Setups und Checklisten.**
 
